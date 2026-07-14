@@ -1,0 +1,14 @@
+# 大型游戏素材（体积过大，需本地下载压缩包）
+content-data/
+*.mpg
+*.rar
+
+*.dmp
+
+# 日志与临时输出
+out.txt
+err.txt
+*.log
+
+# 编辑器配置
+.vscode/

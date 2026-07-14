@@ -1,0 +1,26 @@
+; ============================================================================
+; *DO NOT EDIT* this file unless you are understanding what you are doing.
+; FYI:
+;  Each line consists of NAME="VALUE" pair, VALUE is a series of
+;  \xNN, where NN is hexadecimal representation of UNICODE codepoint.
+;  For example, opt="\x61\x62\x63\x3042\x3044\x3046" means that the
+;  value of options "opt" is alphabets a, b, and c followed by Japanese
+;  Hiraganas A, I, and U.
+;  DO NOT PUT non-escaped value like opt="abc". This doesn't work and should
+;  be like opt="\x61\x62\x63".
+; ============================================================================
+contfreq="\x36\x30"
+usedb="\x79\x65\x73"
+dbstyle="\x64\x32\x64"
+aamethod="\x72\x65\x73\x34"
+drawthread="\x61\x75\x74\x6F"
+debugwin="\x79\x65\x73"
+fsres="\x6E\x6F\x63\x68\x61\x6E\x67\x65"
+hkcontroller=""
+hkeditor=""
+hkwatch=""
+hkconsole=""
+hkclipenvinfo=""
+hkabout=""
+hkupdaterect=""
+hkdumplayer=""

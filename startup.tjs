@@ -1,0 +1,37 @@
+// Package launcher: root tvpwin32.exe loads the active content-data runtime.
+System.inform = function(msg)
+{
+    Debug.message("!!! INFORM: " + msg);
+    return;
+};
+
+Storages.addAutoPath("content-data/");
+Scripts.execStorage("k2compat.tjs");
+Debug.message("=== yosuga_krkrZ package startup ===");
+
+var contentDataPaths = [
+    "content-data/system/",
+    "content-data/scenario/",
+    "content-data/bg_1920/",
+    "content-data/event_1920/",
+    "content-data/character_1920/",
+    "content-data/char/",
+    "content-data/audio_ogg/",
+    "content-data/font/",
+    "content-data/frame/",
+    "content-data/frame_m2/",
+    "content-data/rule/",
+    "content-data/thumb/",
+    "content-data/ui_1920/"
+];
+for(var i = 0; i < contentDataPaths.count; i++)
+    Storages.addAutoPath(contentDataPaths[i]);
+invalidate contentDataPaths;
+Debug.message("Auto-paths: content-data runtime paths registered");
+
+Scripts.execStorage("Status.tjs");
+Debug.message("startup.tjs: Status.tjs loaded");
+Scripts.execStorage("Initialize.tjs");
+Debug.message("startup.tjs: Initialize.tjs loaded");
+Scripts.execStorage("begin.tjs");
+Debug.message("startup.tjs: begin.tjs loaded");
