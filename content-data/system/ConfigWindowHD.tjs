@@ -458,7 +458,6 @@ class ConfigWindowHD2 extends SettingWindowBase
         sysReg.initConfig();
         CONFIG.fullScreen = tempFullScreen;
         CONFIG.windowZoom = tempWindowZoom;
-        _screenPage.setPortraitVisible(true);
 
         if(!window.fullScreen) window.zoom = CONFIG.windowZoom;
         if(BGM !== null) BGM.volume = CONFIG.volBgm;

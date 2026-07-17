@@ -38,7 +38,6 @@ class ConfigScreenPage
     var _previewText;
     var _portraitPreview;
     var _visible = false;
-    var _portraitVisible = true;
 
     function ConfigScreenPage(win, root, owner)
     {
@@ -69,14 +68,14 @@ class ConfigScreenPage
 
     function setPortraitVisible(v)
     {
-        _portraitVisible = v;
+        CONFIG.portraitVisible = v ? 1 : 0;
         updatePortraitPreviewVisible();
     }
 
     function updatePortraitPreviewVisible()
     {
         if(_portraitPreview !== void)
-            _portraitPreview.visible = _visible && _portraitVisible;
+            _portraitPreview.visible = _visible && CONFIG.portraitVisible;
     }
 
     function build()
@@ -170,8 +169,8 @@ class ConfigScreenPage
         _btnReadColorOff.selected = CONFIG.readMessColor ? false : true;
         _btnEffectOn.selected = CONFIG.screenEffect ? true : false;
         _btnEffectOff.selected = CONFIG.screenEffect ? false : true;
-        _btnPortraitOn.selected = _portraitVisible;
-        _btnPortraitOff.selected = !_portraitVisible;
+        _btnPortraitOn.selected = CONFIG.portraitVisible ? true : false;
+        _btnPortraitOff.selected = CONFIG.portraitVisible ? false : true;
 
         updatePortraitPreviewVisible();
         refreshPreview();
