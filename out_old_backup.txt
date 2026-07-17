@@ -1,0 +1,1070 @@
+
+20:52:31 (info) Total 0 file(s) found, 0 file(s) activated. (0ms)
+
+
+20:52:31 当前机器支持多点触控。
+
+
+
+20:52:31 (info) Total 0 file(s) found, 0 file(s) activated. (0ms)
+20:52:31 === yosuga_krkrZ startup ===
+20:52:31 Auto-paths: content-data runtime paths registered
+
+20:52:31 (info) Total 21711 file(s) found, 21711 file(s) activated. (11ms)
+20:52:31 startup.tjs: Status.tjs loaded
+
+20:52:31 (info) Total 21711 file(s) found, 21711 file(s) activated. (12ms)
+
+20:52:31 (info) Total 21711 file(s) found, 21711 file(s) activated. (12ms)
+20:52:32 Krkr2CompatUtils: dummy property innerSunken set, 0, 
+20:52:32 Krkr2CompatUtils: dummy property showScrollBars set, 0, 
+20:52:32 (info) Use Process HeadAlloc allocater for Bitmap
+
+
+20:52:32 （info）condition：推荐屏幕模式：Width=1920, Height=1200, BitsPerPixel=unspecified
+20:52:32 （info）condition：模式：fsrNoChange
+
+
+
+20:52:32 （info）environment：使用 Direct3D
+
+20:52:32 (info)  Width=640, Height=480, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=800, Height=600, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1280, Height=600, AspectRatio=32:15, BitsPerPixel=32
+20:52:32 (info)  Width=1024, Height=768, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1280, Height=720, AspectRatio=16:9, BitsPerPixel=32
+20:52:32 (info)  Width=1280, Height=768, AspectRatio=5:3, BitsPerPixel=32
+20:52:32 (info)  Width=1152, Height=864, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1280, Height=800, AspectRatio=8:5, BitsPerPixel=32
+20:52:32 (info)  Width=1360, Height=768, AspectRatio=85:48, BitsPerPixel=32
+20:52:32 (info)  Width=1366, Height=768, AspectRatio=683:384, BitsPerPixel=32
+20:52:32 (info)  Width=1280, Height=960, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1440, Height=900, AspectRatio=8:5, BitsPerPixel=32
+20:52:32 (info)  Width=1280, Height=1024, AspectRatio=5:4, BitsPerPixel=32
+20:52:32 (info)  Width=1600, Height=900, AspectRatio=16:9, BitsPerPixel=32
+20:52:32 (info)  Width=1400, Height=1050, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1680, Height=1050, AspectRatio=8:5, BitsPerPixel=32
+20:52:32 (info)  Width=1600, Height=1200, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1920, Height=1080, AspectRatio=16:9, BitsPerPixel=32
+20:52:32 (info)  Width=1920, Height=1200, AspectRatio=8:5, BitsPerPixel=32
+20:52:32 (info)  Width=2048, Height=1152, AspectRatio=16:9, BitsPerPixel=32
+20:52:32 (info)  Width=1792, Height=1344, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1856, Height=1392, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=1920, Height=1440, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=2048, Height=1536, AspectRatio=4:3, BitsPerPixel=32
+20:52:32 (info)  Width=2560, Height=1440, AspectRatio=16:9, BitsPerPixel=32
+20:52:32 (info)  Width=2560, Height=1600, AspectRatio=8:5, BitsPerPixel=32
+
+20:52:32 (info)  Width=2560, Height=1600, BitsPerPixel=32, ZoomNumer=4, ZoomDenom=3, RankZoomIn=0, RankBPP=0, RankZoomBeauty=0, RankSize=1792000
+
+
+20:52:32 startup.tjs: Initialize.tjs loaded
+20:52:32 === Starting begin.tjs ===
+20:52:32 === changeScene called: scene=0 _scene=-1 sync=1 param.scenario=
+20:52:32 === setScene called: scene=0
+20:52:32 === Startup complete ===
+
+20:52:34 === changeScene called: scene=2 _scene=0 sync=1 param.scenario=
+20:52:34 === setScene called: scene=2
+20:52:36 === changeScene called: scene=3 _scene=2 sync=0 param.scenario=
+20:52:36 === setScene called: scene=3
+20:52:36 >>> Creating ADVScreen for scene 3
+20:52:36 >>> _parseKagScript called, src length: 146
+20:52:36 >>> _parseKagScript finished, total tags: 2
+20:52:36 >>> _parseKagScript called, src length: 11228
+20:52:36 >>> _parseKagScript finished, total tags: 533
+20:52:36 === scenario loaded, starting execution
+20:52:37 === timer callback triggered, interrupt=0
+20:52:37 === getNextTag result: (object 0x09A94380:0x09A94380)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A944B8:0x09A944B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94860:0x09A94860)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94790:0x09A94790)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94450:0x09A94450)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94588:0x09A94588)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A948C8:0x09A948C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A945F0:0x09A945F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95018:0x09A95018)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95358:0x09A95358)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94EE0:0x09A94EE0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95080:0x09A95080)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94F48:0x09A94F48)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94FB0:0x09A94FB0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95490:0x09A95490)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A950E8:0x09A950E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95698:0x09A95698)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95288:0x09A95288)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95560:0x09A95560)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A954F8:0x09A954F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A957D0:0x09A957D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A955C8:0x09A955C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94A00:0x09A94A00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96190:0x09A96190)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A961F8:0x09A961F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96398:0x09A96398)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94A68:0x09A94A68)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A959D8:0x09A959D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A94AD0:0x09A94AD0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95B78:0x09A95B78)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A962C8:0x09A962C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95838:0x09A95838)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95B10:0x09A95B10)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95FF0:0x09A95FF0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95DE8:0x09A95DE8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95700:0x09A95700)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95D18:0x09A95D18)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96058:0x09A96058)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95BE0:0x09A95BE0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95D80:0x09A95D80)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95F20:0x09A95F20)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95C48:0x09A95C48)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95768:0x09A95768)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95A40:0x09A95A40)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95EB8:0x09A95EB8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95908:0x09A95908)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A958A0:0x09A958A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95CB0:0x09A95CB0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96128:0x09A96128)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96260:0x09A96260)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95E50:0x09A95E50)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95F88:0x09A95F88)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96CF0:0x09A96CF0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A95970:0x09A95970)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A960C0:0x09A960C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A968E0:0x09A968E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96330:0x09A96330)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96A18:0x09A96A18)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96538:0x09A96538)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96AE8:0x09A96AE8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96A80:0x09A96A80)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96BB8:0x09A96BB8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A966D8:0x09A966D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96C20:0x09A96C20)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96FC8:0x09A96FC8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96C88:0x09A96C88)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96B50:0x09A96B50)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96D58:0x09A96D58)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97030:0x09A97030)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96EF8:0x09A96EF8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96E28:0x09A96E28)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A967A8:0x09A967A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96948:0x09A96948)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A964D0:0x09A964D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96F60:0x09A96F60)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97098:0x09A97098)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A965A0:0x09A965A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96DC0:0x09A96DC0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96468:0x09A96468)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A969B0:0x09A969B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96740:0x09A96740)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96E90:0x09A96E90)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96400:0x09A96400)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96608:0x09A96608)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96810:0x09A96810)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97920:0x09A97920)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A96670:0x09A96670)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97B90:0x09A97B90)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A976B0:0x09A976B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97238:0x09A97238)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97780:0x09A97780)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97850:0x09A97850)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97B28:0x09A97B28)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97CC8:0x09A97CC8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A977E8:0x09A977E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A978B8:0x09A978B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97A58:0x09A97A58)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97370:0x09A97370)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97308:0x09A97308)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97988:0x09A97988)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A974A8:0x09A974A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97C60:0x09A97C60)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97510:0x09A97510)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A972A0:0x09A972A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97AC0:0x09A97AC0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97648:0x09A97648)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97D30:0x09A97D30)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A979F0:0x09A979F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97718:0x09A97718)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A973D8:0x09A973D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A975E0:0x09A975E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97D98:0x09A97D98)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97578:0x09A97578)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97100:0x09A97100)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97168:0x09A97168)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97440:0x09A97440)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A971D0:0x09A971D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98008:0x09A98008)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97BF8:0x09A97BF8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98070:0x09A98070)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A980D8:0x09A980D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98278:0x09A98278)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97E68:0x09A97E68)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98140:0x09A98140)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98620:0x09A98620)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A989C8:0x09A989C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98A98:0x09A98A98)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A981A8:0x09A981A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98210:0x09A98210)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97ED0:0x09A97ED0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97F38:0x09A97F38)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98688:0x09A98688)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98348:0x09A98348)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97E00:0x09A97E00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A97FA0:0x09A97FA0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98A30:0x09A98A30)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A982E0:0x09A982E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A983B0:0x09A983B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A984E8:0x09A984E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98480:0x09A98480)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A986F0:0x09A986F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A987C0:0x09A987C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98550:0x09A98550)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98758:0x09A98758)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98828:0x09A98828)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A988F8:0x09A988F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98890:0x09A98890)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A996C8:0x09A996C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98B68:0x09A98B68)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99458:0x09A99458)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98C38:0x09A98C38)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99048:0x09A99048)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99528:0x09A99528)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A995F8:0x09A995F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99730:0x09A99730)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99590:0x09A99590)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98DD8:0x09A98DD8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98E40:0x09A98E40)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98CA0:0x09A98CA0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98BD0:0x09A98BD0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A992B8:0x09A992B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99660:0x09A99660)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98D08:0x09A98D08)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98B00:0x09A98B00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98D70:0x09A98D70)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A994C0:0x09A994C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98EA8:0x09A98EA8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98F10:0x09A98F10)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99798:0x09A99798)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99250:0x09A99250)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98F78:0x09A98F78)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99320:0x09A99320)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A993F0:0x09A993F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A98FE0:0x09A98FE0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A990B0:0x09A990B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99180:0x09A99180)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A290:0x09A9A290)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99118:0x09A99118)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A991E8:0x09A991E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A2F8:0x09A9A2F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A088:0x09A9A088)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A3C8:0x09A9A3C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99EE8:0x09A99EE8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A360:0x09A9A360)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A228:0x09A9A228)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99F50:0x09A99F50)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A430:0x09A9A430)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99BA8:0x09A99BA8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99CE0:0x09A99CE0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A498:0x09A9A498)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99800:0x09A99800)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A998D0:0x09A998D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A158:0x09A9A158)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99868:0x09A99868)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A0F0:0x09A9A0F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A999A0:0x09A999A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A1C0:0x09A9A1C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99A08:0x09A99A08)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99AD8:0x09A99AD8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99C10:0x09A99C10)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99FB8:0x09A99FB8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99E18:0x09A99E18)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99A70:0x09A99A70)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A020:0x09A9A020)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99DB0:0x09A99DB0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99B40:0x09A99B40)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99C78:0x09A99C78)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99D48:0x09A99D48)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A99E80:0x09A99E80)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9ACB8:0x09A9ACB8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A7D8:0x09A9A7D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9ABE8:0x09A9ABE8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AEC0:0x09A9AEC0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A978:0x09A9A978)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A568:0x09A9A568)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AD20:0x09A9AD20)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AC50:0x09A9AC50)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A910:0x09A9A910)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A8A8:0x09A9A8A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9ADF0:0x09A9ADF0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AF28:0x09A9AF28)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AE58:0x09A9AE58)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AFF8:0x09A9AFF8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B0C8:0x09A9B0C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A638:0x09A9A638)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AD88:0x09A9AD88)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AF90:0x09A9AF90)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A5D0:0x09A9A5D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B060:0x09A9B060)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B198:0x09A9B198)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B130:0x09A9B130)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AAB0:0x09A9AAB0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A6A0:0x09A9A6A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A9E0:0x09A9A9E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A770:0x09A9A770)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AB80:0x09A9AB80)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AA48:0x09A9AA48)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B338:0x09A9B338)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A500:0x09A9A500)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A708:0x09A9A708)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B880:0x09A9B880)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9AB18:0x09A9AB18)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9A840:0x09A9A840)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BD60:0x09A9BD60)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B7B0:0x09A9B7B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BA88:0x09A9BA88)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BA20:0x09A9BA20)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B950:0x09A9B950)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BE30:0x09A9BE30)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BC90:0x09A9BC90)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BCF8:0x09A9BCF8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B9B8:0x09A9B9B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BAF0:0x09A9BAF0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B3A0:0x09A9B3A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B8E8:0x09A9B8E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B470:0x09A9B470)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B678:0x09A9B678)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B610:0x09A9B610)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BDC8:0x09A9BDC8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BB58:0x09A9BB58)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B818:0x09A9B818)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BBC0:0x09A9BBC0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BC28:0x09A9BC28)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B200:0x09A9B200)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BE98:0x09A9BE98)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B4D8:0x09A9B4D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B5A8:0x09A9B5A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B6E0:0x09A9B6E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B2D0:0x09A9B2D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B268:0x09A9B268)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C038:0x09A9C038)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9B408:0x09A9B408)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C0A0:0x09A9C0A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C170:0x09A9C170)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CB98:0x09A9CB98)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BF68:0x09A9BF68)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CA60:0x09A9CA60)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C5E8:0x09A9C5E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C108:0x09A9C108)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C8C0:0x09A9C8C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C7F0:0x09A9C7F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C720:0x09A9C720)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BFD0:0x09A9BFD0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C1D8:0x09A9C1D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C9F8:0x09A9C9F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C448:0x09A9C448)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C3E0:0x09A9C3E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C240:0x09A9C240)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C2A8:0x09A9C2A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C378:0x09A9C378)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C4B0:0x09A9C4B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CB30:0x09A9CB30)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C788:0x09A9C788)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C990:0x09A9C990)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C580:0x09A9C580)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C928:0x09A9C928)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CAC8:0x09A9CAC8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C858:0x09A9C858)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C650:0x09A9C650)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9BF00:0x09A9BF00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C518:0x09A9C518)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D078:0x09A9D078)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9C6B8:0x09A9C6B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D690:0x09A9D690)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D0E0:0x09A9D0E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CDA0:0x09A9CDA0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CC68:0x09A9CC68)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D148:0x09A9D148)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D628:0x09A9D628)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D488:0x09A9D488)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D830:0x09A9D830)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D4F0:0x09A9D4F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CC00:0x09A9CC00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D218:0x09A9D218)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D6F8:0x09A9D6F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D420:0x09A9D420)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D7C8:0x09A9D7C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D760:0x09A9D760)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CCD0:0x09A9CCD0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D280:0x09A9D280)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D2E8:0x09A9D2E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D1B0:0x09A9D1B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CE70:0x09A9CE70)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D350:0x09A9D350)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CFA8:0x09A9CFA8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CE08:0x09A9CE08)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D010:0x09A9D010)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CD38:0x09A9CD38)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D3B8:0x09A9D3B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D898:0x09A9D898)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D558:0x09A9D558)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CED8:0x09A9CED8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9CF40:0x09A9CF40)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9D5C0:0x09A9D5C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9DA38:0x09A9DA38)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9DF80:0x09A9DF80)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E328:0x09A9E328)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E050:0x09A9E050)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E4C8:0x09A9E4C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9DBD8:0x09A9DBD8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9DEB0:0x09A9DEB0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E460:0x09A9E460)
+20:52:37 === onTag returned: -1
+
+
+
+
+20:52:37 === getNextTag result: (object 0x09A9E120:0x09A9E120)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9DDE0:0x09A9DDE0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EE88:0x09A9EE88)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E668:0x09A9E668)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EE20:0x09A9EE20)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EEF0:0x09A9EEF0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F1C8:0x09A9F1C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E600:0x09A9E600)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E870:0x09A9E870)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E738:0x09A9E738)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9ED50:0x09A9ED50)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E808:0x09A9E808)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EA10:0x09A9EA10)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EFC0:0x09A9EFC0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EBB0:0x09A9EBB0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E9A8:0x09A9E9A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F028:0x09A9F028)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F230:0x09A9F230)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F090:0x09A9F090)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F160:0x09A9F160)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E7A0:0x09A9E7A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EF58:0x09A9EF58)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F298:0x09A9F298)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EC18:0x09A9EC18)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E8D8:0x09A9E8D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F0F8:0x09A9F0F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EA78:0x09A9EA78)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E6D0:0x09A9E6D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9E940:0x09A9E940)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EAE0:0x09A9EAE0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EC80:0x09A9EC80)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9ECE8:0x09A9ECE8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F5D8:0x09A9F5D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9EB48:0x09A9EB48)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F980:0x09A9F980)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FAB8:0x09A9FAB8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F778:0x09A9F778)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F710:0x09A9F710)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F508:0x09A9F508)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FF30:0x09A9FF30)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FDF8:0x09A9FDF8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F640:0x09A9F640)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F6A8:0x09A9F6A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FE60:0x09A9FE60)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F9E8:0x09A9F9E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F7E0:0x09A9F7E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F848:0x09A9F848)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F8B0:0x09A9F8B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FEC8:0x09A9FEC8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FA50:0x09A9FA50)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F918:0x09A9F918)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FB20:0x09A9FB20)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FB88:0x09A9FB88)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FBF0:0x09A9FBF0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FF98:0x09A9FF98)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F368:0x09A9F368)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F300:0x09A9F300)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F3D0:0x09A9F3D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FCC0:0x09A9FCC0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F438:0x09A9F438)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F4A0:0x09A9F4A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FC58:0x09A9FC58)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0A28:0x09AA0A28)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FD28:0x09A9FD28)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9FD90:0x09A9FD90)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0618:0x09AA0618)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09A9F570:0x09A9F570)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA09C0:0x09AA09C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0B60:0x09AA0B60)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0750:0x09AA0750)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA02D8:0x09AA02D8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0548:0x09AA0548)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0A90:0x09AA0A90)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA07B8:0x09AA07B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0340:0x09AA0340)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0208:0x09AA0208)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0000:0x09AA0000)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0958:0x09AA0958)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA00D0:0x09AA00D0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA06E8:0x09AA06E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0138:0x09AA0138)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0820:0x09AA0820)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA01A0:0x09AA01A0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0AF8:0x09AA0AF8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0C30:0x09AA0C30)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0888:0x09AA0888)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA08F0:0x09AA08F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA03A8:0x09AA03A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0068:0x09AA0068)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0270:0x09AA0270)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0C98:0x09AA0C98)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0478:0x09AA0478)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0410:0x09AA0410)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA05B0:0x09AA05B0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA04E0:0x09AA04E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA13E8:0x09AA13E8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1658:0x09AA1658)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA17F8:0x09AA17F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1450:0x09AA1450)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1860:0x09AA1860)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0D00:0x09AA0D00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA10A8:0x09AA10A8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1178:0x09AA1178)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA16C0:0x09AA16C0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0EA0:0x09AA0EA0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA14B8:0x09AA14B8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1520:0x09AA1520)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1380:0x09AA1380)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0D68:0x09AA0D68)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0DD0:0x09AA0DD0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0F08:0x09AA0F08)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1588:0x09AA1588)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0F70:0x09AA0F70)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0E38:0x09AA0E38)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1318:0x09AA1318)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1248:0x09AA1248)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA15F0:0x09AA15F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1930:0x09AA1930)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1040:0x09AA1040)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA18C8:0x09AA18C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1728:0x09AA1728)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1790:0x09AA1790)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1998:0x09AA1998)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA0FD8:0x09AA0FD8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA11E0:0x09AA11E0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1A00:0x09AA1A00)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1110:0x09AA1110)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1DA8:0x09AA1DA8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA24F8:0x09AA24F8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA2560:0x09AA2560)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA2080:0x09AA2080)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1C70:0x09AA1C70)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1D40:0x09AA1D40)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA25C8:0x09AA25C8)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA2288:0x09AA2288)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA22F0:0x09AA22F0)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA1B38:0x09AA1B38)
+20:52:37 === onTag returned: -1
+20:52:37 === getNextTag result: (object 0x09AA2630:0x09AA2630)
+20:52:37 === onTag returned: 0
+20:52:38 ConfigWindowHD2: CallConfigHD
+20:52:42 === timer callback triggered, interrupt=0
+20:52:42 === getNextTag result: (object 0x09AA1A68:0x09AA1A68)
+20:52:42 === onTag returned: 0
+20:52:43 === timer callback triggered, interrupt=0
+20:52:43 === getNextTag result: (object 0x09AA1BA0:0x09AA1BA0)
+20:52:43 === onTag returned: -1
+20:52:43 === getNextTag result: (object 0x09AA1FB0:0x09AA1FB0)
+
+20:52:43 (info) Total 21711 file(s) found, 21711 file(s) activated. (9ms)
+20:52:43 === onTag returned: 0
+20:52:44 ConfigWindowHD2: CallConfigHD
+
+20:52:48 (info) Total 21711 file(s) found, 21711 file(s) activated. (11ms)
+20:52:49 === changeScene called: scene=8 _scene=3 sync=1 param.scenario=
+20:52:50 === setScene called: scene=8
+
+20:52:50 (info) Total 21711 file(s) found, 21711 file(s) activated. (9ms)
+20:52:50 ==== An exception occured at sprite.tjs(47)[(function) finalize], VM ip = 4 ====
+20:52:50 -- Disassembled VM code --
+20:52:50 #(47) 		System.removeContinuousHandler(on_activationTimer);
+20:52:50 00000000 gpd %1, %-2.*0	// *0 = (string)"on_activationTimer"
+20:52:50 00000004 gpd %2, %-2.*1	// *1 = (string)"System"
+20:52:50 -- Register dump --
+20:52:50 %-2=(object)(object 0x00EFFB48:0x00000000)
+20:52:50 %-1=(object)(object 0x045B8F90:0x045B8F90)  %0=(void)
+20:52:50 %1=(object)(object 0x0443C448:0x045B8F90)  %2=(void)
+20:52:50 --------------------------------------------------------------------------------
+

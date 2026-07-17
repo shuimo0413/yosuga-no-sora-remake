@@ -1,0 +1,645 @@
+// HD CG appreciation scene (schematic1).
+// Loaded after Album.tjs; replaces AlbumModeScene.
+
+class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase
+{
+	var _adv;
+	var _base;
+	var _list;
+
+	var _btnChar = [];
+	var _thumbBase = [];
+	var _btnThumb = [];
+	var _btnModeCg;
+	var _btnModeMemory;
+	var _btnModeOst;
+	var _btnPagePrev;
+	var _btnPageNext;
+
+	var _previewSrc;
+	var _thumbSrc;
+
+	var _selChar = 0;
+	var _selPage = 0;
+	var _pageCount = [];
+	var _charVisible = [];
+
+	var _viewEnter = false;
+	var _viewIndex = 0;
+	var _viewDiff = 0;
+	var _viewType = 0;
+	var _tgtChar = 0;
+	var _tgtChkList = null;
+	var _tgtCgList = null;
+	var _prevCg = "";
+	var _tempEventCamera;
+
+	var UI_ROOT = "ui_1920/appreciation/";
+
+	// Schematic1: 4x2, 416x234 content, 12px gap; frame asset is 430x250
+	var FRAME_W = 430;
+	var FRAME_H = 250;
+	var THUMB_W = 416;
+	var THUMB_H = 234;
+	var THUMB_INSET_X = 7;
+	var THUMB_INSET_Y = 8;
+	var GAP_X = 12;
+	var GAP_Y = 12;
+	var COLS = 4;
+	var ROWS = 2;
+	var MAX_THUMB = 8;
+
+	var TAG_FILES = [
+		"sora.png", "nao.png", "akira.png",
+		"kazuha.png", "motoka.png", "others.png"
+	];
+	var TAG_W = 142;
+	var TAG_H = 58;
+	var TAG_GAP = 9;
+	var TAG_Y = 300;
+	var TAG_TO_GRID = 20;
+
+	var PREVIEW_NORMAL = 0;
+	var PREVIEW_HOVER = 1;
+	var PREVIEW_LOCKED = 2;
+
+	function AlbumModeScene(win, par)
+	{
+		Sprite(...);
+		hasImage = false;
+		setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+		setPos(0, 0);
+		hitThreshold = 0;
+		absolute = LAYER_APPRECIATION;
+		opacity = 255;
+		visible = true;
+
+		_base = new global.SelectItemGroupSprite(win, this);
+		with(_base)
+		{
+			.hasImage = true;
+			.setImageSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.fillRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0xFF6080A0);
+			.setPos(0, 0);
+			.visible = true;
+			.opacity = 255;
+		}
+
+		if(Storages.isExistentStorage(UI_ROOT + "bg.png"))
+		{
+			_base.loadImages(UI_ROOT + "bg.png");
+			_base.setSizeToImageSize();
+			_base.setPos(0, 0);
+		}
+
+		_adv = new ADVScreen(win, LAYER_ADVSCREEN, LAYER_ADVMESSAGE);
+		_adv.visible = false;
+
+		_list = Scripts.evalStorage("CgModeList.tjs");
+
+		_previewSrc = new global.Layer(win, _base);
+		with(_previewSrc)
+		{
+			.loadImages(UI_ROOT + "cg_preview.png");
+			.setSizeToImageSize();
+			.visible = false;
+			.hitThreshold = 256;
+		}
+
+		_thumbSrc = new global.Layer(win, this);
+		with(_thumbSrc)
+		{
+			.visible = false;
+			.hitThreshold = 256;
+		}
+
+		var gridW = COLS * FRAME_W + (COLS - 1) * GAP_X;
+		var gridH = ROWS * FRAME_H + (ROWS - 1) * GAP_Y;
+		var originX = (WINDOW_WIDTH - gridW) \ 2;
+		var tagTotalW = TAG_FILES.count * TAG_W + (TAG_FILES.count - 1) * TAG_GAP;
+		var tagX = (WINDOW_WIDTH - tagTotalW) \ 2;
+		var originY = TAG_Y + TAG_H + TAG_TO_GRID;
+
+		var i;
+		var charCount = TAG_FILES.count;
+		if(_list.count < charCount) charCount = _list.count;
+
+		for(i = 0; i < charCount; i++)
+		{
+			_btnChar[i] = new Button(win, _base);
+			_btnChar[i].create(UI_ROOT + TAG_FILES[i], 3);
+			_btnChar[i].hitThreshold = 0;
+			_btnChar[i].setPos(tagX + i * (TAG_W + TAG_GAP), TAG_Y);
+			_charVisible[i] = true;
+
+			var num = 1;
+			if(_list[i].cg !== void)
+			{
+				num = _list[i].cg.count \ MAX_THUMB;
+				if(_list[i].cg.count % MAX_THUMB) num++;
+			}
+			if(num < 1) num = 1;
+			_pageCount[i] = num;
+		}
+
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			var col = i % COLS;
+			var row = i \ COLS;
+			var x = originX + col * (FRAME_W + GAP_X);
+			var y = originY + row * (FRAME_H + GAP_Y);
+
+			_thumbBase[i] = new global.Layer(win, _base);
+			with(_thumbBase[i])
+			{
+				.setImageSize(FRAME_W, FRAME_H);
+				.setSize(FRAME_W, FRAME_H);
+				.fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+				.setPos(x, y);
+				.visible = true;
+				.hitThreshold = 256;
+			}
+
+			_btnThumb[i] = new Button(win, _base);
+			with(_btnThumb[i])
+			{
+				.setImageSize(FRAME_W, FRAME_H);
+				.setSize(FRAME_W, FRAME_H);
+				.fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+				.setPos(x, y);
+				.hitThreshold = 0;
+				.visible = true;
+			}
+		}
+
+		_btnPagePrev = new Button(win, _base);
+		_btnPagePrev.create(UI_ROOT + "pgdn.png", 4);
+		_btnPagePrev.ptnNormal = 1;
+		_btnPagePrev.ptnFocus = 0;
+		_btnPagePrev.ptnInvalid = 3;
+		_btnPagePrev.hitThreshold = 0;
+		_btnPagePrev.setPos(40, originY + gridH \ 2 - _btnPagePrev.height \ 2);
+
+		_btnPageNext = new Button(win, _base);
+		_btnPageNext.create(UI_ROOT + "pgup.png", 4);
+		_btnPageNext.ptnNormal = 1;
+		_btnPageNext.ptnFocus = 0;
+		_btnPageNext.ptnInvalid = 3;
+		_btnPageNext.hitThreshold = 0;
+		_btnPageNext.setPos(WINDOW_WIDTH - 40 - _btnPageNext.width,
+			originY + gridH \ 2 - _btnPageNext.height \ 2);
+
+		_btnModeCg = new Button(win, _base);
+		_btnModeCg.create(UI_ROOT + "CGbutton.png", 3);
+		_btnModeCg.hitThreshold = 256;
+		_btnModeCg.setPos(1400, 994);
+		_btnModeCg.valid = false;
+
+		_btnModeMemory = new Button(win, _base);
+		_btnModeMemory.create(UI_ROOT + "MEMORYbutton.png", 3);
+		_btnModeMemory.hitThreshold = 0;
+		_btnModeMemory.setPos(1568, 985);
+
+		_btnModeOst = new Button(win, _base);
+		_btnModeOst.create(UI_ROOT + "OSTbutton.png", 3);
+		_btnModeOst.hitThreshold = 0;
+		_btnModeOst.setPos(1744, 980);
+
+		setPage(0, 0);
+		setInput(false);
+
+		PlayBgm("BGM17");
+
+		_tempEventCamera = CONFIG.eventCamera;
+		CONFIG.eventCamera = 1;
+
+		mouseTrackingMode = global.ChainItemBase.MOUSETRACKINGMODE_FREE;
+		window.addInputNotify(this);
+	}
+
+	function finalize()
+	{
+		window.removeInputNotify(this);
+		CONFIG.eventCamera = _tempEventCamera;
+
+		invalidate _list;
+		InvalidateArray(_btnChar);
+		InvalidateArray(_btnThumb);
+		InvalidateArray(_thumbBase);
+		invalidate _btnPagePrev;
+		invalidate _btnPageNext;
+		invalidate _btnModeCg;
+		invalidate _btnModeMemory;
+		invalidate _btnModeOst;
+		invalidate _previewSrc;
+		invalidate _thumbSrc;
+		invalidate _adv;
+		invalidate _base;
+
+		global.Sprite.finalize();
+		global.ChainItemBase.finalize();
+	}
+
+	function who(){ return "AlbumModeScene"; }
+
+	function blitPreview(dst, state)
+	{
+		if(dst === void || _previewSrc === void) return;
+		var srcX = state * FRAME_W;
+		dst.fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+		dst.copyRect(0, 0, _previewSrc, srcX, 0, FRAME_W, FRAME_H);
+	}
+
+	function paintThumb(slot, unlocked, hover)
+	{
+		if(slot < 0 || slot >= MAX_THUMB) return;
+		if(unlocked)
+		{
+			if(hover) blitPreview(_thumbBase[slot], PREVIEW_HOVER);
+			else blitPreview(_thumbBase[slot], PREVIEW_NORMAL);
+
+			var index = _selPage * MAX_THUMB + slot;
+			if(_tgtChkList === void || index >= _tgtChkList.count) return;
+			var base = _tgtChkList[index][0].substring(0, 4);
+			try
+			{
+				_thumbSrc.loadImages(base + "TL");
+				_thumbSrc.setSizeToImageSize();
+				_thumbBase[slot].stretchCopy(
+					THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
+					_thumbSrc, 0, 0, _thumbSrc.imageWidth, _thumbSrc.imageHeight,
+					stFastLinear);
+			}
+			catch
+			{
+				try
+				{
+					_thumbSrc.loadImages("dummyTL");
+					_thumbSrc.setSizeToImageSize();
+					_thumbBase[slot].stretchCopy(
+						THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
+						_thumbSrc, 0, 0, _thumbSrc.imageWidth, _thumbSrc.imageHeight,
+						stFastLinear);
+				}
+				catch {}
+			}
+		}
+		else
+		{
+			blitPreview(_thumbBase[slot], PREVIEW_LOCKED);
+		}
+	}
+
+	function setPage(char, page)
+	{
+		if(char < 0 || char >= _btnChar.count) return;
+		if(page < 0) page = 0;
+		if(page >= _pageCount[char]) page = _pageCount[char] - 1;
+
+		_selChar = char;
+		_selPage = page;
+		_tgtChar = char;
+		_tgtCgList = _list[char].cg;
+		_viewType = 0;
+		_tgtChkList = _list[char].cg;
+
+		if(_list[char].bustupview !== void)
+		{
+			_viewType = 1;
+			_tgtChkList = _list[char].bustup;
+			_tgtCgList = _list[char].cg;
+		}
+
+		var i;
+		for(i = 0; i < _btnChar.count; i++)
+		{
+			if(!_charVisible[i])
+			{
+				_btnChar[i].visible = false;
+				continue;
+			}
+			_btnChar[i].visible = true;
+			_btnChar[i].opacity = (i == char) ? 255 : 160;
+		}
+
+		var num = _tgtChkList.count;
+		var index = page * MAX_THUMB;
+
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(index + i >= num)
+			{
+				_thumbBase[i].visible = false;
+				_btnThumb[i].visible = false;
+				_btnThumb[i].valid = false;
+				continue;
+			}
+
+			_thumbBase[i].visible = true;
+			_btnThumb[i].visible = true;
+
+			var base = _tgtChkList[index + i][0].substring(0, 4);
+			var flag = CG_FLAG_LIST[base];
+			var unlocked = (flag !== void && ChkCgFlag(flag));
+			paintThumb(i, unlocked, false);
+			_btnThumb[i].valid = unlocked;
+		}
+
+		updatePageButtons();
+	}
+
+	function updatePageButtons()
+	{
+		var pages = _pageCount[_selChar];
+		_btnPagePrev.visible = (pages > 1);
+		_btnPageNext.visible = (pages > 1);
+		_btnPagePrev.valid = (_selPage > 0);
+		_btnPageNext.valid = (_selPage < pages - 1);
+	}
+
+	function setInput(enter)
+	{
+		removeChainItemAll();
+		if(enter) return;
+
+		var i;
+		for(i = 0; i < _btnChar.count; i++)
+		{
+			if(_btnChar[i].visible) addChainItem(_btnChar[i]);
+		}
+		for(i = 0; i < MAX_THUMB; i++) addChainItem(_btnThumb[i]);
+		addChainItem(_btnPagePrev);
+		addChainItem(_btnPageNext);
+		addChainItem(_btnModeMemory);
+		addChainItem(_btnModeOst);
+	}
+
+	function show(time=300)
+	{
+		opacity = 255;
+		visible = true;
+		if(_base !== void)
+		{
+			_base.opacity = 255;
+			_base.visible = true;
+		}
+	}
+
+	function hide(time=300)
+	{
+		if(_base !== void) _base.visible = false;
+	}
+
+	function onButtonEnter(target)
+	{
+		var i;
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(target == _btnThumb[i] && _btnThumb[i].valid)
+			{
+				paintThumb(i, true, true);
+				return;
+			}
+		}
+	}
+
+	function onButtonLeave(target)
+	{
+		var i;
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(target == _btnThumb[i] && _btnThumb[i].valid)
+			{
+				paintThumb(i, true, false);
+				return;
+			}
+		}
+	}
+
+	function onButtonDownL(target)
+	{
+		var i;
+		for(i = 0; i < _btnChar.count; i++)
+		{
+			if(target == _btnChar[i])
+			{
+				if(_selChar == i) return;
+				setPage(i, 0);
+				return;
+			}
+		}
+
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(target == _btnThumb[i])
+			{
+				if(!_btnThumb[i].valid) return;
+				viewEnter(_selPage, i);
+				return;
+			}
+		}
+
+		if(target == _btnPagePrev)
+		{
+			if(_selPage > 0) setPage(_selChar, _selPage - 1);
+			return;
+		}
+		if(target == _btnPageNext)
+		{
+			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+			return;
+		}
+		if(target == _btnModeMemory) { changeScene(SCENE_MEMORIES); return; }
+		if(target == _btnModeOst) { changeScene(SCENE_MUSIC); return; }
+	}
+
+	function onButtonDownR(target)
+	{
+		onMouseDown(0, 0, mbRight, 0);
+	}
+
+	function viewEnter(page, index)
+	{
+		_viewEnter = true;
+		_viewIndex = page * MAX_THUMB + index;
+		_viewDiff = searchDiff(_tgtChkList, _viewIndex, 0, true);
+		if(_viewDiff < 0) { _viewEnter = false; return; }
+
+		_prevCg = "";
+		hide();
+		setInput(true);
+		_adv.visible = true;
+		presetView(0);
+	}
+
+	function viewLeave()
+	{
+		_viewEnter = false;
+		_adv.visible = false;
+		show();
+		setInput(false);
+		setPage(_selChar, _selPage);
+	}
+
+	function presetView(time=300)
+	{
+		var cg = _tgtCgList[_viewIndex][_viewDiff];
+		view(cg, time);
+	}
+
+	function view(cg, time=300)
+	{
+		if(cg == null) return;
+
+		if(_list[_tgtChar][cg] !== void)
+		{
+			var ref = _list[_tgtChar][cg].pre;
+			var i;
+			for(i = 0; i < ref.count; i++)
+				_adv.addOrderList(ref[i]);
+			_prevCg = cg;
+		}
+		else if(cg != _prevCg)
+		{
+			_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1]);
+			_prevCg = cg;
+		}
+
+		_adv._update |= UPDATE_CG;
+		_adv.update(%[time:time]);
+
+		if(_list[_tgtChar][cg] !== void)
+		{
+			var post = _list[_tgtChar][cg].post;
+			if(post.count)
+			{
+				for(i = 0; i < post.count; i++) _adv.addOrderList(post[i]);
+				_adv._update |= UPDATE_CG;
+				_adv.update();
+			}
+		}
+	}
+
+	function searchDiff(list, sIndex, sDiff, fForward)
+	{
+		if(sIndex < 0 || sIndex >= list.count) return -1;
+		var diff = sDiff;
+		while(0 <= diff && diff < list[sIndex].count)
+		{
+			var file = list[sIndex][diff];
+			var flag = CG_FLAG_LIST[file];
+			if(flag !== void && ChkCgFlag(flag)) return diff;
+			if(fForward) diff++; else diff--;
+		}
+		return -1;
+	}
+
+	function searchIndex(list, sIndex, fForward)
+	{
+		var index = sIndex;
+		var guard = 0;
+		while(guard < list.count + 2)
+		{
+			if(fForward)
+			{
+				if(list.count <= index) index = 0;
+			}
+			else
+			{
+				if(index < 0) index = list.count - 1;
+			}
+
+			var file = list[index][0].substring(0, 4);
+			var flag = CG_FLAG_LIST[file];
+			if(flag !== void && ChkCgFlag(flag)) return index;
+
+			if(fForward) index++; else index--;
+			guard++;
+		}
+		return sIndex;
+	}
+
+	function viewNext()
+	{
+		if((_viewDiff = searchDiff(_tgtChkList, _viewIndex, _viewDiff + 1, true)) == -1)
+		{
+			_viewIndex = searchIndex(_tgtChkList, _viewIndex + 1, true);
+			_viewDiff = searchDiff(_tgtChkList, _viewIndex, 0, true);
+		}
+		if(_viewDiff >= 0) presetView();
+	}
+
+	function viewPrev()
+	{
+		if((_viewDiff = searchDiff(_tgtChkList, _viewIndex, _viewDiff - 1, false)) == -1)
+		{
+			_viewIndex = searchIndex(_tgtChkList, _viewIndex - 1, false);
+			_viewDiff = searchDiff(_tgtChkList, _viewIndex, _tgtChkList[_viewIndex].count - 1, false);
+		}
+		if(_viewDiff >= 0) presetView();
+	}
+
+	function onMouseDown(x, y, button, shift)
+	{
+		if(button == mbLeft)
+		{
+			if(_viewEnter) viewNext();
+		}
+		else if(button == mbRight)
+		{
+			if(_viewEnter) viewLeave();
+			else changeScene(SCENE_TITLE);
+		}
+	}
+
+	function onMouseWheel(shift, delta, x, y)
+	{
+		if(delta < 0)
+		{
+			if(_viewEnter) viewNext();
+			else if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+		}
+		else if(delta > 0)
+		{
+			if(_viewEnter) viewPrev();
+			else if(_selPage > 0) setPage(_selChar, _selPage - 1);
+		}
+	}
+
+	function onKeyDown(key, shift)
+	{
+		if(key == VK_ESCAPE)
+		{
+			if(_viewEnter) viewLeave();
+			else changeScene(SCENE_TITLE);
+		}
+		else if(key == VK_LEFT || key == VK_PRIOR)
+		{
+			if(!_viewEnter && _selPage > 0) setPage(_selChar, _selPage - 1);
+		}
+		else if(key == VK_RIGHT || key == VK_NEXT)
+		{
+			if(!_viewEnter && _selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+		}
+		global.ChainItemBase.onKeyDown(...);
+	}
+
+	function close()
+	{
+		valid = false;
+	}
+
+	function changeScene(scene)
+	{
+		HitThresholdSelectItems(_btnThumb, 256);
+		HitThresholdSelectItems(_btnChar, 256);
+		if(_btnPagePrev !== void) _btnPagePrev.hitThreshold = 256;
+		if(_btnPageNext !== void) _btnPageNext.hitThreshold = 256;
+		if(_btnModeMemory !== void) _btnModeMemory.hitThreshold = 256;
+		if(_btnModeOst !== void) _btnModeOst.hitThreshold = 256;
+		if(_adv !== void) _adv.visible = false;
+		game.changeScene(scene, true, %[submenu:1]);
+		close();
+	}
+}

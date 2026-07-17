@@ -24,6 +24,14 @@ class KAGParserCompat
 		_scController = controller;
 	}
 
+	function _parseAttrValue(raw)
+	{
+		var val = raw.replace(/\r/g, "").trim();
+		if(val.length >= 2 && val.charAt(0) == "\"" && val.charAt(val.length - 1) == "\"")
+			val = val.substring(1, val.length - 1);
+		return val;
+	}
+
 	function _parseKagScript(src)
 	{
 		_tags = [];
@@ -69,11 +77,8 @@ class KAGParserCompat
 					var eq = parts[j].indexOf("=");
 					if(eq >= 0)
 					{
-						var key = parts[j].substring(0, eq);
-						var val = parts[j].substring(eq + 1);
-						if(val.length >= 2 && val.charAt(0) == "\"" && val.charAt(val.length - 1) == "\"")
-							val = val.substring(1, val.length - 1);
-						elm[key] = val;
+						var key = parts[j].substring(0, eq).replace(/\r/g, "").trim();
+						elm[key] = _parseAttrValue(parts[j].substring(eq + 1));
 					}
 				}
 				
@@ -106,11 +111,8 @@ class KAGParserCompat
 					var eq = parts[j].indexOf("=");
 					if(eq >= 0)
 					{
-						var key = parts[j].substring(0, eq);
-						var val = parts[j].substring(eq + 1);
-						if(val.length >= 2 && val.charAt(0) == "\"" && val.charAt(val.length - 1) == "\"")
-							val = val.substring(1, val.length - 1);
-						elm[key] = val;
+						var key = parts[j].substring(0, eq).replace(/\r/g, "").trim();
+						elm[key] = _parseAttrValue(parts[j].substring(eq + 1));
 					}
 				}
 				
@@ -182,26 +184,7 @@ class KAGParserCompat
 		var src = "";
 		var loaded = false;
 
-		var ctxFile = storage + ".ctx";
-		if(Storages.isExistentStorage(ctxFile))
-		{
-			try
-			{
-				Scripts.execStorage(ctxFile);
-				if(global.__kag_src__ !== void && global.__kag_src__ !== "")
-				{
-					src = global.__kag_src__;
-					global.__kag_src__ = "";
-					loaded = true;
-				}
-			}
-			catch(e_ctx)
-			{
-				Debug.notice("KAGParser: ctx load error: " + ctxFile + " - " + e_ctx.message);
-			}
-		}
-
-		if(!loaded && typeof Storages.readAllText != "undefined")
+		if(typeof Storages.readAllText != "undefined")
 		{
 			try
 			{
@@ -210,6 +193,28 @@ class KAGParserCompat
 			}
 			catch(e5)
 			{
+			}
+		}
+
+		if(!loaded)
+		{
+			var ctxFile = storage + ".ctx";
+			if(Storages.isExistentStorage(ctxFile))
+			{
+				try
+				{
+					Scripts.execStorage(ctxFile);
+					if(global.__kag_src__ !== void && global.__kag_src__ !== "")
+					{
+						src = global.__kag_src__;
+						global.__kag_src__ = "";
+						loaded = true;
+					}
+				}
+				catch(e_ctx)
+				{
+					Debug.notice("KAGParser: ctx load error: " + ctxFile + " - " + e_ctx.message);
+				}
 			}
 		}
 
@@ -253,6 +258,11 @@ class KAGParserCompat
 	function _evalCondition(exp)
 	{
 		if(exp === void || exp == "") return false;
+		exp = ("" + exp).replace(/\r/g, "").trim();
+		while(exp.length > 0 && (exp.charAt(0) == "\"" || exp.charAt(0) == "'"))
+			exp = exp.substring(1).trim();
+		while(exp.length > 0 && (exp.charAt(exp.length - 1) == "\"" || exp.charAt(exp.length - 1) == "'"))
+			exp = exp.substring(0, exp.length - 1).trim();
 		try
 		{
 			var ret = Scripts.eval(exp);

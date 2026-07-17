@@ -1,0 +1,323 @@
+// HD music appreciation scene.
+// Loaded after Album.tjs; defines MusicModeScene.
+
+class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase
+{
+	var _tempConfigMute;
+	var _tempConfigMuteMaster;
+	var _tempConfigVol;
+
+	var _base;
+	var _btn = [];
+	var _btnCg;
+	var _btnMemory;
+	var _btnOst;
+
+	var _hitboxSrc;
+	var _hoverHitbox;
+	var _selHitbox;
+	var _hoverIndex = -1;
+	var _playingIndex = -1;
+
+	// bgm_hitbox.png: 3 states side-by-side (hover / idle / selected)
+	var HITBOX_HOVER = 0;
+	var HITBOX_SELECTED = 2;
+
+	var TRACK_W = 471;
+	var TRACK_H = 67;
+	var TRACK_GAP_X = 50;
+	var TRACK_GAP_Y =10;
+	var TRACK_ROWS = 7;
+	var TRACK_ORIGIN_X = 220;
+	var TRACK_ORIGIN_Y = 373;
+
+	var UI_ROOT = "ui_1920/appreciation/";
+
+	var _LIST = [
+		%[bgmfile:"BGM01",   titlefile:"track_01.png"],
+		%[bgmfile:"BGM03",   titlefile:"track_02.png"],
+		%[bgmfile:"BGM04",   titlefile:"track_03.png"],
+		%[bgmfile:"BGM05",   titlefile:"track_04.png"],
+		%[bgmfile:"BGM06",   titlefile:"track_05.png"],
+		%[bgmfile:"BGM07",   titlefile:"track_06.png"],
+		%[bgmfile:"BGM08",   titlefile:"track_07.png"],
+		%[bgmfile:"BGM09",   titlefile:"track_08.png"],
+		%[bgmfile:"BGM10",   titlefile:"track_09.png"],
+		%[bgmfile:"BGM11",   titlefile:"track_10.png"],
+		%[bgmfile:"BGM12",   titlefile:"track_11.png"],
+		%[bgmfile:"BGM13",   titlefile:"track_12.png"],
+		%[bgmfile:"BGM14",   titlefile:"track_13.png"],
+		%[bgmfile:"BGM15",   titlefile:"track_14.png"],
+		%[bgmfile:"BGM16",   titlefile:"track_15.png"],
+		%[bgmfile:"BGM17",   titlefile:"track_16.png"],
+		%[bgmfile:"BGM18",   titlefile:"track_17.png"],
+		%[bgmfile:"BGM19",   titlefile:"track_18.png"],
+		%[bgmfile:"BGM20",   titlefile:"track_19.png"],
+		%[bgmfile:"BGM21",   titlefile:"track_20.png"],
+		%[bgmfile:"BGM02_S", titlefile:"track_21.png"]
+	];
+
+	function MusicModeScene(win, par)
+	{
+		Sprite(...);
+		hasImage = false;
+		setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+		setPos(0, 0);
+		hitThreshold = 0;
+		absolute = LAYER_APPRECIATION;
+		opacity = 255;
+		visible = true;
+
+		_tempConfigMuteMaster = CONFIG.muteMaster;
+		_tempConfigMute = CONFIG.muteBgm;
+		CONFIG.muteMaster = 0;
+		CONFIG.muteBgm = 0;
+		_tempConfigVol = BGM.volume;
+
+		_base = new global.SelectItemGroupSprite(win, this);
+		with(_base)
+		{
+			.hasImage = true;
+			.setImageSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.fillRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0xFF6080A0);
+			.setPos(0, 0);
+			.visible = true;
+			.opacity = 255;
+		}
+
+		if(Storages.isExistentStorage(UI_ROOT + "bg.png"))
+		{
+			_base.loadImages(UI_ROOT + "bg.png");
+			_base.setSizeToImageSize();
+			_base.setPos(0, 0);
+		}
+
+		// State atlas: [0]=hover, [1]=idle, [2]=selected
+		_hitboxSrc = new global.Layer(win, _base);
+		with(_hitboxSrc)
+		{
+			.loadImages(UI_ROOT + "bgm_hitbox.png");
+			.setSizeToImageSize();
+			.visible = false;
+			.hitThreshold = 256;
+		}
+
+		_hoverHitbox = new global.Layer(win, _base);
+		with(_hoverHitbox)
+		{
+			.setImageSize(TRACK_W, TRACK_H);
+			.setSize(TRACK_W, TRACK_H);
+			.fillRect(0, 0, TRACK_W, TRACK_H, 0x00000000);
+			.hitThreshold = 256;
+			.visible = false;
+		}
+
+		_selHitbox = new global.Layer(win, _base);
+		with(_selHitbox)
+		{
+			.setImageSize(TRACK_W, TRACK_H);
+			.setSize(TRACK_W, TRACK_H);
+			.fillRect(0, 0, TRACK_W, TRACK_H, 0x00000000);
+			.hitThreshold = 256;
+			.visible = false;
+		}
+
+		var i;
+		for(i = 0; i < _LIST.count; i++)
+		{
+			var col = i \ TRACK_ROWS;
+			var row = i % TRACK_ROWS;
+			var x = TRACK_ORIGIN_X + col * (TRACK_W + TRACK_GAP_X);
+			var y = TRACK_ORIGIN_Y + row * (TRACK_H + TRACK_GAP_Y);
+			var storage = UI_ROOT + _LIST[i].titlefile;
+
+			_btn[i] = new Button(win, _base);
+			if(Storages.isExistentStorage(storage))
+				_btn[i].create(storage, 1);
+			else
+			{
+				_btn[i].setImageSize(TRACK_W, TRACK_H);
+				_btn[i].setSize(TRACK_W, TRACK_H);
+				_btn[i].fillRect(0, 0, TRACK_W, TRACK_H, 0xAA406080);
+				_btn[i].visible = true;
+			}
+			_btn[i].hitThreshold = 0;
+			_btn[i].setPos(x, y);
+			addChainItem(_btn[i]);
+		}
+
+		_btnCg = new Button(win, _base);
+		_btnMemory = new Button(win, _base);
+		_btnOst = new Button(win, _base);
+
+		_btnCg.create(UI_ROOT + "CGbutton.png", 3);
+		_btnCg.hitThreshold = 0;
+		_btnCg.setPos(1400, 994);
+		addChainItem(_btnCg);
+
+		_btnMemory.create(UI_ROOT + "MEMORYbutton.png", 3);
+		_btnMemory.hitThreshold = 0;
+		_btnMemory.setPos(1568, 985);
+		addChainItem(_btnMemory);
+
+		_btnOst.create(UI_ROOT + "OSTbutton.png", 3);
+		_btnOst.hitThreshold = 0;
+		_btnOst.setPos(1744, 980);
+		_btnOst.valid = false;
+
+		StopBgm();
+
+		mouseTrackingMode = global.ChainItemBase.MOUSETRACKINGMODE_FREE;
+		window.addInputNotify(this);
+	}
+
+	function finalize()
+	{
+		window.removeInputNotify(this);
+
+		CONFIG.muteMaster = _tempConfigMuteMaster;
+		CONFIG.muteBgm = _tempConfigMute;
+		BGM.volume = _tempConfigVol;
+
+		InvalidateArray(_btn);
+		invalidate _btnCg;
+		invalidate _btnMemory;
+		invalidate _btnOst;
+		invalidate _hoverHitbox;
+		invalidate _selHitbox;
+		invalidate _hitboxSrc;
+		invalidate _base;
+
+		global.Sprite.finalize();
+		global.ChainItemBase.finalize();
+		StopBgm();
+	}
+
+	function who(){ return "MusicModeScene"; }
+
+	function show(time=300)
+	{
+		opacity = 255;
+		visible = true;
+		if(_base !== void) _base.opacity = 255;
+	}
+
+	function hide(time=300)
+	{
+		visible = false;
+	}
+
+	function placeHitbox(layer, index, state)
+	{
+		if(layer === void || _hitboxSrc === void) return;
+		if(index < 0 || index >= _btn.count)
+		{
+			layer.visible = false;
+			return;
+		}
+
+		var srcX = state * TRACK_W;
+		layer.fillRect(0, 0, TRACK_W, TRACK_H, 0x00000000);
+		layer.copyRect(0, 0, _hitboxSrc, srcX, 0, TRACK_W, TRACK_H);
+		layer.setPos(_btn[index].left, _btn[index].top);
+		layer.absolute = _btn[index].absolute - 1;
+		layer.visible = true;
+	}
+
+	function refreshHitbox()
+	{
+		// Selected (playing): 3rd slice
+		placeHitbox(_selHitbox, _playingIndex, HITBOX_SELECTED);
+
+		// Hover: 1st slice (skip if same as selected — selected already shown)
+		if(_hoverIndex >= 0 && _hoverIndex != _playingIndex)
+			placeHitbox(_hoverHitbox, _hoverIndex, HITBOX_HOVER);
+		else if(_hoverHitbox !== void)
+			_hoverHitbox.visible = false;
+	}
+
+	function setPlaying(index)
+	{
+		_playingIndex = index;
+		refreshHitbox();
+	}
+
+	function findTrackIndex(target)
+	{
+		var i;
+		for(i = 0; i < _btn.count; i++)
+		{
+			if(target == _btn[i]) return i;
+		}
+		return -1;
+	}
+
+	function onButtonEnter(target)
+	{
+		var idx = findTrackIndex(target);
+		if(idx < 0) return;
+		_hoverIndex = idx;
+		refreshHitbox();
+	}
+
+	function onButtonLeave(target)
+	{
+		var idx = findTrackIndex(target);
+		if(idx < 0) return;
+		if(_hoverIndex == idx) _hoverIndex = -1;
+		refreshHitbox();
+	}
+
+	function onButtonDownL(target)
+	{
+		if(target == _btnCg) { changeScene(SCENE_ALBUM); return; }
+		if(target == _btnMemory) { changeScene(SCENE_MEMORIES); return; }
+
+		var i = findTrackIndex(target);
+		if(i < 0) return;
+
+		if(_playingIndex == i)
+		{
+			StopBgm();
+			setPlaying(-1);
+		}
+		else
+		{
+			PlayBgm(_LIST[i].bgmfile);
+			setPlaying(i);
+		}
+	}
+
+	function onButtonDownR(target)
+	{
+		onMouseDown(0, 0, mbRight, 0);
+	}
+
+	function onMouseDown(x, y, button, shift)
+	{
+		if(button == mbRight)
+			changeScene(SCENE_TITLE);
+	}
+
+	function onKeyDown(key, shift)
+	{
+		if(key == VK_ESCAPE)
+			changeScene(SCENE_TITLE);
+		global.ChainItemBase.onKeyDown(...);
+	}
+
+	function close()
+	{
+		valid = false;
+	}
+
+	function changeScene(scene)
+	{
+		HitThresholdSelectItems(_btn, 256);
+		if(_btnCg !== void) _btnCg.hitThreshold = 256;
+		if(_btnMemory !== void) _btnMemory.hitThreshold = 256;
+		game.changeScene(scene, true, %[submenu:1]);
+		close();
+	}
+}

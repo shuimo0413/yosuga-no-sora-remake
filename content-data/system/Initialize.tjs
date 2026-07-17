@@ -194,6 +194,8 @@ LoadScript("Title.tjs");
 LoadScript("PlaySystemVoice.tjs");
 LoadScript("EyeCatch.tjs");
 LoadScript("Album.tjs");
+LoadScript("AlbumModeHD.tjs");
+LoadScript("MusicModeHD.tjs");
 LoadScript("CgFlag.tjs");
 LoadScript("StaffRoll.tjs");
 LoadScript("EnvEffect.tjs");
@@ -292,15 +294,22 @@ delete files;
 //================================================
 
 @if(__DEBUGMODE__)
-//デバックパネル作成
-	LoadScript("DebugController.tjs");
-	var debug = new DebugController(win, win.baseLayer);
-	debug.setPos(CONFIG.debugX, CONFIG.debugY);
-	debug.edtScenarioJump.text = CONFIG.debugJump;
-	debug.edtSearchSkip.text = CONFIG.debugSearch;
-	debug.tglBuCenter.state = CONFIG.debugBuCenter;
-	debug.tglSupExp.state = CONFIG.debugSupExp;
-	debug.visible = CONFIG.debugVisible;
+//デバックパネル作成（仓库内无 DebugController.tjs 时跳过，避免启动崩溃）
+	if(Storages.isExistentStorage("DebugController.tjs"))
+	{
+		LoadScript("DebugController.tjs");
+		var debug = new DebugController(win, win.baseLayer);
+		debug.setPos(CONFIG.debugX, CONFIG.debugY);
+		debug.edtScenarioJump.text = CONFIG.debugJump;
+		debug.edtSearchSkip.text = CONFIG.debugSearch;
+		debug.tglBuCenter.state = CONFIG.debugBuCenter;
+		debug.tglSupExp.state = CONFIG.debugSupExp;
+		debug.visible = CONFIG.debugVisible;
+	}
+	else
+	{
+		Debug.message("DebugController.tjs missing; debug overlay disabled");
+	}
 @endif
 
 delete LoadScript;

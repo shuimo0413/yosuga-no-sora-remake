@@ -155,7 +155,9 @@ class SceneManager extends SceneBase{
 			_sceneObj[scene] = new AlbumModeScene(_win, _win.baseLayer);
 			break;
 		case SCENE_MUSIC:
+			try{ var __mlog=['GSM before MusicModeScene']; __mlog.save("savedata/music_debug.log"); }catch{}
 			_sceneObj[scene] = new MusicModeScene(_win, _win.baseLayer);
+			try{ var __mlog2=['GSM after MusicModeScene']; __mlog2.save("savedata/music_debug.log"); }catch{}
 			break;
 		case SCENE_MEMORIES:
 			_sceneObj[scene] = new MemoriesModeScene(_win, _win.baseLayer);
