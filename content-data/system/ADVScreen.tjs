@@ -6620,7 +6620,40 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		PlaySystemVoice("ゲーム：コンフィグ");
 		CallConfig(this, returnMenu, 1);
 	}
+	function prepareConfigClose(){
+		redrawCurrentMessage();
+	}
 	function onCofigClose(){
+	}
+	function redrawCurrentMessage(){
+		var logCount = countOfLog();
+		if(logCount <= 0) return;
+
+		clearMessage();
+
+		var index = logCount - 1;
+		while(index > 0 && _logParam[index].newline) index--;
+		while(index < logCount){
+			_name = _logName[index];
+			_mess = _logMess[index];
+			_voice = _logVoice[index];
+			_pan = _logParam[index].pan;
+			_volume = _logParam[index].volume;
+			var id = int GetElm(_logParam[index].id, 0);
+
+			resetFontElm();
+			_fFont = true;
+			(Dictionary.assignStruct incontextof _fontElm)(_logParam[index].font);
+
+			var name = _name.split(",/");
+			var dispName = name.count == 1 ? name[0] : name[1];
+			var trueName = name[0];
+			outputMessage(
+				dispName, _mess, _voice, _pan, _volume, true,
+				ChkReadFlag(id), trueName, _logParam[index].newline);
+
+			index++;
+		}
 	}
 
 	function callHistory(){
@@ -7744,4 +7777,3 @@ function IsRecollect(id=-1){
 	else
 		return scene.isRecollect(id);
 }
-
