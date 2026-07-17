@@ -415,10 +415,16 @@ class ConfigWindowHD2 extends SettingWindowBase
         }
         else if(target == _btnClose)
         {
-            hide(300, ConfigDelete);
+            closeToGame();
             return true;
         }
         return false;
+    }
+
+    function closeToGame()
+    {
+        if(_adv !== null) _adv.prepareConfigClose();
+        hide(300, ConfigDelete);
     }
 
     function rememberControl(target)
@@ -650,7 +656,7 @@ class ConfigWindowHD2 extends SettingWindowBase
             closeKeyPopup();
             return;
         }
-        hide(300, ConfigDelete);
+        closeToGame();
     }
 
     function onKeyDown(key, shift)
@@ -662,7 +668,7 @@ class ConfigWindowHD2 extends SettingWindowBase
         }
         if(key == VK_ESCAPE)
         {
-            hide(300, ConfigDelete);
+            closeToGame();
             return;
         }
         if(!_keyPopup.visible && handleSliderKey(key, shift)) return;

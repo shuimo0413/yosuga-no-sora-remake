@@ -2246,34 +2246,11 @@ class HistoryWindow extends SettingWindowBase{
 
 			var font = %[];
 			with(font){
-				var ref = logRef.font;
-				if(ref !== void){
-					.face = ref.face;
-					if(.face == "") .face = ADV_FONT_MESS_FACE;
-
-					if(ref.color == -1)	.color = Log.FONT_COLOR;
-					else				.color = ref.color;
-					if(ref.bkcolor == -1)	.bkcolor = Log.FONT_BKCOLOR;
-					else					.bkcolor = ref.bkcolor;
-				}else{
-					.face = ADV_FONT_MESS_FACE;
-					.color = Log.FONT_COLOR;
-					.bkcolor = Log.FONT_BKCOLOR;
-				}
-
-				if(true){
-				//レンダリング済みフォント使用
-					var prRef = PRFONT_DIC[GetFontFace(.face)];
-					if(prRef !== void)	.indent = prRef.height + 4;
-					else				.indent = ADV_FONT_MESS_INDENT;
-				}else{
-					var size = ref.size;
-
-					.size = int(size * _messScale);
-					.indent = .size + 2;
-					.bold = ref.bold;
-					.italic = ref.italic;
-				}
+				.face = GetBacklogFontFace();
+				.size = ADV_TEXT_STYLE.backlogFontSize;
+				.indent = ADV_TEXT_STYLE.backlogLineHeight;
+				.color = Log.FONT_COLOR;
+				.bkcolor = Log.FONT_BKCOLOR;
 			}
 			with(_log[i]){
 				.set(roleKey, mess, voice, pan, font, li, test);
@@ -2578,8 +2555,11 @@ class HistoryWindow extends SettingWindowBase{
 			_ma = new MessageArea(window, this, true, global.GetFontFace);
 			with(_ma){
 				.setMargin(MARGIN_LEFT, MARGIN_TOP, TEXT_WIDTH, ENTRY_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM);
-				.setDefaultDrawTextParam(FONT_COLOR, 255, true, 3024, RGB(32, 32, 32), 3, 0, 0);
-				.setDefaultFontStyle(ADV_FONT_MESS_FACE, ADV_FONT_MESS_SIZE, ADV_FONT_MESS_INDENT);
+				global.ApplyBacklogTextDrawStyle(_ma);
+				.setDefaultFontStyle(
+					GetBacklogFontFace(),
+					ADV_TEXT_STYLE.backlogFontSize,
+					ADV_TEXT_STYLE.backlogLineHeight);
 				.resetDrawTextParam();
 				.resetFontStyle();
 				.enableRuby(false);
@@ -2967,8 +2947,8 @@ class HistoryWindow extends SettingWindowBase{
 			}
 		}
 	}
-	Log.FONT_COLOR = RGB(255, 255, 255);
-	Log.FONT_BKCOLOR = RGB(32, 32, 64);
+	Log.FONT_COLOR = ADV_TEXT_STYLE.unreadColor;
+	Log.FONT_BKCOLOR = ADV_TEXT_STYLE.shadowColor;
 }
 
 function CallHistory(adv){
