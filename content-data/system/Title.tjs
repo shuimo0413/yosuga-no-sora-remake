@@ -579,7 +579,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		case btnLoad :
 			PlaySystemVoice("タイトル：ロード");
 
-			CallLoadSave(true, null, true);
+			CallLoadSaveHD(true, null, true);
 			break;
 case btnContinue :
 			game.changeScene(SCENE_ADV, false, %[file:"asave.bmp"]);
