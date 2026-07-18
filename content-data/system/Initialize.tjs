@@ -182,6 +182,7 @@ LoadScript("System.tjs");
 LoadScript("MessageFrame.tjs");
 LoadScript("Confirm.tjs");
 LoadScript("SystemWindow.tjs");
+LoadScript("LoadSaveWindowHD.tjs");
 LoadScript("ConfigWindow.tjs");
 LoadScript("ConfigConsts.tjs");
 LoadScript("HDUIComponents.tjs");

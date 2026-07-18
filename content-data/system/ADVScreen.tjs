@@ -6662,12 +6662,12 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	function callLoad(){
 		if(_fRecollect) return;
 
-		CallLoadSave(true, this);
+		CallLoadSaveHD(true, this);
 	}
 	function callSave(){
 		if(_fRecollect) return;
 
-		CallLoadSave(false, this);
+		CallLoadSaveHD(false, this);
 	}
 
 	property envTone{

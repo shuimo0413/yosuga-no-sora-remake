@@ -1,0 +1,2186 @@
+// HD save/load window.
+//
+// This file intentionally lives beside, rather than inside, SystemWindow.tjs.
+// The legacy window stays available through CallLoadSave(); the active HD
+// entry point is CallLoadSaveHD(). Save indices and filenames are unchanged.
+
+var LOADSAVE_HD_BASE_WIDTH = 1920;
+var LOADSAVE_HD_BASE_HEIGHT = 1080;
+var LOADSAVE_HD_UI_PATH = "ui_1920/save_load_hd/";
+var LOADSAVE_HD_SLOTS_PER_PAGE = 12;
+var LOADSAVE_HD_LAST_PAGE = -1;
+
+// Typography follows the 1920x1080 reference layout. Keep these values in one
+// place so the information hierarchy can be tuned without moving controls.
+var LOADSAVE_HD_FONT_SLOT_NUMBER = 21;
+var LOADSAVE_HD_FONT_SLOT_COMMENT = 19;
+var LOADSAVE_HD_FONT_SLOT_DATE = 17;
+var LOADSAVE_HD_FONT_PREVIEW_DATE = 30;
+var LOADSAVE_HD_FONT_PREVIEW_PATH = 23;
+var LOADSAVE_HD_FONT_PREVIEW_COMMENT = 26;
+var LOADSAVE_HD_FONT_PAGE = 36;
+var LOADSAVE_HD_FONT_STATUS = 22;
+var LOADSAVE_HD_PAGE_TEXT_TOP = 14;
+var LOADSAVE_HD_SCROLL_CENTER_TOP = 329;
+var LOADSAVE_HD_SCROLL_CENTER_BOTTOM = 790;
+var LOADSAVE_HD_SCROLL_THUMB_HEIGHT = 39;
+var LOADSAVE_HD_BACKDROP_BLUR_RADIUS = 2;
+var LOADSAVE_HD_BACKDROP_BLUR_PASSES = 2;
+var LOADSAVE_HD_MODE_TRANSITION_TIME = 180;
+
+// Windows uses the first installed face in this list. krkrsdl2 on macOS does
+// not enumerate native fonts, so LoadSaveHDInitializeFont registers a local
+// system Chinese font and replaces this value with its exact runtime name.
+var LOADSAVE_HD_FONT_FACE =
+    "Microsoft YaHei UI,Microsoft YaHei,メイリオ,HG丸ｺﾞｼｯｸM-PRO,ＭＳ ゴシック";
+var LOADSAVE_HD_FONT_INITIALIZED = false;
+
+var LOADSAVE_HD_MODE_NORMAL = 0;
+var LOADSAVE_HD_MODE_DELETE = 1;
+var LOADSAVE_HD_MODE_COPY = 2;
+var LOADSAVE_HD_MODE_MOVE = 3;
+
+var LOADSAVE_HD_PENDING_CONFIG = false;
+var LOADSAVE_HD_PENDING_ADV = null;
+var LOADSAVE_HD_PENDING_FROM_TITLE = false;
+
+function LoadSaveHDFile(file)
+{
+    return LOADSAVE_HD_UI_PATH + file;
+}
+
+function LoadSaveHDInitializeFont()
+{
+    if(LOADSAVE_HD_FONT_INITIALIZED) return;
+    LOADSAVE_HD_FONT_INITIALIZED = true;
+
+    // This path is intentionally confined to the HD save/load window. The
+    // legacy UI and dialogue fonts keep their original configuration.
+    try
+    {
+        if(typeof global.Font == "Object" &&
+            typeof global.Font.addFont == "Object")
+        {
+            var faces = global.Font.addFont(
+                "/System/Library/Fonts/STHeiti Light.ttc"
+            );
+            if(faces.count > 0) LOADSAVE_HD_FONT_FACE = faces[0];
+            invalidate faces;
+        }
+    }
+    catch(e)
+    {
+        // Non-macOS platforms use the Windows-oriented face list above.
+        dm("LoadSaveWindowHD Chinese font fallback: " + e);
+    }
+}
+
+function ScaleLoadSaveHDX(value)
+{
+    return (int(value) * WINDOW_WIDTH) \ LOADSAVE_HD_BASE_WIDTH;
+}
+
+function ScaleLoadSaveHDY(value)
+{
+    return (int(value) * WINDOW_HEIGHT) \ LOADSAVE_HD_BASE_HEIGHT;
+}
+
+function ScaleLoadSaveHDLayerImage(layer)
+{
+    if(layer.imageWidth <= 0 || layer.imageHeight <= 0) return;
+
+    var source = new global.Layer(layer.window, layer.parent);
+    source.assignImages(layer);
+
+    var imageWidth = layer.imageWidth;
+    var imageHeight = layer.imageHeight;
+    var layerWidth = layer.width;
+    var layerHeight = layer.height;
+    var scaledImageWidth = ScaleLoadSaveHDX(imageWidth);
+    var scaledImageHeight = ScaleLoadSaveHDY(imageHeight);
+
+    layer.setImageSize(scaledImageWidth, scaledImageHeight);
+    layer.setSize(ScaleLoadSaveHDX(layerWidth), ScaleLoadSaveHDY(layerHeight));
+    layer.stretchCopy(
+        0, 0, scaledImageWidth, scaledImageHeight,
+        source, 0, 0, imageWidth, imageHeight, stFastLinear
+    );
+
+    invalidate source;
+}
+
+function LoadSaveHDScaledImage(win, parent, file)
+{
+    var image = new global.Layer(win, parent);
+    image.loadImages(LoadSaveHDFile(file));
+    image.setSizeToImageSize();
+    ScaleLoadSaveHDLayerImage(image);
+    return image;
+}
+
+function LoadSaveHDScaledSprite(win, parent, file)
+{
+    var image = new Sprite(win, parent);
+    image.loadImages(LoadSaveHDFile(file));
+    image.setSizeToImageSize();
+    ScaleLoadSaveHDLayerImage(image);
+    return image;
+}
+
+function LoadSaveHDNormalSaveCount()
+{
+    return SAVEDATA_BOOK_MAX * SAVEDATA_PAGE_MAX * SAVEDATA_PAGE_NUM;
+}
+
+function LoadSaveHDNormalPageCount()
+{
+    return (LoadSaveHDNormalSaveCount() + LOADSAVE_HD_SLOTS_PER_PAGE - 1) \ LOADSAVE_HD_SLOTS_PER_PAGE;
+}
+
+function LoadSaveHDSlotFilename(index)
+{
+    var book = index \ SAVEDATA_PAGEDATA_MAX;
+    var slot = index % SAVEDATA_PAGEDATA_MAX;
+    return "save%02d_%03d.bmp".sprintf(book + 1, slot + 1);
+}
+
+function LoadSaveHDLocalDataPath()
+{
+    var folder = DATA_PATH;
+    try
+    {
+        var localFolder = Storages.getLocalName(DATA_PATH);
+        if(localFolder !== void && localFolder != "") folder = localFolder;
+    }
+    catch(e)
+    {
+        dm("LoadSaveWindowHD local savedata path failed: " + e);
+    }
+    return folder;
+}
+
+function LoadSaveHDDrawWrappedText(layer, text, color, shadowColor, lineHeight, maxLines)
+{
+    layer.fillRect(0, 0, layer.width, layer.height, 0);
+    if(text === void || text == "") return;
+
+    var line = "";
+    var y = 0;
+    var lines = 0;
+    for(var i = 0; i < text.length; i++)
+    {
+        var next = line + text[i];
+        if(line != "" && layer.font.getTextWidth(next) > layer.width)
+        {
+            layer.drawText(0, y, line, color, 255, true, 1024, shadowColor, 1);
+            y += lineHeight;
+            lines++;
+            if(lines >= maxLines) return;
+            line = text[i];
+        }
+        else
+        {
+            line = next;
+        }
+    }
+
+    if(line != "" && lines < maxLines)
+        layer.drawText(0, y, line, color, 255, true, 1024, shadowColor, 1);
+}
+
+class LoadSaveHDSlotButton extends Button
+{
+    var _slotIndex;
+
+    function LoadSaveHDSlotButton(win, parent, slotIndex)
+    {
+        super.Button(win, parent);
+        _slotIndex = slotIndex;
+    }
+
+    function onMouseEnter(x, y, shift)
+    {
+        super.onMouseEnter(...);
+        parent.onSlotEnter(_slotIndex);
+    }
+
+    function onMouseLeave(x, y, shift)
+    {
+        super.onMouseLeave(...);
+        parent.onSlotLeave(_slotIndex);
+    }
+
+    function onMouseDown(x, y, button, shift)
+    {
+        releaseCapture();
+        if(button == mbLeft && _valid)
+            parent.onSlotClick(_slotIndex);
+        else if(button == mbRight)
+            parent.onMouseDown(0, 0, button, shift);
+    }
+
+    property slotIndex
+    {
+        getter(){ return _slotIndex; }
+    }
+}
+
+// Navigation artwork contains two horizontal frames: white (normal) and gray
+// (pressed/disabled). Hovering deliberately keeps the white frame.
+class LoadSaveHDNavigationButton extends Button
+{
+    var _navIndex;
+    var _pressed = false;
+
+    function LoadSaveHDNavigationButton(win, parent, navIndex)
+    {
+        super.Button(win, parent);
+        _navIndex = navIndex;
+    }
+
+    function onMouseEnter(x, y, shift)
+    {
+        super.onMouseEnter(...);
+        setButton((_pressed || !_valid) ? 1 : 0);
+    }
+
+    function onMouseLeave(x, y, shift)
+    {
+        super.onMouseLeave(...);
+        setButton((_pressed || !_valid) ? 1 : 0);
+    }
+
+    function onMouseDown(x, y, button, shift)
+    {
+        releaseCapture();
+        if(button == mbLeft && _valid)
+        {
+            _pressed = true;
+            setButton(1);
+            parent.onNavigationButtonDown(this);
+        }
+        else if(button == mbRight)
+        {
+            parent.onMouseDown(0, 0, button, shift);
+        }
+    }
+
+    function onMouseUp(x, y, button, shift)
+    {
+        if(button == mbLeft) releasePressed();
+    }
+
+    function releasePressed()
+    {
+        _pressed = false;
+        setButton(_valid ? 0 : 1);
+    }
+
+    function onValid()
+    {
+        if(!_pressed) setButton(0);
+    }
+
+    function onInvalid()
+    {
+        setButton(1);
+    }
+
+    property navIndex
+    {
+        getter(){ return _navIndex; }
+    }
+}
+
+// The stock EditLayer always paints a rectangular system-style bevel. That
+// clashes with the rounded page-number artwork, so the page field only draws
+// its text, caret and a small focus underline over the existing background.
+class LoadSaveHDPageEditLayer extends EditLayer
+{
+    function LoadSaveHDPageEditLayer(win, parent)
+    {
+        super.EditLayer(win, parent);
+    }
+
+    function showCaret() {}
+    function hideCaret() {}
+
+    function onPaint()
+    {
+        fillRect(0, 0, imageWidth, imageHeight, 0);
+
+        var value = text;
+        var textWidth = font.getTextWidth(value);
+        var textX = (imageWidth - textWidth) \ 2;
+        var textY = ScaleLoadSaveHDY(LOADSAVE_HD_PAGE_TEXT_TOP);
+        var shadow = parent._fLoad ? 0x2b84a0 : 0x724374;
+        drawText(
+            textX, textY, value,
+            0xffffff, 255, true, 1024, shadow, 1
+        );
+
+        var underlineWidth = ScaleLoadSaveHDX(38);
+        var underlineX = (imageWidth - underlineWidth) \ 2;
+        colorRect(
+            underlineX, ScaleLoadSaveHDY(53),
+            underlineWidth, ScaleLoadSaveHDY(2),
+            0xffffff, 176
+        );
+
+        var caretX = textX + textWidth + ScaleLoadSaveHDX(2);
+        if(caretX >= imageWidth - ScaleLoadSaveHDX(4))
+            caretX = imageWidth - ScaleLoadSaveHDX(4);
+        colorRect(
+            caretX, ScaleLoadSaveHDY(LOADSAVE_HD_PAGE_TEXT_TOP + 3),
+            ScaleLoadSaveHDX(2), ScaleLoadSaveHDY(32),
+            0xffffff, 220
+        );
+    }
+}
+
+// Footer actions use an index-based hover callback. This avoids relying on
+// object identity in the generic legacy button dispatcher.
+class LoadSaveHDFooterButton extends Button
+{
+    var _footerIndex;
+    var _modeActive = false;
+
+    function LoadSaveHDFooterButton(win, parent, footerIndex)
+    {
+        super.Button(win, parent);
+        _footerIndex = footerIndex;
+    }
+
+    function onMouseEnter(x, y, shift)
+    {
+        super.onMouseEnter(...);
+        if(_modeActive && _valid) setButton(1);
+        parent.onFooterEnter(_footerIndex);
+    }
+
+    function onMouseLeave(x, y, shift)
+    {
+        super.onMouseLeave(...);
+        // Operation buttons keep the same artwork as their hover state until
+        // the active delete/copy/move mode is left.
+        if(_modeActive && _valid) setButton(1);
+        parent.onFooterLeave(_footerIndex);
+    }
+
+    function onValid()
+    {
+        super.onValid();
+        if(_modeActive) setButton(1);
+    }
+
+    property modeActive
+    {
+        getter(){ return _modeActive; }
+        setter(value)
+        {
+            _modeActive = value;
+            if(_valid) setButton((_modeActive || isEnter()) ? 1 : 0);
+        }
+    }
+}
+
+class LoadSaveWindowHD extends SettingWindowBase
+{
+    var _fFromTitle = false;
+    var _fLoad = true;
+    var _adv = null;
+
+    var _backgroundRoot;
+    var _background;
+    var _backgroundIncoming = null;
+    var _blurredBackdrop;
+    var _slotButton = [];
+    var _slotThumb = [];
+    var _slotNumber = [];
+    var _slotComment = [];
+    var _slotDate = [];
+    var _slotDataIndex = [];
+
+    var _previewThumb;
+    var _previewDate;
+    var _previewPath;
+    var _previewComment;
+    var _pageLabel;
+    var _statusText;
+    var _scrollThumb;
+    var _transferPreview;
+    var _transferPreviewThumb;
+    var _transferPreviewNumber;
+    var _transferPreviewComment;
+    var _transferPreviewDate;
+    var _editComment;
+    var _pageEdit;
+
+    var _navButton = [];
+    var _btnReturnTitle;
+    var _btnReturnGame;
+    var _btnSettings;
+    var _btnDelete;
+    var _btnCopy;
+    var _btnMove;
+    var _btnOpenFolder;
+    var _btnEditComment;
+    var _btnPageJump;
+    var _btnModeSave;
+    var _btnModeLoad;
+    var _pressedNavigation = null;
+
+    var _pageNo = 0;
+    var _pageCount = 1;
+    var _hoverSlot = -1;
+    var _selectedSlot = -1;
+    var _mode = LOADSAVE_HD_MODE_NORMAL;
+    var _sourceIndex = -1;
+    var _pendingIndex = -1;
+    var _pendingDestination = -1;
+    var _draggingScrollbar = false;
+    var _scrollDragOffsetY = 0;
+    var _commentEditTrigger;
+    var _pageEditTrigger;
+
+    var _targetFile = "";
+
+    function LoadSaveWindowHD(win, parent, fExclusive = true, fFromTitle = false)
+    {
+        super.SettingWindowBase(win, parent, fExclusive);
+        _fFromTitle = fFromTitle;
+        mouseTrackingMode = global.ChainItemBase.MOUSETRACKINGMODE_FREE;
+
+        _commentEditTrigger = new AsyncTrigger(beginCommentEdit, "");
+        _commentEditTrigger.cached = true;
+        _commentEditTrigger.mode = atmAtIdle;
+        _pageEditTrigger = new AsyncTrigger(beginPageEdit, "");
+        _pageEditTrigger.cached = true;
+        _pageEditTrigger.mode = atmAtIdle;
+    }
+
+    function who(){ return "LoadSaveWindowHD"; }
+
+    function finalize()
+    {
+        LOADSAVE_HD_LAST_PAGE = _pageNo;
+        removeChainItemAll();
+        window.editControlLeave();
+
+        InvalidateArray(_slotButton);
+        InvalidateArray(_slotThumb);
+        InvalidateArray(_slotNumber);
+        InvalidateArray(_slotComment);
+        InvalidateArray(_slotDate);
+        InvalidateArray(_navButton);
+        invalidate _slotDataIndex;
+
+        invalidate _previewThumb;
+        invalidate _previewDate;
+        invalidate _previewPath;
+        invalidate _previewComment;
+        invalidate _pageLabel;
+        invalidate _statusText;
+        invalidate _scrollThumb;
+        invalidate _transferPreviewThumb;
+        invalidate _transferPreviewNumber;
+        invalidate _transferPreviewComment;
+        invalidate _transferPreviewDate;
+        invalidate _transferPreview;
+        invalidate _editComment;
+        invalidate _pageEdit;
+        invalidate _btnReturnTitle;
+        invalidate _btnReturnGame;
+        invalidate _btnSettings;
+        invalidate _btnDelete;
+        invalidate _btnCopy;
+        invalidate _btnMove;
+        invalidate _btnOpenFolder;
+        invalidate _btnEditComment;
+        invalidate _btnPageJump;
+        invalidate _btnModeSave;
+        invalidate _btnModeLoad;
+        invalidate _commentEditTrigger;
+        invalidate _pageEditTrigger;
+        _pressedNavigation = null;
+        // The incoming layer only exists during the short load/save
+        // background crossfade.  Once that transition completes it is
+        // promoted to _background and this reference is cleared, so closing
+        // the window must not try to invalidate a null TJS object.
+        if(_backgroundIncoming !== null)
+        {
+            invalidate _backgroundIncoming;
+            _backgroundIncoming = null;
+        }
+        invalidate _background;
+        invalidate _backgroundRoot;
+        invalidate _blurredBackdrop;
+
+        super.finalize();
+    }
+
+    function create(fLoad = true, adv = null)
+    {
+        _fLoad = fLoad;
+        _adv = adv;
+        _pageCount = LoadSaveHDNormalPageCount() + (_fLoad ? 1 : 0);
+        LoadSaveHDInitializeFont();
+
+        zoom = 100;
+        setPos(0, 0);
+        setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        fillRect(0, 0, width, height, 0);
+        absolute = LAYER_LOADSAVE;
+
+        createBlurredBackdrop();
+        // Keep both mode backgrounds inside one stable subtree. The blurred
+        // game snapshot stays outside this root and is shared by both modes.
+        _backgroundRoot = new global.Layer(window, this);
+        _backgroundRoot.hasImage = false;
+        _backgroundRoot.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        _backgroundRoot.hitThreshold = 256;
+        _backgroundRoot.visible = true;
+        _background = LoadSaveHDScaledSprite(
+            window, _backgroundRoot,
+            _fLoad ? "background_load.png" : "background_save.png"
+        );
+        _background.setPos(0, 0);
+        _background.opacity = 255;
+        _background.visible = true;
+
+        createPreviewLayers();
+        createPreviewButtons();
+        createSlotLayers();
+        createNavigation();
+        createFooterButtons();
+        createTransferPreview();
+
+        _editComment = new EditLayer(window, this);
+        with(_editComment)
+        {
+            .setSize(ScaleLoadSaveHDX(520), ScaleLoadSaveHDY(112));
+            .setPos(ScaleLoadSaveHDX(57), ScaleLoadSaveHDY(824));
+            .font.face = LOADSAVE_HD_FONT_FACE;
+            .font.height = ScaleLoadSaveHDY(LOADSAVE_HD_FONT_PREVIEW_COMMENT);
+            .bgOpacity = 180;
+            .maxChars = 128;
+            .visible = false;
+        }
+
+        _pageEdit = new LoadSaveHDPageEditLayer(window, this);
+        with(_pageEdit)
+        {
+            .setSize(ScaleLoadSaveHDX(68), ScaleLoadSaveHDY(58));
+            .setPos(ScaleLoadSaveHDX(1784), ScaleLoadSaveHDY(79));
+            .font.face = LOADSAVE_HD_FONT_FACE;
+            .font.height = ScaleLoadSaveHDY(LOADSAVE_HD_FONT_PAGE);
+            .textColor = 0xffffff;
+            .bgOpacity = 0;
+            .maxChars = 2;
+            .visible = false;
+        }
+
+        var initialPage = LOADSAVE_HD_LAST_PAGE;
+        if(initialPage < 0)
+        {
+            if(_fLoad)
+            {
+                var newest = saveMan.newestIndex();
+                initialPage = newest >= 0 ? newest \ LOADSAVE_HD_SLOTS_PER_PAGE : 0;
+            }
+            else
+            {
+                var nextSave = sysReg._newSaveNo > 0 ? sysReg._newSaveNo - 1 : 0;
+                initialPage = nextSave \ LOADSAVE_HD_SLOTS_PER_PAGE;
+            }
+        }
+
+        setPage(initialPage);
+        visible = true;
+    }
+
+    function createBlurredBackdrop()
+    {
+        _blurredBackdrop = new global.Layer(window, this);
+        _blurredBackdrop.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        _blurredBackdrop.hitThreshold = 256;
+        _blurredBackdrop.visible = false;
+
+        // Capture once before this window is shown. The translucent HD PNG is
+        // drawn over this blurred snapshot, so all UI artwork remains sharp.
+        var source = window.baseLayer;
+        var sourceHadImage = source.hasImage;
+        var windowWasVisible = visible;
+        var captured = false;
+        visible = false;
+        source.hasImage = true;
+        try
+        {
+            _blurredBackdrop.piledCopy(
+                0, 0, source, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT
+            );
+            captured = true;
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD backdrop capture failed: " + e);
+        }
+        source.hasImage = sourceHadImage;
+        visible = windowWasVisible;
+
+        if(!captured)
+        {
+            invalidate _blurredBackdrop;
+            _blurredBackdrop = null;
+            return;
+        }
+
+        try
+        {
+            for(var i = 0; i < LOADSAVE_HD_BACKDROP_BLUR_PASSES; i++)
+                _blurredBackdrop.doBoxBlur(
+                    ScaleLoadSaveHDX(LOADSAVE_HD_BACKDROP_BLUR_RADIUS),
+                    ScaleLoadSaveHDY(LOADSAVE_HD_BACKDROP_BLUR_RADIUS)
+                );
+            _blurredBackdrop.visible = true;
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD backdrop blur failed: " + e);
+            invalidate _blurredBackdrop;
+            _blurredBackdrop = null;
+        }
+    }
+
+    function createPreviewLayers()
+    {
+        _previewThumb = createTransparentLayer(67, 190, 498, 280, 1);
+        _previewDate = createTransparentLayer(
+            64, 572, 510, 42, LOADSAVE_HD_FONT_PREVIEW_DATE
+        );
+        _previewPath = createTransparentLayer(
+            132, 663, 442, 56, LOADSAVE_HD_FONT_PREVIEW_PATH
+        );
+        _previewComment = createTransparentLayer(
+            64, 824, 510, 114, LOADSAVE_HD_FONT_PREVIEW_COMMENT
+        );
+        _pageLabel = createTransparentLayer(
+            1784, 79, 68, 58, LOADSAVE_HD_FONT_PAGE
+        );
+        _statusText = createTransparentLayer(
+            56, 998, 520, 46, LOADSAVE_HD_FONT_STATUS
+        );
+    }
+
+    function createTransparentLayer(x, y, w, h, fontHeight)
+    {
+        var layer = new global.Layer(window, this);
+        layer.setSize(ScaleLoadSaveHDX(w), ScaleLoadSaveHDY(h));
+        layer.setPos(ScaleLoadSaveHDX(x), ScaleLoadSaveHDY(y));
+        layer.fillRect(0, 0, layer.width, layer.height, 0);
+        layer.hitThreshold = 256;
+        layer.font.face = LOADSAVE_HD_FONT_FACE;
+        layer.font.height = ScaleLoadSaveHDY(fontHeight);
+        layer.visible = true;
+        return layer;
+    }
+
+    function configureHotspotButton(button, x, y, w, h)
+    {
+        var image = new global.Layer(window, this);
+        var scaledWidth = ScaleLoadSaveHDX(w);
+        var scaledHeight = ScaleLoadSaveHDY(h);
+        image.setImageSize(scaledWidth, scaledHeight);
+        image.setSize(scaledWidth, scaledHeight);
+        image.fillRect(0, 0, scaledWidth, scaledHeight, 0);
+
+        button.create(image, 1);
+        button.setPos(ScaleLoadSaveHDX(x), ScaleLoadSaveHDY(y));
+        button.hitThreshold = 0;
+        button.visible = true;
+        invalidate image;
+    }
+
+    function createHotspotButton(x, y, w, h)
+    {
+        var button = new Button(window, this);
+        configureHotspotButton(button, x, y, w, h);
+        addChainItem(button);
+        return button;
+    }
+
+    function refreshModeHotspotsHD()
+    {
+        if(_fLoad)
+        {
+            configureHotspotButton(_btnModeSave, 1335, 70, 125, 72);
+            configureHotspotButton(_btnModeLoad, 1490, 70, 260, 72);
+        }
+        else
+        {
+            configureHotspotButton(_btnModeSave, 1275, 70, 260, 72);
+            configureHotspotButton(_btnModeLoad, 1565, 70, 125, 72);
+        }
+
+        _btnModeSave.valid = !_fFromTitle && _adv !== null;
+        _btnModeLoad.valid = true;
+    }
+
+    function createPreviewButtons()
+    {
+        _btnOpenFolder = createHotspotButton(55, 661, 70, 34);
+        _btnEditComment = createHotspotButton(55, 787, 78, 34);
+        _btnPageJump = createHotspotButton(1782, 75, 68, 66);
+
+        // The active mode name is wider than the inactive one in each
+        // background, so keep the two hit areas mode-specific and separated.
+        _btnModeSave = createHotspotButton(0, 0, 1, 1);
+        _btnModeLoad = createHotspotButton(0, 0, 1, 1);
+        refreshModeHotspotsHD();
+
+        _btnOpenFolder.valid = true;
+        _btnEditComment.valid = false;
+        _btnPageJump.valid = true;
+    }
+
+    function createSlotLayers()
+    {
+        var slotX = [639, 914, 1190, 1466];
+        var slotHoverX = [636, 911, 1187, 1462];
+        var slotY = [189, 441, 693];
+        var slotHoverY = [188, 440, 692];
+
+        for(var i = 0; i < LOADSAVE_HD_SLOTS_PER_PAGE; i++)
+        {
+            var column = i % 4;
+            var row = i \ 4;
+            var x = slotX[column];
+            var y = slotY[row];
+
+            _slotThumb[i] = createTransparentLayer(x + 15, y + 25, 233, 132, 1);
+            _slotThumb[i].visible = false;
+            _slotNumber[i] = createTransparentLayer(
+                x + 12, y + 3, 238, 28, LOADSAVE_HD_FONT_SLOT_NUMBER
+            );
+            _slotComment[i] = createTransparentLayer(
+                x + 14, y + 158, 238, 46, LOADSAVE_HD_FONT_SLOT_COMMENT
+            );
+            _slotDate[i] = createTransparentLayer(
+                x + 14, y + 207, 238, 26, LOADSAVE_HD_FONT_SLOT_DATE
+            );
+
+            var hitImage = LoadSaveHDScaledImage(window, this, "slot_hover.png");
+            _slotButton[i] = new LoadSaveHDSlotButton(window, this, i);
+            _slotButton[i].create(hitImage, 1);
+            _slotButton[i].setPos(
+                ScaleLoadSaveHDX(slotHoverX[column]),
+                ScaleLoadSaveHDY(slotHoverY[row])
+            );
+            _slotButton[i].opacity = 1;
+            _slotButton[i].hitThreshold = 0;
+            _slotButton[i].visible = true;
+            invalidate hitImage;
+
+            addChainItem(_slotButton[i]);
+            _slotDataIndex[i] = -1;
+        }
+
+        invalidate slotX;
+        invalidate slotHoverX;
+        invalidate slotY;
+        invalidate slotHoverY;
+    }
+
+    function createTransferPreviewChild(x, y, w, h, fontHeight)
+    {
+        var layer = new global.Layer(window, _transferPreview);
+        layer.setSize(ScaleLoadSaveHDX(w), ScaleLoadSaveHDY(h));
+        layer.setPos(ScaleLoadSaveHDX(x), ScaleLoadSaveHDY(y));
+        layer.fillRect(0, 0, layer.width, layer.height, 0);
+        layer.hitThreshold = 256;
+        layer.font.face = LOADSAVE_HD_FONT_FACE;
+        layer.font.height = ScaleLoadSaveHDY(fontHeight);
+        layer.visible = true;
+        return layer;
+    }
+
+    function createTransferPreview()
+    {
+        var previewWidth = ScaleLoadSaveHDX(266);
+        var previewHeight = ScaleLoadSaveHDY(236);
+
+        _transferPreview = new global.Layer(window, this);
+        _transferPreview.setImageSize(previewWidth, previewHeight);
+        _transferPreview.setSize(previewWidth, previewHeight);
+        _transferPreview.copyRect(
+            0, 0, _background,
+            ScaleLoadSaveHDX(639), ScaleLoadSaveHDY(189),
+            previewWidth, previewHeight
+        );
+        _transferPreview.absolute = 10000;
+        _transferPreview.opacity = 196;
+        _transferPreview.hitThreshold = 256;
+
+        _transferPreviewThumb = createTransferPreviewChild(15, 25, 233, 132, 1);
+        _transferPreviewThumb.visible = false;
+        _transferPreviewNumber = createTransferPreviewChild(
+            12, 3, 238, 28, LOADSAVE_HD_FONT_SLOT_NUMBER
+        );
+        _transferPreviewComment = createTransferPreviewChild(
+            14, 158, 238, 46, LOADSAVE_HD_FONT_SLOT_COMMENT
+        );
+        _transferPreviewDate = createTransferPreviewChild(
+            14, 207, 238, 26, LOADSAVE_HD_FONT_SLOT_DATE
+        );
+        _transferPreview.visible = false;
+    }
+
+    function refreshTransferPreviewBackgroundHD(source)
+    {
+        var previewWidth = ScaleLoadSaveHDX(266);
+        var previewHeight = ScaleLoadSaveHDY(236);
+        _transferPreview.copyRect(
+            0, 0, source,
+            ScaleLoadSaveHDX(639), ScaleLoadSaveHDY(189),
+            previewWidth, previewHeight
+        );
+        _transferPreview.visible = false;
+    }
+
+    function createNavigation()
+    {
+        var files = [
+            "page_first.png", "page_back_10.png", "page_previous.png",
+            "page_next.png", "page_forward_10.png", "page_last.png"
+        ];
+        var y = [168, 215, 265, 817, 865, 914];
+
+        for(var i = 0; i < files.count; i++)
+        {
+            var image = LoadSaveHDScaledImage(window, this, files[i]);
+            _navButton[i] = new LoadSaveHDNavigationButton(window, this, i);
+            _navButton[i].create(image, 2);
+            _navButton[i].setPos(ScaleLoadSaveHDX(1799), ScaleLoadSaveHDY(y[i]));
+            _navButton[i].visible = true;
+            invalidate image;
+            addChainItem(_navButton[i]);
+        }
+
+        _scrollThumb = LoadSaveHDScaledImage(
+            window, this, _fLoad ? "scroll_thumb_load.png" : "scroll_thumb_save.png"
+        );
+        _scrollThumb.visible = true;
+
+        invalidate files;
+        invalidate y;
+    }
+
+    function refreshScrollThumbImageHD()
+    {
+        var oldX = _scrollThumb.left;
+        var oldY = _scrollThumb.top;
+        invalidate _scrollThumb;
+        _scrollThumb = LoadSaveHDScaledImage(
+            window, this,
+            _fLoad ? "scroll_thumb_load.png" : "scroll_thumb_save.png"
+        );
+        _scrollThumb.setPos(oldX, oldY);
+        _scrollThumb.visible = true;
+    }
+
+    function createFooterButton(file, x, footerIndex)
+    {
+        var image = LoadSaveHDScaledImage(window, this, file);
+        var button = new LoadSaveHDFooterButton(window, this, footerIndex);
+        button.create(image, 2);
+        button.setPos(ScaleLoadSaveHDX(x), ScaleLoadSaveHDY(986));
+        button.visible = true;
+        invalidate image;
+        addChainItem(button);
+        return button;
+    }
+
+    function createFooterButtons()
+    {
+        var suffix = _fLoad ? "_load.png" : "_save.png";
+        _btnReturnTitle = createFooterButton("button_return_title" + suffix, 618, 0);
+        _btnReturnGame = createFooterButton("button_return_game" + suffix, 866, 1);
+        _btnSettings = createFooterButton("button_settings" + suffix, 1112, 2);
+        _btnDelete = createFooterButton("button_delete" + suffix, 1278, 3);
+        _btnCopy = createFooterButton("button_copy" + suffix, 1445, 4);
+        _btnMove = createFooterButton("button_move" + suffix, 1612, 5);
+
+        if(_fFromTitle)
+        {
+            _btnReturnGame.valid = false;
+            _btnReturnGame.opacity = 96;
+        }
+    }
+
+    function refreshFooterButtonImageHD(button, file)
+    {
+        var image = LoadSaveHDScaledImage(window, this, file);
+        button.create(image, 2);
+        button.visible = true;
+        invalidate image;
+    }
+
+    function refreshFooterButtonsHD()
+    {
+        var suffix = _fLoad ? "_load.png" : "_save.png";
+        refreshFooterButtonImageHD(
+            _btnReturnTitle, "button_return_title" + suffix
+        );
+        refreshFooterButtonImageHD(
+            _btnReturnGame, "button_return_game" + suffix
+        );
+        refreshFooterButtonImageHD(
+            _btnSettings, "button_settings" + suffix
+        );
+        refreshFooterButtonImageHD(_btnDelete, "button_delete" + suffix);
+        refreshFooterButtonImageHD(_btnCopy, "button_copy" + suffix);
+        refreshFooterButtonImageHD(_btnMove, "button_move" + suffix);
+
+        _btnReturnTitle.valid = true;
+        _btnReturnGame.valid = !_fFromTitle;
+        _btnReturnGame.opacity = _fFromTitle ? 96 : 255;
+        _btnSettings.valid = true;
+        _btnDelete.valid = true;
+        _btnCopy.valid = true;
+        _btnMove.valid = true;
+        syncOperationButtonHighlights();
+    }
+
+    function isQuickSavePage()
+    {
+        return _fLoad && _pageNo == LoadSaveHDNormalPageCount();
+    }
+
+    function availablePageCount()
+    {
+        // The legacy transfer UI hides the quick-save book while choosing a
+        // destination. Keep quick saves out of every HD management mode too.
+        if(_fLoad && _mode != LOADSAVE_HD_MODE_NORMAL)
+            return LoadSaveHDNormalPageCount();
+        return _pageCount;
+    }
+
+    function getSlotInfo(slotIndex)
+    {
+        if(isQuickSavePage())
+        {
+            if(slotIndex >= saveMan.qsaveStack()) return void;
+            return saveMan.atQSave(slotIndex);
+        }
+
+        var dataIndex = _slotDataIndex[slotIndex];
+        if(dataIndex < 0 || dataIndex >= LoadSaveHDNormalSaveCount()) return void;
+        return saveMan.at(dataIndex);
+    }
+
+    function setPage(page)
+    {
+        var pageCount = availablePageCount();
+        if(page < 0) page = 0;
+        if(page >= pageCount) page = pageCount - 1;
+        _pageNo = page;
+        LOADSAVE_HD_LAST_PAGE = page;
+
+        var quickPage = isQuickSavePage();
+        for(var i = 0; i < LOADSAVE_HD_SLOTS_PER_PAGE; i++)
+        {
+            _slotDataIndex[i] = quickPage ? -1 : page * LOADSAVE_HD_SLOTS_PER_PAGE + i;
+            refreshSlot(i);
+        }
+
+        drawPageLabel();
+        updateScrollThumb();
+        updateNavigationState();
+        updateStatusText();
+
+        if(_selectedSlot >= 0)
+            showPreview(_selectedSlot);
+        else
+            clearPreview();
+    }
+
+    function refreshSlot(slotIndex)
+    {
+        var number = _slotNumber[slotIndex];
+        var comment = _slotComment[slotIndex];
+        var date = _slotDate[slotIndex];
+        var thumb = _slotThumb[slotIndex];
+        var button = _slotButton[slotIndex];
+        var info = getSlotInfo(slotIndex);
+
+        number.fillRect(0, 0, number.width, number.height, 0);
+        comment.fillRect(0, 0, comment.width, comment.height, 0);
+        date.fillRect(0, 0, date.width, date.height, 0);
+        thumb.fillRect(0, 0, thumb.width, thumb.height, 0);
+        thumb.visible = false;
+
+        var shadow = _fLoad ? 0x2b84a0 : 0x724374;
+        var slotName = getSlotDisplayName(slotIndex);
+        number.drawText(0, 0, slotName, 0xffffff, 255, true, 1024, shadow, 1);
+
+        if(info !== void && info.valid)
+        {
+            loadThumbnail(thumb, info.file);
+            LoadSaveHDDrawWrappedText(
+                comment, info.comment, 0xffffff, shadow,
+                ScaleLoadSaveHDY(22), 2
+            );
+
+            var dateText = LoadSaveDisplayDate(info.realDate, info.gameDate);
+            date.drawText(0, 0, dateText, 0xffffff, 255, true, 1024, shadow, 1);
+
+            if(info.lock !== void && info.lock)
+            {
+                var lockText = "LOCK";
+                number.drawText(
+                    number.width - number.font.getTextWidth(lockText), 0,
+                    lockText, 0xffffff, 255, true, 1024, shadow, 1
+                );
+            }
+        }
+
+        button.valid = true;
+        button.opacity = (_sourceIndex == _slotDataIndex[slotIndex]) ? 72 : 1;
+    }
+
+    function getSlotDisplayName(slotIndex)
+    {
+        if(isQuickSavePage()) return "Q-%02d".sprintf(slotIndex + 1);
+        return "s%04d-%02d".sprintf(_pageNo + 1, slotIndex + 1);
+    }
+
+    function loadThumbnail(target, filename)
+    {
+        if(filename === void || filename == "") return false;
+
+        var image = new global.Layer(window, this);
+        var loaded = false;
+        try
+        {
+            if(Storages.isExistentStorage(DATA_PATH + filename))
+                image.loadImages(DATA_PATH + filename);
+            else if(Storages.isExistentStorage(filename))
+                image.loadImages(filename);
+            else if(Storages.isExistentStorage("savedata/" + filename))
+                image.loadImages("savedata/" + filename);
+            else
+                throw "thumbnail not found";
+
+            image.setSizeToImageSize();
+            target.stretchCopy(
+                0, 0, target.width, target.height,
+                image, 0, 0, image.width, image.height, stFastLinear
+            );
+            target.visible = true;
+            loaded = true;
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD thumbnail failed: " + filename + ": " + e);
+            target.visible = false;
+        }
+        invalidate image;
+        return loaded;
+    }
+
+    function drawPageLabel()
+    {
+        _pageLabel.fillRect(0, 0, _pageLabel.width, _pageLabel.height, 0);
+        var label = isQuickSavePage() ? "Q" : "%02d".sprintf(_pageNo + 1);
+        var shadow = _fLoad ? 0x2b84a0 : 0x724374;
+        var x = (_pageLabel.width - _pageLabel.font.getTextWidth(label)) \ 2;
+        _pageLabel.drawText(
+            x, ScaleLoadSaveHDY(LOADSAVE_HD_PAGE_TEXT_TOP), label,
+            0xffffff, 255, true, 1024, shadow, 1
+        );
+    }
+
+    function updateScrollThumb()
+    {
+        var pageCount = availablePageCount();
+        var available =
+            LOADSAVE_HD_SCROLL_CENTER_BOTTOM - LOADSAVE_HD_SCROLL_CENTER_TOP;
+        var centerY = LOADSAVE_HD_SCROLL_CENTER_TOP;
+        if(pageCount > 1)
+            centerY += (_pageNo * available) \ (pageCount - 1);
+        var y = centerY - (LOADSAVE_HD_SCROLL_THUMB_HEIGHT \ 2);
+        _scrollThumb.setPos(ScaleLoadSaveHDX(1796), ScaleLoadSaveHDY(y));
+    }
+
+    function updateNavigationState()
+    {
+        var pageCount = availablePageCount();
+        var canGoBack = _pageNo > 0;
+        var canGoForward = _pageNo < pageCount - 1;
+        _navButton[0].valid = canGoBack;
+        _navButton[1].valid = canGoBack;
+        _navButton[2].valid = canGoBack;
+        _navButton[3].valid = canGoForward;
+        _navButton[4].valid = canGoForward;
+        _navButton[5].valid = canGoForward;
+    }
+
+    function clearPreview()
+    {
+        _previewThumb.fillRect(0, 0, _previewThumb.width, _previewThumb.height, 0);
+        _previewThumb.visible = false;
+        _previewDate.fillRect(0, 0, _previewDate.width, _previewDate.height, 0);
+        _previewPath.fillRect(0, 0, _previewPath.width, _previewPath.height, 0);
+        _previewComment.fillRect(0, 0, _previewComment.width, _previewComment.height, 0);
+        _btnEditComment.valid = false;
+    }
+
+    function showPreview(slotIndex)
+    {
+        clearPreview();
+        var info = getSlotInfo(slotIndex);
+        if(info === void || !info.valid) return;
+
+        loadThumbnail(_previewThumb, info.file);
+        var shadow = _fLoad ? 0x2b84a0 : 0x724374;
+        var dateText = LoadSaveDisplayDate(info.realDate, info.gameDate);
+        _previewDate.drawText(0, 0, dateText, 0xffffff, 255, true, 1024, shadow, 1);
+        LoadSaveHDDrawWrappedText(
+            _previewPath, LoadSaveHDLocalDataPath(), 0xffffff, shadow,
+            ScaleLoadSaveHDY(27), 2
+        );
+        LoadSaveHDDrawWrappedText(
+            _previewComment, info.comment, 0xffffff, shadow,
+            ScaleLoadSaveHDY(31), 3
+        );
+        _btnEditComment.valid = !isQuickSavePage() &&
+            (info.lock === void || !info.lock);
+    }
+
+    function onSlotEnter(slotIndex)
+    {
+        _hoverSlot = slotIndex;
+        _selectedSlot = slotIndex;
+        _slotButton[slotIndex].opacity = 148;
+        showPreview(slotIndex);
+        updateSlotHoverStatus(slotIndex);
+    }
+
+    function onSlotLeave(slotIndex)
+    {
+        _hoverSlot = -1;
+        _slotButton[slotIndex].opacity =
+            (_sourceIndex == _slotDataIndex[slotIndex]) ? 72 : 1;
+        restoreStatusText();
+    }
+
+    function onSlotClick(slotIndex)
+    {
+        if(confirm || IsLoadProccesing()) return;
+        _selectedSlot = slotIndex;
+        showPreview(slotIndex);
+
+        if(isQuickSavePage())
+        {
+            if(_mode != LOADSAVE_HD_MODE_NORMAL)
+            {
+                setStatusText("快速存档页只支持读取。", true);
+                return;
+            }
+            beginLoad(slotIndex);
+            return;
+        }
+
+        var dataIndex = _slotDataIndex[slotIndex];
+        if(dataIndex < 0 || dataIndex >= LoadSaveHDNormalSaveCount()) return;
+        var info = saveMan.at(dataIndex);
+
+        switch(_mode)
+        {
+        case LOADSAVE_HD_MODE_DELETE:
+            if(!info.valid)
+            {
+                setStatusText("此槽位没有可删除的存档。", true);
+                return;
+            }
+            if(info.lock)
+            {
+                setStatusText("锁定的存档不能删除。", true);
+                return;
+            }
+            _pendingIndex = dataIndex;
+            confirm = true;
+            if(CONFIG.confirmWindow[SystemRegister.CONFIRM_DELETE])
+                PlaySystemVoice("データ削除：確認");
+            CallConfirm(
+                "存档删除确认", SystemRegister.CONFIRM_DELETE,
+                deleteDecideHD, operationCancelHD
+            );
+            return;
+
+        case LOADSAVE_HD_MODE_COPY:
+        case LOADSAVE_HD_MODE_MOVE:
+            handleTransferClick(dataIndex, info);
+            return;
+        }
+
+        if(_fLoad)
+            beginLoad(slotIndex);
+        else
+            beginSave(dataIndex, info);
+    }
+
+    function beginLoad(slotIndex)
+    {
+        var info = getSlotInfo(slotIndex);
+        if(info === void || !info.valid) return;
+
+        _targetFile = info.file;
+        confirm = true;
+        PlaySystemVoice("ロード：確認");
+        CallConfirm(
+            "$c:aquamarine,midnightblue;存档读取确认",
+            SystemRegister.CONFIRM_LOAD, loadDecideHD, actionCancelHD
+        );
+    }
+
+    function loadDecideHD()
+    {
+        confirm = false;
+        PlaySystemVoice("ロード：実行");
+        hide(300, LoadSaveDeleteHD);
+    }
+
+    function beginSave(dataIndex, info)
+    {
+        if(_adv === null || (info.lock !== void && info.lock)) return;
+
+        _pendingIndex = dataIndex;
+        _targetFile = LoadSaveHDSlotFilename(dataIndex);
+        if(info.valid)
+        {
+            confirm = true;
+            PlaySystemVoice("セーブ：上書き");
+            CallConfirm(
+                "$c:violet,indygo;存档覆盖确认",
+                SystemRegister.CONFIRM_OVERWRITE, saveDecideHD, actionCancelHD
+            );
+        }
+        else
+        {
+            saveDecideHD();
+        }
+    }
+
+    function saveDecideHD()
+    {
+        confirm = false;
+        if(_pendingIndex < 0 || _targetFile == "") return;
+
+        PlaySystemVoice("セーブ：実行");
+        VisibleSettingWindow(false);
+        var saveOk = false;
+        try
+        {
+            var save = new Savedata();
+            save.set(_adv);
+            save.save(_targetFile, _pendingIndex, _adv);
+            invalidate save;
+            saveOk = true;
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD save failed: " + e);
+        }
+        VisibleSettingWindow(true);
+
+        if(saveOk)
+        {
+            sysReg._newSaveNo = _pendingIndex + 1;
+            SaveSystemRegister();
+            refreshSlot(_pendingIndex % LOADSAVE_HD_SLOTS_PER_PAGE);
+            showPreview(_pendingIndex % LOADSAVE_HD_SLOTS_PER_PAGE);
+        }
+
+        _pendingIndex = -1;
+        _targetFile = "";
+        updateStatusText();
+    }
+
+    function updateTransferPreviewPosition()
+    {
+        if(!_transferPreview.visible) return;
+        _transferPreview.setPos(
+            window.primaryLayer.cursorX - (_transferPreview.width \ 2),
+            window.primaryLayer.cursorY + ScaleLoadSaveHDY(4)
+        );
+    }
+
+    function showTransferPreviewHD(dataIndex, info)
+    {
+        _transferPreviewThumb.fillRect(
+            0, 0, _transferPreviewThumb.width, _transferPreviewThumb.height, 0
+        );
+        _transferPreviewThumb.visible = false;
+        _transferPreviewNumber.fillRect(
+            0, 0, _transferPreviewNumber.width, _transferPreviewNumber.height, 0
+        );
+        _transferPreviewComment.fillRect(
+            0, 0, _transferPreviewComment.width, _transferPreviewComment.height, 0
+        );
+        _transferPreviewDate.fillRect(
+            0, 0, _transferPreviewDate.width, _transferPreviewDate.height, 0
+        );
+
+        loadThumbnail(_transferPreviewThumb, info.file);
+        var shadow = _fLoad ? 0x2b84a0 : 0x724374;
+        var sourcePage = dataIndex \ LOADSAVE_HD_SLOTS_PER_PAGE;
+        var sourceSlot = dataIndex % LOADSAVE_HD_SLOTS_PER_PAGE;
+        var slotName = "s%04d-%02d".sprintf(sourcePage + 1, sourceSlot + 1);
+        _transferPreviewNumber.drawText(
+            0, 0, slotName, 0xffffff, 255, true, 1024, shadow, 1
+        );
+        LoadSaveHDDrawWrappedText(
+            _transferPreviewComment, info.comment, 0xffffff, shadow,
+            ScaleLoadSaveHDY(22), 2
+        );
+        var dateText = LoadSaveDisplayDate(info.realDate, info.gameDate);
+        _transferPreviewDate.drawText(
+            0, 0, dateText, 0xffffff, 255, true, 1024, shadow, 1
+        );
+
+        _transferPreview.visible = true;
+        updateTransferPreviewPosition();
+    }
+
+    function hideTransferPreviewHD()
+    {
+        _transferPreview.visible = false;
+    }
+
+    function handleTransferClick(dataIndex, info)
+    {
+        if(_sourceIndex < 0)
+        {
+            if(!info.valid)
+            {
+                setStatusText("请选择已有存档作为来源。", true);
+                return;
+            }
+            if(info.lock)
+            {
+                setStatusText("锁定的存档不能作为来源。", true);
+                return;
+            }
+            _sourceIndex = dataIndex;
+            if(_mode == LOADSAVE_HD_MODE_COPY)
+                PlaySystemVoice("データコピー");
+            else
+                PlaySystemVoice("データ移動：開始");
+            showTransferPreviewHD(dataIndex, info);
+            refreshAllSlotHighlights();
+            updateStatusText();
+            return;
+        }
+
+        if(dataIndex == _sourceIndex)
+        {
+            setStatusText("来源和目标不能是同一个槽位。", true);
+            return;
+        }
+        if(info.lock !== void && info.lock)
+        {
+            setStatusText("锁定的存档不能作为目标。", true);
+            return;
+        }
+        _pendingDestination = dataIndex;
+        hideTransferPreviewHD();
+        confirm = true;
+        if(_mode == LOADSAVE_HD_MODE_COPY)
+        {
+            if(CONFIG.confirmWindow[SystemRegister.CONFIRM_COPY])
+                PlaySystemVoice("データコピー：確認");
+            CallConfirm(
+                "存档复制确认", SystemRegister.CONFIRM_COPY,
+                copyDecideHD, operationCancelHD
+            );
+        }
+        else
+        {
+            if(CONFIG.confirmWindow[SystemRegister.CONFIRM_MOVE])
+                PlaySystemVoice("データ移動：確認");
+            CallConfirm(
+                "存档移动确认", SystemRegister.CONFIRM_MOVE,
+                moveDecideHD, operationCancelHD
+            );
+        }
+    }
+
+    function copyDecideHD()
+    {
+        confirm = false;
+        saveMan.copy(_sourceIndex, _pendingDestination);
+        finishTransferHD();
+    }
+
+    function moveDecideHD()
+    {
+        confirm = false;
+        saveMan.move(_sourceIndex, _pendingDestination);
+        finishTransferHD();
+    }
+
+    function finishTransferHD()
+    {
+        resetOperationStateHD();
+        setPage(_pageNo);
+    }
+
+    function deleteDecideHD()
+    {
+        confirm = false;
+        if(_pendingIndex >= 0) saveMan.del(_pendingIndex);
+        resetOperationStateHD();
+        setPage(_pageNo);
+    }
+
+    function operationCancelHD()
+    {
+        confirm = false;
+        resetOperationStateHD();
+        refreshAllSlotHighlights();
+        updateScrollThumb();
+        updateNavigationState();
+        updateStatusText();
+    }
+
+    function actionCancelHD()
+    {
+        confirm = false;
+        _pendingIndex = -1;
+        _pendingDestination = -1;
+        _targetFile = "";
+        updateStatusText();
+    }
+
+    function refreshAllSlotHighlights()
+    {
+        for(var i = 0; i < _slotButton.count; i++)
+            _slotButton[i].opacity =
+                (_sourceIndex == _slotDataIndex[i]) ? 72 : 1;
+    }
+
+    function syncOperationButtonHighlights()
+    {
+        _btnDelete.modeActive = _mode == LOADSAVE_HD_MODE_DELETE;
+        _btnCopy.modeActive = _mode == LOADSAVE_HD_MODE_COPY;
+        _btnMove.modeActive = _mode == LOADSAVE_HD_MODE_MOVE;
+    }
+
+    function resetOperationStateHD()
+    {
+        hideTransferPreviewHD();
+        _mode = LOADSAVE_HD_MODE_NORMAL;
+        _sourceIndex = -1;
+        _pendingIndex = -1;
+        _pendingDestination = -1;
+        _targetFile = "";
+        syncOperationButtonHighlights();
+    }
+
+    function leaveOperationModeHD()
+    {
+        resetOperationStateHD();
+        refreshAllSlotHighlights();
+        updateScrollThumb();
+        updateNavigationState();
+        updateStatusText();
+    }
+
+    function setOperationMode(mode)
+    {
+        if(_mode == mode)
+        {
+            leaveOperationModeHD();
+            return;
+        }
+
+        if(isQuickSavePage())
+        {
+            setStatusText("快速存档页只支持读取。", true);
+            return;
+        }
+
+        _mode = mode;
+        hideTransferPreviewHD();
+        _sourceIndex = -1;
+        _pendingIndex = -1;
+        _pendingDestination = -1;
+        _targetFile = "";
+        syncOperationButtonHighlights();
+        refreshAllSlotHighlights();
+        updateScrollThumb();
+        updateNavigationState();
+        updateStatusText();
+    }
+
+    function setStatusText(text, warning = false)
+    {
+        _statusText.fillRect(0, 0, _statusText.width, _statusText.height, 0);
+        var shadow = _fLoad ? 0x2b84a0 : 0x724374;
+        var color = warning ? 0xffeeee : 0xffffff;
+        _statusText.drawText(0, 0, text, color, 255, true, 1024, shadow, 1);
+    }
+
+    function updateStatusText()
+    {
+        switch(_mode)
+        {
+        case LOADSAVE_HD_MODE_DELETE:
+            setStatusText("删除模式：请选择要删除的存档。");
+            break;
+        case LOADSAVE_HD_MODE_COPY:
+            setStatusText(
+                _sourceIndex < 0 ?
+                    "复制模式：请选择源存档。" :
+                    "复制模式：请选择目标槽位。"
+            );
+            break;
+        case LOADSAVE_HD_MODE_MOVE:
+            setStatusText(
+                _sourceIndex < 0 ?
+                    "移动模式：请选择源存档。" :
+                    "移动模式：请选择目标槽位。"
+            );
+            break;
+        default:
+            setStatusText(_fLoad ? "选择存档进行读取。" : "选择槽位保存当前进度。");
+            break;
+        }
+    }
+
+    function restoreStatusText()
+    {
+        if(_pageEdit.visible)
+        {
+            setStatusText("输入页码后按 Enter 跳转，Esc 取消。");
+            return;
+        }
+        if(_editComment.visible)
+        {
+            setStatusText("正在编辑注释：按 Enter 保存，Esc 取消。");
+            return;
+        }
+        updateStatusText();
+    }
+
+    function updateSlotHoverStatus(slotIndex)
+    {
+        var slotName = getSlotDisplayName(slotIndex);
+        switch(_mode)
+        {
+        case LOADSAVE_HD_MODE_DELETE:
+            setStatusText("删除存档  " + slotName);
+            return;
+        case LOADSAVE_HD_MODE_COPY:
+            setStatusText(
+                (_sourceIndex < 0 ? "选择复制源存档  " : "复制到目标槽位  ") + slotName
+            );
+            return;
+        case LOADSAVE_HD_MODE_MOVE:
+            setStatusText(
+                (_sourceIndex < 0 ? "选择移动源存档  " : "移动到目标槽位  ") + slotName
+            );
+            return;
+        }
+
+        if(_fLoad)
+        {
+            var info = getSlotInfo(slotIndex);
+            if(info === void || !info.valid)
+                setStatusText("此槽位没有可读取的存档。", true);
+            else
+                setStatusText("读取  " + slotName);
+        }
+        else
+        {
+            setStatusText("保存进度  " + slotName);
+        }
+    }
+
+    function onButtonEnter(target)
+    {
+        if(_pageEdit.visible || _editComment.visible) return;
+
+        switch(target)
+        {
+        case _btnReturnTitle: setStatusText("返回游戏主页。"); return;
+        case _btnReturnGame: setStatusText("返回当前游戏界面。"); return;
+        case _btnSettings: setStatusText("打开设置。"); return;
+        case _btnDelete: setStatusText("进入或退出存档删除模式。"); return;
+        case _btnCopy: setStatusText("进入或退出存档复制模式。"); return;
+        case _btnMove: setStatusText("进入或退出存档移动模式。"); return;
+        case _btnOpenFolder: setStatusText("打开存档所在文件夹。"); return;
+        case _btnEditComment: setStatusText("修改当前存档的文本注释。"); return;
+        case _btnPageJump: setStatusText("输入页码并跳转。"); return;
+        case _btnModeSave:
+            if(_fFromTitle || _adv === null)
+                setStatusText("当前没有可保存的游戏进度。", true);
+            else if(_fLoad)
+                setStatusText("切换到存档界面。");
+            else
+                setStatusText("当前是存档界面。");
+            return;
+        case _btnModeLoad:
+            if(_fLoad)
+                setStatusText("当前是读取界面。");
+            else
+                setStatusText("切换到读取界面。");
+            return;
+        case _navButton[0]: setStatusText("跳转至第一页。"); return;
+        case _navButton[1]: setStatusText("向前跳转十页。"); return;
+        case _navButton[2]: setStatusText("跳转至上一页。"); return;
+        case _navButton[3]: setStatusText("跳转至下一页。"); return;
+        case _navButton[4]: setStatusText("向后跳转十页。"); return;
+        case _navButton[5]: setStatusText("跳转至最后一页。"); return;
+        }
+    }
+
+    function onButtonLeave(target)
+    {
+        restoreStatusText();
+    }
+
+    function onFooterEnter(index)
+    {
+        if(_pageEdit.visible || _editComment.visible) return;
+
+        var hints = [
+            "返回游戏主页。",
+            "返回当前游戏界面。",
+            "打开设置。",
+            "进入或退出存档删除模式。",
+            "进入或退出存档复制模式。",
+            "进入或退出存档移动模式。"
+        ];
+        if(index >= 0 && index < hints.count)
+            setStatusText(hints[index]);
+        invalidate hints;
+    }
+
+    function onFooterLeave(index)
+    {
+        restoreStatusText();
+    }
+
+    function changePage(delta)
+    {
+        setPage(_pageNo + delta);
+    }
+
+    function onNavigationButtonDown(target)
+    {
+        if(confirm) return;
+        _pressedNavigation = target;
+        switch(target.navIndex)
+        {
+        case 0: setPage(0); break;
+        case 1: changePage(-10); break;
+        case 2: changePage(-1); break;
+        case 3: changePage(1); break;
+        case 4: changePage(10); break;
+        case 5: setPage(_pageCount - 1); break;
+        }
+    }
+
+    function scrollbarCenterForPage()
+    {
+        var pageCount = availablePageCount();
+        if(pageCount <= 1) return LOADSAVE_HD_SCROLL_CENTER_TOP;
+        return LOADSAVE_HD_SCROLL_CENTER_TOP +
+            (_pageNo * (
+                LOADSAVE_HD_SCROLL_CENTER_BOTTOM -
+                LOADSAVE_HD_SCROLL_CENTER_TOP
+            )) \ (pageCount - 1);
+    }
+
+    function pageFromScrollbar(y)
+    {
+        var pageCount = availablePageCount();
+        var designY = (int(y) * LOADSAVE_HD_BASE_HEIGHT) \ WINDOW_HEIGHT;
+        designY -= _scrollDragOffsetY;
+        if(designY < LOADSAVE_HD_SCROLL_CENTER_TOP)
+            designY = LOADSAVE_HD_SCROLL_CENTER_TOP;
+        if(designY > LOADSAVE_HD_SCROLL_CENTER_BOTTOM)
+            designY = LOADSAVE_HD_SCROLL_CENTER_BOTTOM;
+
+        var range =
+            LOADSAVE_HD_SCROLL_CENTER_BOTTOM - LOADSAVE_HD_SCROLL_CENTER_TOP;
+        var page = (
+            (designY - LOADSAVE_HD_SCROLL_CENTER_TOP) * (pageCount - 1) +
+            (range \ 2)
+        ) \ range;
+        setPage(page);
+    }
+
+    function onMouseWheel(shift, delta, x, y)
+    {
+        if(confirm) return;
+        if(delta < 0) changePage(1);
+        else if(delta > 0) changePage(-1);
+    }
+
+    function onMouseMove(x, y, shift)
+    {
+        updateTransferPreviewPosition();
+        if(_draggingScrollbar)
+        {
+            // Mouse-move events can originate from the captured thumb layer,
+            // so their y argument is local to that moving layer. Always use
+            // the primary layer cursor position, which stays in window space.
+            pageFromScrollbar(window.primaryLayer.cursorY);
+        }
+    }
+
+    function onMouseUp(x, y, button, shift)
+    {
+        if(button == mbLeft)
+        {
+            _draggingScrollbar = false;
+            _scrollDragOffsetY = 0;
+            if(_pressedNavigation !== null)
+            {
+                _pressedNavigation.releasePressed();
+                _pressedNavigation = null;
+            }
+        }
+    }
+
+    function onMouseDown(x, y, button, shift, windowNotify = false)
+    {
+        if(confirm) return;
+
+        // The window input notifier supplies full-window coordinates. Ignore
+        // the duplicate layer notification, whose local coordinates caused
+        // the thumb to jump to the first page before a drag began.
+        if(!windowNotify) return;
+
+        if(button == mbRight)
+        {
+            if(_mode != LOADSAVE_HD_MODE_NORMAL)
+                setOperationMode(_mode);
+            else
+            {
+                confirm = true;
+                hide(300, LoadSaveDeleteHD);
+            }
+            return;
+        }
+        if(button != mbLeft) return;
+
+        var windowX = window.primaryLayer.cursorX;
+        var windowY = window.primaryLayer.cursorY;
+        var designX = (int(windowX) * LOADSAVE_HD_BASE_WIDTH) \ WINDOW_WIDTH;
+        var designY = (int(windowY) * LOADSAVE_HD_BASE_HEIGHT) \ WINDOW_HEIGHT;
+        if(designX >= 1785 && designX <= 1850 && designY >= 306 && designY <= 813)
+        {
+            _draggingScrollbar = true;
+            var thumbCenterY = scrollbarCenterForPage();
+            var thumbHalfHeight = LOADSAVE_HD_SCROLL_THUMB_HEIGHT \ 2;
+            if(designY >= thumbCenterY - thumbHalfHeight &&
+                designY <= thumbCenterY + thumbHalfHeight)
+            {
+                // Preserve where inside the knob the mouse was pressed.
+                _scrollDragOffsetY = designY - thumbCenterY;
+            }
+            else
+            {
+                // Clicking the empty rail intentionally centers the knob at
+                // the pointer and jumps to the corresponding page.
+                _scrollDragOffsetY = 0;
+                pageFromScrollbar(windowY);
+            }
+            return;
+        }
+
+    }
+
+    function openSaveDataFolderHD()
+    {
+        var folder = LoadSaveHDLocalDataPath();
+
+        try
+        {
+            var folderUrl = folder;
+            if(folderUrl.indexOf("file://") != 0)
+                folderUrl = "file://" + folderUrl;
+            folderUrl = folderUrl.replace(/ /g, "%20");
+            dm("LoadSaveWindowHD opening savedata folder: " + folderUrl);
+            System.shellExecute(folderUrl);
+            setStatusText("已打开存档目录。");
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD open savedata folder failed: " + folder + ": " + e);
+            setStatusText("无法打开存档目录。", true);
+        }
+    }
+
+    function beginPageEdit()
+    {
+        _pageEdit.text = "%02d".sprintf(_pageNo + 1);
+        _pageEdit.goEndCaret();
+        _pageEdit.visible = true;
+        _pageLabel.visible = false;
+        _pageEdit.focus();
+        setStatusText("输入页码后按 Enter 跳转，Esc 取消。");
+    }
+
+    function commitPageEdit(text)
+    {
+        var pageCount = availablePageCount();
+        var pageNumber = 0;
+        try{ pageNumber = int text; }catch(e){ pageNumber = 0; }
+        if(pageNumber < 1 || pageNumber > pageCount)
+        {
+            setStatusText("请输入 1 到 %d 之间的页码。".sprintf(pageCount), true);
+            return;
+        }
+        setPage(pageNumber - 1);
+    }
+
+    function beginCommentEdit()
+    {
+        if(_selectedSlot < 0 || isQuickSavePage()) return;
+        var dataIndex = _slotDataIndex[_selectedSlot];
+        if(dataIndex < 0) return;
+        var info = saveMan.at(dataIndex);
+        if(!info.valid || info.lock) return;
+
+        _pendingIndex = dataIndex;
+        _editComment.text = info.comment;
+        _editComment.goEndCaret();
+        _editComment.visible = true;
+        _editComment.focus();
+        _previewComment.visible = false;
+        setStatusText("正在编辑注释：按 Enter 保存，Esc 取消。");
+    }
+
+    function onEditControlOk(target)
+    {
+        if(target == _pageEdit)
+        {
+            commitPageEdit(target.text);
+            return;
+        }
+
+        if(_pendingIndex >= 0)
+        {
+            var info = saveMan.at(_pendingIndex);
+            info.comment_edit = true;
+            info.comment = target.text;
+            saveMan.save();
+        }
+        _editComment.visible = false;
+        _previewComment.visible = true;
+        _pendingIndex = -1;
+        setPage(_pageNo);
+    }
+
+    function onEditControlLeave(target)
+    {
+        if(target == _pageEdit)
+        {
+            _pageEdit.visible = false;
+            _pageLabel.visible = true;
+            updateStatusText();
+            return;
+        }
+
+        _editComment.visible = false;
+        _previewComment.visible = true;
+        if(_selectedSlot >= 0) showPreview(_selectedSlot);
+        updateStatusText();
+    }
+
+    function openSettingsHD()
+    {
+        LOADSAVE_HD_PENDING_CONFIG = true;
+        LOADSAVE_HD_PENDING_ADV = _adv;
+        LOADSAVE_HD_PENDING_FROM_TITLE = _fFromTitle;
+        confirm = true;
+        hide(300, LoadSaveDeleteHD);
+    }
+
+    function returnTitleHD()
+    {
+        if(_fFromTitle)
+        {
+            confirm = true;
+            hide(300, LoadSaveDeleteHD);
+            return;
+        }
+
+        if(_adv !== null)
+        {
+            _adv.save("asave.bmp", -2);
+            confirm = true;
+            hide(300, LoadSaveDeleteHD);
+            _adv.returnTo(SCENE_TITLE);
+            _adv = null;
+            return;
+        }
+
+        confirm = true;
+        hide(300, LoadSaveDeleteHD);
+    }
+
+    function switchModeHD(fLoad)
+    {
+        if(fLoad == _fLoad) return;
+
+        // A load window opened from the title has no active game state to
+        // save. Its save tab is disabled, and this guard also protects calls
+        // made without going through the button's valid-state check.
+        if(!fLoad && (_fFromTitle || _adv === null))
+        {
+            setStatusText("当前没有可保存的游戏进度。", true);
+            return;
+        }
+
+        var incoming = null;
+        try
+        {
+            incoming = LoadSaveHDScaledSprite(
+                window, _backgroundRoot,
+                fLoad ? "background_load.png" : "background_save.png"
+            );
+            incoming.setPos(0, 0);
+            incoming.opacity = 255;
+            incoming.visible = false;
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD background switch failed: " + e);
+            if(incoming !== null) invalidate incoming;
+            setStatusText("无法切换存档界面。", true);
+            return;
+        }
+
+        confirm = true;
+        window.editControlLeave();
+        _draggingScrollbar = false;
+        _scrollDragOffsetY = 0;
+        if(_pressedNavigation !== null)
+        {
+            _pressedNavigation.releasePressed();
+            _pressedNavigation = null;
+        }
+        resetOperationStateHD();
+        _hoverSlot = -1;
+        _selectedSlot = -1;
+
+        var page = _pageNo;
+        _fLoad = fLoad;
+        _pageCount = LoadSaveHDNormalPageCount() + (_fLoad ? 1 : 0);
+        refreshModeHotspotsHD();
+        refreshFooterButtonsHD();
+        refreshScrollThumbImageHD();
+        refreshTransferPreviewBackgroundHD(incoming);
+        setPage(page);
+
+        _backgroundIncoming = incoming;
+        _background.setTransitionCompleteCall(
+            finishModeBackgroundTransitionHD, true
+        );
+        try
+        {
+            // Native crossfade interpolates the RGBA pixels inside the stable
+            // background subtree. withchildren=false keeps every dynamic
+            // control out of the transition.
+            _background.beginTransition(
+                "crossfade", false, _backgroundIncoming,
+                %[time:LOADSAVE_HD_MODE_TRANSITION_TIME]
+            );
+        }
+        catch(e)
+        {
+            dm("LoadSaveWindowHD background transition failed: " + e);
+            _background.setTransitionCompleteCall();
+            var outgoing = _background;
+            outgoing.stopTransition();
+            _background = _backgroundIncoming;
+            _backgroundIncoming = null;
+            outgoing.visible = false;
+            _background.visible = true;
+            invalidate outgoing;
+            confirm = false;
+            window.flushMouseTracking();
+        }
+    }
+
+    function finishModeBackgroundTransitionHD()
+    {
+        if(_backgroundIncoming === null)
+        {
+            confirm = false;
+            return;
+        }
+
+        // Crossfade uses the engine's exchange transition: the incoming
+        // source owns the final visible image and the outgoing destination is
+        // left hidden after completion.
+        var outgoing = _background;
+        outgoing.setTransitionCompleteCall();
+        _background = _backgroundIncoming;
+        _backgroundIncoming = null;
+        invalidate outgoing;
+
+        confirm = false;
+        window.flushMouseTracking();
+    }
+
+    function onButtonDownL(target)
+    {
+        if(confirm) return;
+
+        switch(target)
+        {
+        case _btnModeSave:
+            switchModeHD(false);
+            return;
+        case _btnModeLoad:
+            switchModeHD(true);
+            return;
+        case _btnPageJump:
+            beginPageEdit();
+            return;
+        case _btnOpenFolder:
+            openSaveDataFolderHD();
+            return;
+        case _btnEditComment:
+            beginCommentEdit();
+            return;
+        case _btnReturnTitle:
+            returnTitleHD();
+            return;
+        case _btnReturnGame:
+            confirm = true;
+            hide(300, LoadSaveDeleteHD);
+            return;
+        case _btnSettings:
+            openSettingsHD();
+            return;
+        case _btnDelete:
+            setOperationMode(LOADSAVE_HD_MODE_DELETE);
+            return;
+        case _btnCopy:
+            setOperationMode(LOADSAVE_HD_MODE_COPY);
+            return;
+        case _btnMove:
+            setOperationMode(LOADSAVE_HD_MODE_MOVE);
+            return;
+        }
+    }
+
+    function isCursorOverControl(target)
+    {
+        var pos = new Point(0, 0);
+        GetAbsolutePos(target, pos, win.baseLayer);
+        var x = window.primaryLayer.cursorX;
+        var y = window.primaryLayer.cursorY;
+        var hit = x >= pos.x && x < pos.x + target.width &&
+            y >= pos.y && y < pos.y + target.height;
+        invalidate pos;
+        return hit;
+    }
+
+    function onKeyDown(key, shift)
+    {
+        if(confirm || IsLoadProccesing()) return;
+        switch(key)
+        {
+        case VK_RETURN:
+            // Enter on this hotspot starts text input immediately. Once the
+            // EditLayer has focus, it owns Enter (save) and Esc (discard).
+            if(window.isMouseTracking()) window.flushMouseTracking();
+            if(_btnEditComment.valid &&
+                (_btnEditComment.isEnter() || isCursorOverControl(_btnEditComment)))
+            {
+                // Run after this key event finishes. Otherwise the Return
+                // used to enter can immediately reach the newly focused
+                // EditLayer and save/close it again in the same frame.
+                _commentEditTrigger.trigger();
+                return;
+            }
+            if(_btnPageJump.valid &&
+                (_btnPageJump.isEnter() || isCursorOverControl(_btnPageJump)))
+            {
+                // As with comment editing, defer focus so this Return only
+                // opens the field instead of immediately confirming it.
+                _pageEditTrigger.trigger();
+                return;
+            }
+            break;
+        case VK_ESCAPE:
+            if(_mode != LOADSAVE_HD_MODE_NORMAL)
+                setOperationMode(_mode);
+            else
+            {
+                confirm = true;
+                hide(300, LoadSaveDeleteHD);
+            }
+            return;
+        case VK_PRIOR:
+            changePage(-1);
+            return;
+        case VK_NEXT:
+            changePage(1);
+            return;
+        }
+        super.onKeyDown(...);
+    }
+}
+
+function CallLoadSaveHD(fLoad = true, adv = null, fFromTitle = false)
+{
+    if(IsAnyWindow()) return false;
+
+    LOADSAVE_HD_PENDING_CONFIG = false;
+    LOADSAVE_HD_PENDING_ADV = null;
+    LOADSAVE_HD_PENDING_FROM_TITLE = false;
+
+    SPR_LOADSAVE = new LoadSaveWindowHD(win, win.baseLayer, true, fFromTitle);
+    SPR_LOADSAVE.create(fLoad, adv);
+    SPR_LOADSAVE.visible = true;
+    SPR_LOADSAVE.show(300);
+    return true;
+}
+
+function LoadSaveDeleteHD()
+{
+    if(SPR_LOADSAVE === null) return;
+
+    var file = SPR_LOADSAVE._targetFile;
+    invalidate SPR_LOADSAVE;
+    SPR_LOADSAVE = null;
+
+    var openConfig = LOADSAVE_HD_PENDING_CONFIG;
+    var adv = LOADSAVE_HD_PENDING_ADV;
+    var fromTitle = LOADSAVE_HD_PENDING_FROM_TITLE;
+    LOADSAVE_HD_PENDING_CONFIG = false;
+    LOADSAVE_HD_PENDING_ADV = null;
+    LOADSAVE_HD_PENDING_FROM_TITLE = false;
+
+    if(file != "")
+    {
+        game.action(%[type:"load", files:[file]]);
+    }
+    else if(openConfig)
+    {
+        if(typeof global.CallConfigHD != "undefined")
+            CallConfigHD(adv, fromTitle ? 0 : 1, fromTitle ? 0 : 1);
+        else
+            CallConfig(adv, fromTitle ? 0 : 1, fromTitle ? 0 : 1);
+    }
+}
