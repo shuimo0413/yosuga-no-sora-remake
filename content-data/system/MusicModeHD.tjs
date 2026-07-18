@@ -9,9 +9,7 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 	var _base;
 	var _btn = [];
-	var _btnCg;
-	var _btnMemory;
-	var _btnOst;
+	var _nav;
 
 	var _hitboxSrc;
 	var _hoverHitbox;
@@ -147,24 +145,8 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			addChainItem(_btn[i]);
 		}
 
-		_btnCg = new Button(win, _base);
-		_btnMemory = new Button(win, _base);
-		_btnOst = new Button(win, _base);
-
-		_btnCg.create(UI_ROOT + "CGbutton.png", 3);
-		_btnCg.hitThreshold = 0;
-		_btnCg.setPos(1400, 994);
-		addChainItem(_btnCg);
-
-		_btnMemory.create(UI_ROOT + "MEMORYbutton.png", 3);
-		_btnMemory.hitThreshold = 0;
-		_btnMemory.setPos(1568, 985);
-		addChainItem(_btnMemory);
-
-		_btnOst.create(UI_ROOT + "OSTbutton.png", 3);
-		_btnOst.hitThreshold = 0;
-		_btnOst.setPos(1744, 980);
-		_btnOst.valid = false;
+		_nav = new AppreciationBottomNav(win, _base, this, SCENE_MUSIC);
+		_nav.addToChain(this);
 
 		StopBgm();
 
@@ -181,9 +163,8 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		BGM.volume = _tempConfigVol;
 
 		InvalidateArray(_btn);
-		invalidate _btnCg;
-		invalidate _btnMemory;
-		invalidate _btnOst;
+		if(_nav !== void) _nav.finalize();
+		invalidate _nav;
 		invalidate _hoverHitbox;
 		invalidate _selHitbox;
 		invalidate _hitboxSrc;
@@ -271,8 +252,7 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 	function onButtonDownL(target)
 	{
-		if(target == _btnCg) { changeScene(SCENE_ALBUM); return; }
-		if(target == _btnMemory) { changeScene(SCENE_MEMORIES); return; }
+		if(_nav !== void && _nav.onButtonDownL(target)) return;
 
 		var i = findTrackIndex(target);
 		if(i < 0) return;
@@ -315,9 +295,10 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	function changeScene(scene)
 	{
 		HitThresholdSelectItems(_btn, 256);
-		if(_btnCg !== void) _btnCg.hitThreshold = 256;
-		if(_btnMemory !== void) _btnMemory.hitThreshold = 256;
-		game.changeScene(scene, true, %[submenu:1]);
+		if(_nav !== void) _nav.disableHits();
+		var param = %[];
+		if(scene == SCENE_TITLE) param = %[submenu:1];
+		game.changeScene(scene, true, param);
 		close();
 	}
 }

@@ -2046,7 +2046,7 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 
 		//フラグ系
 		onflag : function(elm){
-			onFlag(int GetElm(elm.id, 0));
+			onFlag(elm.id);
 			return taghandler_getcontinue;
 		} incontextof this,
 		offflag : function(elm){
@@ -4173,8 +4173,6 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		_ret_select_str = _select[id].text;
 		_logSelect.add(_ret_select);		//ログに記録
 
-		applyRouteFlagFromSelect(id);
-
 		//選択肢をログに保存
 		var sel = [];
 		sel.assignStruct(_logSelect);
@@ -4208,44 +4206,6 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 				}
 			}
 		}
-	}
-
-	//共通ルートの選択肢番号からキャラフラグを直接設定する（KAG @if 失敗時の保険）
-	function applyRouteFlagFromSelect(id){
-		if(id < 0 || _scenario.length < 7) return;
-
-		var scenarioKey = _scenario.toUpperCase();
-		var flagId = 0;
-		if(scenarioKey == "00_Z005" && id == 0) flagId = 1;
-		else if(scenarioKey == "00_Z008" && id == 0) flagId = 2;
-		else if(scenarioKey == "00_Z012" && id == 0) flagId = 3;
-		else if(scenarioKey == "00_Z014" && id == 0) flagId = 4;
-
-		if(flagId != 0){
-			onFlag(flagId);
-			dm("route flag set: " + scenarioKey + " select=" + (id + 1) + " -> flag " + flagId);
-		}
-	}
-
-	function resolveCharacterRouteFromFlags(){
-		if(chkFlagOn(1)) return "00_a001";
-		if(chkFlagOn(2)) return "00_b001";
-		if(chkFlagOn(3)) return "00_c001";
-		if(chkFlagOn(4)) return "00_d001";
-		return "";
-	}
-
-	//00_z015 / 00_e000 への遷移時、フラグが立っていれば該当キャラルートへ振り分ける
-	function resolveCommonRouteTarget(sc){
-		var target = ("" + sc).toUpperCase();
-		if(target != "00_Z015" && target != "00_E000") return sc;
-
-		var route = resolveCharacterRouteFromFlags();
-		if(route != ""){
-			dm("common route redirect: " + target + " -> " + route);
-			return route;
-		}
-		return sc;
 	}
 
 	//前・前の選択肢へジャンプ
@@ -5979,18 +5939,9 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		else			return (_fRecollect && (id == _recollectStart));
 	}
 
-	function syncCleardGameRouteFlag(){
-		if(ChkGlobalFlagOn(1) && !chkFlagOn(151)){
-			onFlag(151);
-			dm("cleared-game route flag synced: 151");
-		}
-	}
-
 	function change(sc, label="", fScChange=false){
 		//シナリオチェンジのタイミングでGCを動作させておく
 		System.doCompact(clIdle);
-
-		sc = resolveCommonRouteTarget(sc);
 
 		// @if(__DEBUGMODE__)
 			// if(!_fPreviewMode)
@@ -6004,8 +5955,6 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 
 		_scenario = sc.toUpperCase();
 		_label = label;
-		if(_scenario.length >= 5 && _scenario.substring(0, 4) == "00_Z")
-			syncCleardGameRouteFlag();
 		if(!_fLoad){
 			_logSelect.clear();
 			_hitretNum = 0;

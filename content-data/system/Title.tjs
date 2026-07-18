@@ -315,12 +315,13 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		%[id:"btnConfig"  , file:"ui_1920/main_menu/QD-04.png", ptn:2, par:0, flag:0], 
 
 		// 这一行是鉴赏，还没做完
-		%[id:"btnBonus"   , file:"ui_1920/main_menu/QD-08.png", ptn:2, par:0, flag:0], 
+		%[id:"btnBonus"   , file:"ui_1920/main_menu/QD-05.png", ptn:2, par:0, flag:0], 
 		%[id:"btnEnd"     , file:"ui_1920/main_menu/QD-06.png", ptn:2, par:0, flag:0], 
 
 		%[id:"btnAlbum"   , file:"ui_1920/main_menu/QD-08.png", ptn:2, par:1, flag:0], 
 		%[id:"btnMusic"   , file:"ui_1920/main_menu/QD-07.png", ptn:2, par:1, flag:0], 
-		%[id:"btnMemories", file:"ui_1920/main_menu/QD-09.png", ptn:2, par:1, flag:0]
+		%[id:"btnMemories", file:"ui_1920/main_menu/QD-09.png", ptn:2, par:1, flag:0],
+		%[id:"btnVoice"   , file:"ui_1920/main_menu/QD-10.png", ptn:2, par:1, flag:0]
 	];
 
 	function Title(win, par, fBonus=false){
@@ -370,6 +371,8 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 
 		_ptGrp[0] = new Point(_grpBtn.left, _grpBtn.top);
 		_ptGrp[1] = new Point(_grpBtnBonus.left, _grpBtnBonus.top);
+
+		// 创建按钮
 		for(var i=0;i<BTN_LIST.count;i++){
 			this[BTN_LIST[i].id] = new Button(win, this);
 			with(this[BTN_LIST[i].id]){
@@ -402,6 +405,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		layout.add(btnAlbum);
 		layout.add(btnMusic);
 		layout.add(btnMemories);
+		layout.add(btnVoice);
 		setLayout(layout, 55, interval);
 
 		@if(__TRIAL__ == 0)
@@ -420,6 +424,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		btnAlbum.hitThreshold = 256;
 		btnMusic.hitThreshold = 256;
 		btnMemories.hitThreshold = 256;
+		btnVoice.hitThreshold = 256;
 
 		addChainItem(btnContinue);
 		addChainItem(btnStart);
@@ -627,6 +632,15 @@ case btnContinue :
 			beginActivation(500);
 			setTransitionCompleteCall(close);
 			break;
+		case btnVoice :
+			hitThresholdSelectItems(256);
+
+			game.changeScene(SCENE_VOICE);
+
+			setBlendingEnvelope(0);
+			beginActivation(500);
+			setTransitionCompleteCall(close);
+			break;
 		case btnEnd :
 			PlaySystemVoice("ゲーム終了：確認");
 			CallConfirm("要结束游戏吗？", SystemRegister.CONFIRM_END, game.exitGame, endCancel, true);
@@ -711,11 +725,13 @@ case btnContinue :
 		btnAlbum.hitThreshold = 0;
 		btnMusic.hitThreshold = 0;
 		btnMemories.hitThreshold = 0;
+		btnVoice.hitThreshold = 0;
 
 		removeChainItemAll();
 		addChainItem(btnAlbum);
 		addChainItem(btnMusic);
 		addChainItem(btnMemories);
+		addChainItem(btnVoice);
 
 		_grpBtn.flushActivation();
 		_grpBtnBonus.flushActivation();
@@ -740,6 +756,7 @@ case btnContinue :
 		btnAlbum.hitThreshold = 256;
 		btnMusic.hitThreshold = 256;
 		btnMemories.hitThreshold = 256;
+		btnVoice.hitThreshold = 256;
 
 		removeChainItemAll();
 		addChainItem(btnContinue);

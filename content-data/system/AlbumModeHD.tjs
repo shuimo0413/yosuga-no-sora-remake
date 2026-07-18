@@ -10,9 +10,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	var _btnChar = [];
 	var _thumbBase = [];
 	var _btnThumb = [];
-	var _btnModeCg;
-	var _btnModeMemory;
-	var _btnModeOst;
+	var _nav;
 	var _btnPagePrev;
 	var _btnPageNext;
 
@@ -190,21 +188,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		_btnPageNext.setPos(WINDOW_WIDTH - 40 - _btnPageNext.width,
 			originY + gridH \ 2 - _btnPageNext.height \ 2);
 
-		_btnModeCg = new Button(win, _base);
-		_btnModeCg.create(UI_ROOT + "CGbutton.png", 3);
-		_btnModeCg.hitThreshold = 256;
-		_btnModeCg.setPos(1400, 994);
-		_btnModeCg.valid = false;
-
-		_btnModeMemory = new Button(win, _base);
-		_btnModeMemory.create(UI_ROOT + "MEMORYbutton.png", 3);
-		_btnModeMemory.hitThreshold = 0;
-		_btnModeMemory.setPos(1568, 985);
-
-		_btnModeOst = new Button(win, _base);
-		_btnModeOst.create(UI_ROOT + "OSTbutton.png", 3);
-		_btnModeOst.hitThreshold = 0;
-		_btnModeOst.setPos(1744, 980);
+		_nav = new AppreciationBottomNav(win, _base, this, SCENE_ALBUM);
 
 		setPage(0, 0);
 		setInput(false);
@@ -229,9 +213,8 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		InvalidateArray(_thumbBase);
 		invalidate _btnPagePrev;
 		invalidate _btnPageNext;
-		invalidate _btnModeCg;
-		invalidate _btnModeMemory;
-		invalidate _btnModeOst;
+		if(_nav !== void) _nav.finalize();
+		invalidate _nav;
 		invalidate _previewSrc;
 		invalidate _thumbSrc;
 		invalidate _adv;
@@ -371,8 +354,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		for(i = 0; i < MAX_THUMB; i++) addChainItem(_btnThumb[i]);
 		addChainItem(_btnPagePrev);
 		addChainItem(_btnPageNext);
-		addChainItem(_btnModeMemory);
-		addChainItem(_btnModeOst);
+		if(_nav !== void) _nav.addToChain(this);
 	}
 
 	function show(time=300)
@@ -450,8 +432,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
 			return;
 		}
-		if(target == _btnModeMemory) { changeScene(SCENE_MEMORIES); return; }
-		if(target == _btnModeOst) { changeScene(SCENE_MUSIC); return; }
+		if(_nav !== void && _nav.onButtonDownL(target)) return;
 	}
 
 	function onButtonDownR(target)
@@ -636,10 +617,11 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		HitThresholdSelectItems(_btnChar, 256);
 		if(_btnPagePrev !== void) _btnPagePrev.hitThreshold = 256;
 		if(_btnPageNext !== void) _btnPageNext.hitThreshold = 256;
-		if(_btnModeMemory !== void) _btnModeMemory.hitThreshold = 256;
-		if(_btnModeOst !== void) _btnModeOst.hitThreshold = 256;
+		if(_nav !== void) _nav.disableHits();
 		if(_adv !== void) _adv.visible = false;
-		game.changeScene(scene, true, %[submenu:1]);
+		var param = %[];
+		if(scene == SCENE_TITLE) param = %[submenu:1];
+		game.changeScene(scene, true, param);
 		close();
 	}
 }

@@ -13,6 +13,7 @@ var SCENE_MUSIC			= index++;
 var SCENE_MEMORIES		= index++;
 var SCENE_STAFFROLL		= index++;
 var SCENE_END			= index++;
+var SCENE_VOICE			= index++;
 delete index;
 
 class SceneBase extends InputNotifyBase{
@@ -167,6 +168,9 @@ class SceneManager extends SceneBase{
 			if(game.getScene(SCENE_ADV) !== void) adv = game.getScene(SCENE_ADV);
 			_sceneObj[scene] = new StaffRollScene(_win, _win.baseLayer, adv);
 			break;
+		case SCENE_VOICE:
+			_sceneObj[scene] = new VoiceModeScene(_win, _win.baseLayer);
+			break;
 		case SCENE_END:
 			_sceneObj[scene] = new EndScene(_win, _win.baseLayer);
 			break;
@@ -246,6 +250,7 @@ class SceneManager extends SceneBase{
 		case SCENE_ALBUM :
 		case SCENE_MUSIC :
 		case SCENE_MEMORIES :
+		case SCENE_VOICE :
 			var scene = getScene(_scene);
 			scene.close();
 			changeScene(SCENE_ADV, true, %[file:file]);

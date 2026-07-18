@@ -134,6 +134,7 @@ AddAutoPath("content-data/event_1920/");
 AddAutoPath("content-data/bg_1920/");
 AddAutoPath("content-data/scenario/");
 AddAutoPath("content-data/system/");
+AddAutoPath("content-data/collect_voice/");
 
 delete AddAutoPath;
 
@@ -194,8 +195,11 @@ LoadScript("Title.tjs");
 LoadScript("PlaySystemVoice.tjs");
 LoadScript("EyeCatch.tjs");
 LoadScript("Album.tjs");
+LoadScript("AppreciationNavHD.tjs");
 LoadScript("AlbumModeHD.tjs");
 LoadScript("MusicModeHD.tjs");
+LoadScript("VoiceCollect.tjs");
+LoadScript("VoiceModeScene.tjs");
 LoadScript("CgFlag.tjs");
 LoadScript("StaffRoll.tjs");
 LoadScript("EnvEffect.tjs");
