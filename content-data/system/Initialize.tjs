@@ -198,6 +198,7 @@ LoadScript("EyeCatch.tjs");
 LoadScript("Album.tjs");
 LoadScript("AppreciationNavHD.tjs");
 LoadScript("AlbumModeHD.tjs");
+LoadScript("MemoriesModeHD.tjs");
 LoadScript("MusicModeHD.tjs");
 LoadScript("VoiceCollect.tjs");
 LoadScript("VoiceModeScene.tjs");

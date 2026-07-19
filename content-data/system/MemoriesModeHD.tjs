@@ -1,9 +1,8 @@
-// HD CG appreciation scene (schematic1).
-// Loaded after Album.tjs; replaces AlbumModeScene.
+// HD scene recollection (回想) — same UI shell as AlbumModeHD.
+// Loaded after Album.tjs; replaces MemoriesModeScene.
 
-class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase
+class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase
 {
-	var _adv;
 	var _base;
 	var _list;
 
@@ -22,19 +21,11 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	var _pageCount = [];
 	var _charVisible = [];
 
-	var _viewEnter = false;
-	var _viewIndex = 0;
-	var _viewDiff = 0;
-	var _viewType = 0;
-	var _tgtChar = 0;
-	var _tgtChkList = null;
-	var _tgtCgList = null;
-	var _prevCg = "";
-	var _tempEventCamera;
+	var _decide = false;
 
 	var UI_ROOT = "ui_1920/appreciation/";
 
-	// Schematic1: 4x2, 416x234 content, 12px gap; frame asset is 430x250
+	// Same layout constants as AlbumModeHD
 	var FRAME_W = 430;
 	var FRAME_H = 250;
 	var THUMB_W = 416;
@@ -52,7 +43,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		"kazuha.png", "motoka.png", "others.png"
 	];
 	var TAG_W = 142;
-	var TAG_H = 56;
+	var TAG_H = 58;
 	var TAG_GAP = 9;
 	var TAG_Y = 295;
 	var TAG_TO_GRID = 20;
@@ -61,7 +52,42 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	var PREVIEW_HOVER = 1;
 	var PREVIEW_LOCKED = 2;
 
-	function AlbumModeScene(win, par)
+	// Per-character scene list (from legacy MemoriesModeScene)
+	var _LIST = [
+		[
+			%[chk:51, start:51, end:51, frm:"FRM_06R21", src:"00_a020/recollect"],
+			%[chk:52, start:52, end:52, frm:"FRM_06R22", src:"00_a022/recollect"],
+			%[chk:53, start:53, end:53, frm:"FRM_06R23", src:"00_a025b/recollect"],
+			%[chk:54, start:54, end:54, frm:"FRM_06R24", src:"00_a026/recollect"],
+			%[chk:55, start:55, end:55, frm:"FRM_06R25", src:"00_a032/recollect"]
+		], [
+			%[chk:61, start:61, end:61, frm:"FRM_06R26", src:"00_b005/recollect"],
+			%[chk:62, start:62, end:62, frm:"FRM_06R27", src:"00_b021/recollect"],
+			%[chk:63, start:63, end:63, frm:"FRM_06R28", src:"00_b025/recollect"],
+			%[chk:64, start:64, end:64, frm:"FRM_06R29", src:"00_b032/recollect"]
+		], [
+			%[chk:71, start:71, end:71, frm:"FRM_06R30", src:"00_c019b/recollect"],
+			%[chk:72, start:72, end:72, frm:"FRM_06R31", src:"00_c023/recollect"],
+			%[chk:73, start:73, end:73, frm:"FRM_06R32", src:"00_c034/recollect"]
+		], [
+			%[chk:81, start:81, end:81, frm:"FRM_06R33", src:"00_d025b/recollect"],
+			%[chk:82, start:82, end:82, frm:"FRM_06R34", src:"00_d028b/recollect"],
+			%[chk:83, start:83, end:83, frm:"FRM_06R35", src:"00_d042b/recollect"]
+		], [
+			%[chk:91, start:91, end:91, frm:"FRM_06R36", src:"00_e013c/recollect"],
+			%[chk:92, start:92, end:92, frm:"FRM_06R37", src:"00_e024b/recollect"],
+			%[chk:93, start:93, end:93, frm:"FRM_06R38", src:"00_e036/recollect"]
+		], [
+			%[chk: 0, start: 0, end: 0, frm:"FRM_06R49", src:"movie/opening"],
+			%[chk:11, start:11, end:11, frm:"FRM_06R50", src:"movie/スタッフロール_穹"],
+			%[chk:12, start:12, end:12, frm:"FRM_06R51", src:"movie/スタッフロール_奈緒"],
+			%[chk:13, start:13, end:13, frm:"FRM_06R52", src:"movie/スタッフロール_瑛"],
+			%[chk:14, start:14, end:14, frm:"FRM_06R53", src:"movie/スタッフロール_一葉"],
+			%[chk:15, start:15, end:15, frm:"FRM_06R54", src:"movie/スタッフロール_初佳"]
+		]
+	];
+
+	function MemoriesModeScene(win, par)
 	{
 		Sprite(...);
 		hasImage = false;
@@ -71,6 +97,8 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		absolute = LAYER_APPRECIATION;
 		opacity = 255;
 		visible = true;
+
+		_list = _LIST;
 
 		_base = new global.SelectItemGroupSprite(win, this);
 		with(_base)
@@ -91,11 +119,6 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			_base.setPos(0, 0);
 		}
 
-		_adv = new ADVScreen(win, LAYER_ADVSCREEN, LAYER_ADVMESSAGE);
-		_adv.visible = false;
-
-		_list = Scripts.evalStorage("CgModeList.tjs");
-
 		_previewSrc = new global.Layer(win, _base);
 		with(_previewSrc)
 		{
@@ -115,7 +138,6 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		var gridW = COLS * FRAME_W + (COLS - 1) * GAP_X;
 		var gridH = ROWS * FRAME_H + (ROWS - 1) * GAP_Y;
 		var originX = (WINDOW_WIDTH - gridW) \ 2;
-		// nametag：与缩略图网格左对齐（示意图），间距 TAG_GAP=9
 		var tagX = originX;
 		var originY = TAG_Y + TAG_H + TAG_TO_GRID;
 
@@ -132,10 +154,10 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			_charVisible[i] = true;
 
 			var num = 1;
-			if(_list[i].cg !== void)
+			if(_list[i] !== void)
 			{
-				num = _list[i].cg.count \ MAX_THUMB;
-				if(_list[i].cg.count % MAX_THUMB) num++;
+				num = _list[i].count \ MAX_THUMB;
+				if(_list[i].count % MAX_THUMB) num++;
 			}
 			if(num < 1) num = 1;
 			_pageCount[i] = num;
@@ -188,15 +210,17 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		_btnPageNext.setPos(WINDOW_WIDTH - 40 - _btnPageNext.width,
 			originY + gridH \ 2 - _btnPageNext.height \ 2);
 
-		_nav = new AppreciationBottomNav(win, _base, this, SCENE_ALBUM);
+		_nav = new AppreciationBottomNav(win, _base, this, SCENE_MEMORIES);
 
-		setPage(0, 0);
-		setInput(false);
+		var startChar = 0;
+		if(sysReg._recollectChar) startChar = sysReg._recollectChar - 1;
+		if(startChar < 0) startChar = 0;
+		if(startChar >= charCount) startChar = 0;
+		setPage(startChar, 0);
+		setInput();
 
 		PlayBgm("BGM17");
-
-		_tempEventCamera = CONFIG.eventCamera;
-		CONFIG.eventCamera = 1;
+		PlaySystemVoice("回想モード");
 
 		mouseTrackingMode = global.ChainItemBase.MOUSETRACKINGMODE_FREE;
 		window.addInputNotify(this);
@@ -205,9 +229,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	function finalize()
 	{
 		window.removeInputNotify(this);
-		CONFIG.eventCamera = _tempEventCamera;
 
-		invalidate _list;
 		InvalidateArray(_btnChar);
 		InvalidateArray(_btnThumb);
 		InvalidateArray(_thumbBase);
@@ -217,14 +239,19 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		invalidate _nav;
 		invalidate _previewSrc;
 		invalidate _thumbSrc;
-		invalidate _adv;
 		invalidate _base;
 
 		global.Sprite.finalize();
 		global.ChainItemBase.finalize();
 	}
 
-	function who(){ return "AlbumModeScene"; }
+	function who(){ return "MemoriesModeScene"; }
+
+	function isUnlocked(item)
+	{
+		if(item === void || item.chk === void) return false;
+		return (item.chk == 0 || ChkGlobalFlag(item.chk));
+	}
 
 	function blitPreview(dst, state)
 	{
@@ -243,11 +270,12 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			else blitPreview(_thumbBase[slot], PREVIEW_NORMAL);
 
 			var index = _selPage * MAX_THUMB + slot;
-			if(_tgtChkList === void || index >= _tgtChkList.count) return;
-			var base = _tgtChkList[index][0].substring(0, 4);
+			var tgt = _list[_selChar];
+			if(tgt === void || index >= tgt.count) return;
+			var frm = tgt[index].frm;
 			try
 			{
-				_thumbSrc.loadImages(base + "TL");
+				_thumbSrc.loadImages(frm);
 				_thumbSrc.setSizeToImageSize();
 				_thumbBase[slot].stretchCopy(
 					THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
@@ -258,7 +286,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			{
 				try
 				{
-					_thumbSrc.loadImages("dummyTL");
+					_thumbSrc.loadImages("FRM_0106");
 					_thumbSrc.setSizeToImageSize();
 					_thumbBase[slot].stretchCopy(
 						THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
@@ -282,17 +310,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 		_selChar = char;
 		_selPage = page;
-		_tgtChar = char;
-		_tgtCgList = _list[char].cg;
-		_viewType = 0;
-		_tgtChkList = _list[char].cg;
-
-		if(_list[char].bustupview !== void)
-		{
-			_viewType = 1;
-			_tgtChkList = _list[char].bustup;
-			_tgtCgList = _list[char].cg;
-		}
+		sysReg._recollectChar = char + 1;
 
 		var i;
 		for(i = 0; i < _btnChar.count; i++)
@@ -306,7 +324,8 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			_btnChar[i].opacity = (i == char) ? 255 : 160;
 		}
 
-		var num = _tgtChkList.count;
+		var tgt = _list[char];
+		var num = tgt.count;
 		var index = page * MAX_THUMB;
 
 		for(i = 0; i < MAX_THUMB; i++)
@@ -322,9 +341,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			_thumbBase[i].visible = true;
 			_btnThumb[i].visible = true;
 
-			var base = _tgtChkList[index + i][0].substring(0, 4);
-			var flag = CG_FLAG_LIST[base];
-			var unlocked = (flag !== void && ChkCgFlag(flag));
+			var unlocked = isUnlocked(tgt[index + i]);
 			paintThumb(i, unlocked, false);
 			_btnThumb[i].valid = unlocked;
 		}
@@ -341,10 +358,10 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		_btnPageNext.valid = (_selPage < pages - 1);
 	}
 
-	function setInput(enter)
+	function setInput()
 	{
 		removeChainItemAll();
-		if(enter) return;
+		if(_decide) return;
 
 		var i;
 		for(i = 0; i < _btnChar.count; i++)
@@ -401,6 +418,8 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 	function onButtonDownL(target)
 	{
+		if(_decide) return;
+
 		var i;
 		for(i = 0; i < _btnChar.count; i++)
 		{
@@ -417,7 +436,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			if(target == _btnThumb[i])
 			{
 				if(!_btnThumb[i].valid) return;
-				viewEnter(_selPage, i);
+				startRecollect(_selPage * MAX_THUMB + i);
 				return;
 			}
 		}
@@ -440,168 +459,72 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		onMouseDown(0, 0, mbRight, 0);
 	}
 
-	function viewEnter(page, index)
+	function startRecollect(id)
 	{
-		_viewEnter = true;
-		_viewIndex = page * MAX_THUMB + index;
-		_viewDiff = searchDiff(_tgtChkList, _viewIndex, 0, true);
-		if(_viewDiff < 0) { _viewEnter = false; return; }
+		if(_decide) return;
+		var tgt = _list[_selChar];
+		if(tgt === void || id < 0 || id >= tgt.count) return;
+		if(!isUnlocked(tgt[id])) return;
 
-		_prevCg = "";
-		hide();
-		setInput(true);
-		_adv.visible = true;
-		presetView(0);
-	}
+		_decide = true;
+		setInput();
 
-	function viewLeave()
-	{
-		_viewEnter = false;
-		_adv.visible = false;
-		show();
-		setInput(false);
-		setPage(_selChar, _selPage);
-	}
+		StopSystemSound();
+		StopBgm();
 
-	function presetView(time=300)
-	{
-		var cg = _tgtCgList[_viewIndex][_viewDiff];
-		view(cg, time);
-	}
+		var sc = tgt[id].src.split("/");
+		var start = tgt[id].start;
+		var end = tgt[id].end;
 
-	function view(cg, time=300)
-	{
-		if(cg == null) return;
+		HitThresholdSelectItems(_btnThumb, 256);
+		HitThresholdSelectItems(_btnChar, 256);
+		if(_btnPagePrev !== void) _btnPagePrev.hitThreshold = 256;
+		if(_btnPageNext !== void) _btnPageNext.hitThreshold = 256;
+		if(_nav !== void) _nav.disableHits();
 
-		if(_list[_tgtChar][cg] !== void)
-		{
-			var ref = _list[_tgtChar][cg].pre;
-			var i;
-			for(i = 0; i < ref.count; i++)
-				_adv.addOrderList(ref[i]);
-			_prevCg = cg;
-		}
-		else if(cg != _prevCg)
-		{
-			_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1]);
-			_prevCg = cg;
-		}
-
-		_adv._update |= UPDATE_CG;
-		_adv.update(%[time:time]);
-
-		if(_list[_tgtChar][cg] !== void)
-		{
-			var post = _list[_tgtChar][cg].post;
-			if(post.count)
-			{
-				for(i = 0; i < post.count; i++) _adv.addOrderList(post[i]);
-				_adv._update |= UPDATE_CG;
-				_adv.update();
-			}
-		}
-	}
-
-	function searchDiff(list, sIndex, sDiff, fForward)
-	{
-		if(sIndex < 0 || sIndex >= list.count) return -1;
-		var diff = sDiff;
-		while(0 <= diff && diff < list[sIndex].count)
-		{
-			var file = list[sIndex][diff];
-			var flag = CG_FLAG_LIST[file];
-			if(flag !== void && ChkCgFlag(flag)) return diff;
-			if(fForward) diff++; else diff--;
-		}
-		return -1;
-	}
-
-	function searchIndex(list, sIndex, fForward)
-	{
-		var index = sIndex;
-		var guard = 0;
-		while(guard < list.count + 2)
-		{
-			if(fForward)
-			{
-				if(list.count <= index) index = 0;
-			}
-			else
-			{
-				if(index < 0) index = list.count - 1;
-			}
-
-			var file = list[index][0].substring(0, 4);
-			var flag = CG_FLAG_LIST[file];
-			if(flag !== void && ChkCgFlag(flag)) return index;
-
-			if(fForward) index++; else index--;
-			guard++;
-		}
-		return sIndex;
-	}
-
-	function viewNext()
-	{
-		if((_viewDiff = searchDiff(_tgtChkList, _viewIndex, _viewDiff + 1, true)) == -1)
-		{
-			_viewIndex = searchIndex(_tgtChkList, _viewIndex + 1, true);
-			_viewDiff = searchDiff(_tgtChkList, _viewIndex, 0, true);
-		}
-		if(_viewDiff >= 0) presetView();
-	}
-
-	function viewPrev()
-	{
-		if((_viewDiff = searchDiff(_tgtChkList, _viewIndex, _viewDiff - 1, false)) == -1)
-		{
-			_viewIndex = searchIndex(_tgtChkList, _viewIndex - 1, false);
-			_viewDiff = searchDiff(_tgtChkList, _viewIndex, _tgtChkList[_viewIndex].count - 1, false);
-		}
-		if(_viewDiff >= 0) presetView();
+		game.changeScene(SCENE_ADV, true, %[
+			scenario:sc[0],
+			label:sc[1],
+			recollect:true,
+			recollectStart:start,
+			recollectEnd:end
+		]);
+		close();
 	}
 
 	function onMouseDown(x, y, button, shift)
 	{
-		if(button == mbLeft)
-		{
-			if(_viewEnter) viewNext();
-		}
-		else if(button == mbRight)
-		{
-			if(_viewEnter) viewLeave();
-			else changeScene(SCENE_TITLE);
-		}
+		if(_decide) return;
+		if(button == mbRight)
+			changeScene(SCENE_TITLE);
 	}
 
 	function onMouseWheel(shift, delta, x, y)
 	{
+		if(_decide) return;
 		if(delta < 0)
 		{
-			if(_viewEnter) viewNext();
-			else if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
 		}
 		else if(delta > 0)
 		{
-			if(_viewEnter) viewPrev();
-			else if(_selPage > 0) setPage(_selChar, _selPage - 1);
+			if(_selPage > 0) setPage(_selChar, _selPage - 1);
 		}
 	}
 
 	function onKeyDown(key, shift)
 	{
+		if(_decide) return;
+
 		if(key == VK_ESCAPE)
-		{
-			if(_viewEnter) viewLeave();
-			else changeScene(SCENE_TITLE);
-		}
+			changeScene(SCENE_TITLE);
 		else if(key == VK_LEFT || key == VK_PRIOR)
 		{
-			if(!_viewEnter && _selPage > 0) setPage(_selChar, _selPage - 1);
+			if(_selPage > 0) setPage(_selChar, _selPage - 1);
 		}
 		else if(key == VK_RIGHT || key == VK_NEXT)
 		{
-			if(!_viewEnter && _selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
 		}
 		global.ChainItemBase.onKeyDown(...);
 	}
@@ -613,12 +536,13 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 	function changeScene(scene)
 	{
+		if(_decide) return;
+		sysReg._recollectChar = 0;
 		HitThresholdSelectItems(_btnThumb, 256);
 		HitThresholdSelectItems(_btnChar, 256);
 		if(_btnPagePrev !== void) _btnPagePrev.hitThreshold = 256;
 		if(_btnPageNext !== void) _btnPageNext.hitThreshold = 256;
 		if(_nav !== void) _nav.disableHits();
-		if(_adv !== void) _adv.visible = false;
 		var param = %[];
 		if(scene == SCENE_TITLE) param = %[submenu:1];
 		game.changeScene(scene, true, param);
