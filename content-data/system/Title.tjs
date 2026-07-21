@@ -289,6 +289,17 @@ class MovieScene extends Layer, SceneBase{
 
 class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	var _spr = [];
+	var _titleCharacterLayers = [];
+
+	// 各角色路线结局会在剧本末尾写入对应的全局标记。
+	// 按画面前后关系排列，确保全部解锁时能还原完整标题图。
+	var TITLE_CHARACTER_LIST = [
+		%[flag:25, file:"ui_1920/main_menu/QD-13-motoka.png"],
+		%[flag:24, file:"ui_1920/main_menu/QD-13-kazuha.png"],
+		%[flag:22, file:"ui_1920/main_menu/QD-13-nao.png"],
+		%[flag:21, file:"ui_1920/main_menu/QD-13-sora.png"],
+		%[flag:23, file:"ui_1920/main_menu/QD-13-akira.png"]
+	];
 
 	var _btnBase;
 	var _ptGrp = [];
@@ -327,16 +338,33 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	function Title(win, par, fBonus=false){
 		Sprite(...);
 		hitThreshold = 0;
-		loadImages("ui_1920/main_menu/FRM_0511_title_background.png");
+		loadImages("ui_1920/main_menu/QD-13-BG.png");
 		setSizeToImageSize();
 		absolute = LAYER_TITLE;
 
+		for(var i=0;i<TITLE_CHARACTER_LIST.count;i++){
+			var ref = TITLE_CHARACTER_LIST[i];
+			if(!ChkGlobalFlagOn(ref.flag)) continue;
+
+			var character = new global.Sprite(win, this);
+			with(character){
+				.loadImages(ref.file);
+				.setSizeToImageSize();
+				.setPos(0, 0);
+				.hitThreshold = 256;
+				.visible = true;
+			}
+			_titleCharacterLayers.add(character);
+		}
+
 		_btnBase = new global.Layer(win, this);
 		with(_btnBase){
-			.setSize(WINDOW_WIDTH, 160);
+			.loadImages("ui_1920/main_menu/QD-12.png");
+			.setSizeToImageSize();
 
 			.setPos(0, WINDOW_HEIGHT-.height);
 
+			.hitThreshold = 256;
 			.visible = true;
 		}
 
@@ -488,6 +516,8 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 
 		InvalidateArray(_spr);
 		invalidate _spr;
+		InvalidateArray(_titleCharacterLayers);
+		invalidate _titleCharacterLayers;
 		for(var i=0;i<BTN_LIST.count;i++) invalidate this[BTN_LIST[i].id];
 		invalidate _btnBase;
 		invalidate _grpBtn;
