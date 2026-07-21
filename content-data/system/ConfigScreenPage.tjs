@@ -10,6 +10,12 @@ var HD_SCREEN_FONT_BUTTONS = [
 // 按钮数组索引 → CONFIG.fontType（与 ConfigWindow.tjs Font1–Font6 一致）
 var HD_FONT_TYPE_MAP = [2, 4, 0, 3, 5, 1];
 
+// 设置页预览区域较窄，单独使用 30px 预渲染字体，避免跟随正文
+// 50px 字号后换行、裁切。这里只影响预览，不改变实际对话样式。
+var HD_SCREEN_PREVIEW_FONT_FACE = "30";
+var HD_SCREEN_PREVIEW_FONT_SIZE = 30;
+var HD_SCREEN_PREVIEW_LINE_HEIGHT = 36;
+
 class ConfigScreenPage
 {
     var _owner;
@@ -127,7 +133,12 @@ class ConfigScreenPage
             .setSize(405, 58);
             .setPos(1455, 545);
             .setMargin(0, 0, 405, 58);
-            .setDefaultFontStyle(ADV_FONT_MESS_FACE, ADV_FONT_MESS_SIZE, ADV_FONT_MESS_INDENT, true);
+            .setDefaultFontStyle(
+                HD_SCREEN_PREVIEW_FONT_FACE,
+                HD_SCREEN_PREVIEW_FONT_SIZE,
+                HD_SCREEN_PREVIEW_LINE_HEIGHT,
+                true
+            );
             .resetFontStyle();
             .visible = true;
         }
