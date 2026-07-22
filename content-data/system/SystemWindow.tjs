@@ -2387,6 +2387,17 @@ class HistoryWindow extends SettingWindowBase{
 		super.onKeyDown(...);
 	}
 
+	function returnToTitle(){
+		if(_adv === null) return;
+
+		var adv = _adv;
+		_adv = null;
+
+		adv.save("asave.bmp", -2);
+		hide(150, HistoryDelete);
+		adv.returnTo(SCENE_TITLE);
+	}
+
 	function onButtonDownL(target){
 		if(!_enableInput) return;
 
@@ -2395,7 +2406,7 @@ class HistoryWindow extends SettingWindowBase{
 			hide(300, HistoryDelete);
 			break;
 		case _btnTitle :
-			hide(150, HistoryGoTitle);
+			returnToTitle();
 			break;
 		case _btn[0]: prev(); break;
 		case _btn[1]: next(); break;
@@ -2962,10 +2973,6 @@ function HistoryDelete(){
 	if(SPR_HISTORY === null) return;
 	invalidate SPR_HISTORY;
 	SPR_HISTORY = null;
-}
-function HistoryGoTitle(){
-	HistoryDelete();
-	game.changeScene(SCENE_TITLE);
 }
 
 //各種ウィンドウの基底クラス
