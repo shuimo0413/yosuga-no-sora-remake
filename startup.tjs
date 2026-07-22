@@ -33,7 +33,5 @@ Scripts.execStorage("Status.tjs");
 Debug.message("startup.tjs: Status.tjs loaded");
 Scripts.execStorage("Initialize.tjs");
 Debug.message("startup.tjs: Initialize.tjs loaded");
-Scripts.execStorage("MovieMP4Patch.tjs");
-Debug.message("startup.tjs: MP4 movie patch loaded");
 Scripts.execStorage("begin.tjs");
 Debug.message("startup.tjs: begin.tjs loaded");
