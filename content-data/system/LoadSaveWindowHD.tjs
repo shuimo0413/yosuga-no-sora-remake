@@ -1923,16 +1923,37 @@ class LoadSaveWindowHD extends SettingWindowBase
 
         if(_adv !== null)
         {
-            _adv.save("asave.bmp", -2);
             confirm = true;
-            hide(300, LoadSaveDeleteHD);
-            _adv.returnTo(SCENE_TITLE);
-            _adv = null;
+            if(CONFIG.confirmWindow[SystemRegister.CONFIRM_TITLE])
+                PlaySystemVoice("タイトルに戻る");
+            CallConfirm(
+                "要回到标题吗？", SystemRegister.CONFIRM_TITLE,
+                returnTitleDecideHD, returnTitleCancelHD
+            );
             return;
         }
 
         confirm = true;
         hide(300, LoadSaveDeleteHD);
+    }
+
+    function returnTitleDecideHD()
+    {
+        confirm = false;
+        if(_adv === null) return;
+
+        var adv = _adv;
+        _adv = null;
+
+        adv.save("asave.bmp", -2);
+        confirm = true;
+        hide(300, LoadSaveDeleteHD);
+        adv.returnTo(SCENE_TITLE);
+    }
+
+    function returnTitleCancelHD()
+    {
+        confirm = false;
     }
 
     function switchModeHD(fLoad)

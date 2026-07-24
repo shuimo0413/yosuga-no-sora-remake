@@ -2406,7 +2406,14 @@ class HistoryWindow extends SettingWindowBase{
 			hide(300, HistoryDelete);
 			break;
 		case _btnTitle :
-			returnToTitle();
+			if(_adv !== null){
+				if(CONFIG.confirmWindow[SystemRegister.CONFIRM_TITLE])
+					PlaySystemVoice("タイトルに戻る");
+				CallConfirm(
+					"要回到标题吗？", SystemRegister.CONFIRM_TITLE,
+					returnToTitle, null
+				);
+			}
 			break;
 		case _btn[0]: prev(); break;
 		case _btn[1]: next(); break;

@@ -404,10 +404,12 @@ class ConfigWindowHD2 extends SettingWindowBase
         {
             if(_adv !== null)
             {
-                _adv.save("asave.bmp", -2);
-                hide(300, ConfigDelete);
-                _adv.returnTo(SCENE_TITLE);
-                _adv = null;
+                if(CONFIG.confirmWindow[SystemRegister.CONFIRM_TITLE])
+                    PlaySystemVoice("タイトルに戻る");
+                CallConfirm(
+                    "要回到标题吗？", SystemRegister.CONFIRM_TITLE,
+                    returnToTitle, null
+                );
                 return true;
             }
             hide(300, ConfigDelete);
@@ -419,6 +421,18 @@ class ConfigWindowHD2 extends SettingWindowBase
             return true;
         }
         return false;
+    }
+
+    function returnToTitle()
+    {
+        if(_adv === null) return;
+
+        var adv = _adv;
+        _adv = null;
+
+        adv.save("asave.bmp", -2);
+        hide(300, ConfigDelete);
+        adv.returnTo(SCENE_TITLE);
     }
 
     function closeToGame()
