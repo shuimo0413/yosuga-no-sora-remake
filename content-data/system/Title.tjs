@@ -60,8 +60,12 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		_movie = new MovieLayer(win, this, true);
 		_movie.hitThreshold = 256;
-		_movie.start("sphere", this);
 		_state = stLogo;
+		if(!_movie.start("sphere", this)){
+			invalidate _movie;
+			_movie = null;
+			OnceCall(step02, 1);
+		}
 
 		_te = new TimerEvent();
 
@@ -206,7 +210,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		switch(_state){
 		case stLogo :
-			_movie.stop();
+			if(_movie !== null) _movie.stop();
 			gotoTitle();
 			break;
 		case stAttentionPlay : 
@@ -231,7 +235,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 	function action(ev){
 		if(ev.type == "Movie.onStatusChanged" && ev.status == "stop"){
-			_movie.visible = false;
+			if(_movie !== null) _movie.visible = false;
 			step02();
 		}
 	}
@@ -251,7 +255,7 @@ class MovieScene extends Layer, SceneBase{
 			}
 		}
 
-		PlayMovie("cube", this);
+		if(!PlayMovie("cube", this)) OnceCall(returnToTitle, 1);
 		visible = true;
 		win.addInputNotify(this);
 	}
@@ -266,11 +270,15 @@ class MovieScene extends Layer, SceneBase{
 		StopMovie();
 		visible = false;
 		valid = false;
+		try{ win.removeInputNotify(this); }catch(e){}
+	}
+	function returnToTitle(){
+		close();
 		game.changeScene(SCENE_TITLE);
 	}
 
 	function action(ev){
-		if(ev.status == "stop") close();
+		if(ev.status == "stop") returnToTitle();
 	}
 
 	function debugJump(str, label=""){
@@ -280,10 +288,10 @@ class MovieScene extends Layer, SceneBase{
 	}
 
 	function onKeyDown(key, shift){
-		if(key == VK_ESCAPE) StopMovie();
+		if(key == VK_ESCAPE) returnToTitle();
 	}
 	function onMouseDown(x, y, button, shift){
-		if(button == mbRight) StopMovie();
+		if(button == mbRight) returnToTitle();
 	}
 }
 
@@ -518,7 +526,10 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		invalidate _spr;
 		InvalidateArray(_titleCharacterLayers);
 		invalidate _titleCharacterLayers;
-		for(var i=0;i<BTN_LIST.count;i++) invalidate this[BTN_LIST[i].id];
+		for(var i=0;i<BTN_LIST.count;i++){
+			var button = this[BTN_LIST[i].id];
+			if(button !== void && button !== null) invalidate button;
+		}
 		invalidate _btnBase;
 		invalidate _grpBtn;
 		invalidate _grpBtnBonus;
@@ -539,6 +550,11 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	function close(){
 		visible = false;
 		valid = false;
+		// P1-2: detach input immediately. finalize may call remove again; safe twice.
+		try{
+			window.removeInputNotify(this);
+		}catch{
+		}
 	}
 
 	function fadeEnd(){
@@ -610,12 +626,10 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 			CallLoadSaveHD(true, null, true);
 			break;
 case btnContinue :
+			// Immediate ADV load. SceneManager(sync=false) finalizes this Title;
+			// do not schedule further Title animations after the switch.
+			hitThresholdSelectItems(256);
 			game.changeScene(SCENE_ADV, false, %[file:"asave.bmp"]);
-
-			setTransitionCompleteCall(close);
-			setBlendingEnvelope(0);
-			beginActivation(300);
-
 			break;
 		case btnConfig :
 			PlaySystemVoice("タイトル：コンフィグ");

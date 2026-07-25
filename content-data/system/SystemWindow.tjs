@@ -1997,6 +1997,10 @@ function CallLoadSave(fLoad=true, obj=null, fFromTitle=false){
 }
 function LoadSaveDelete(){
 	if(SPR_LOADSAVE === null) return;
+	if(SPR_LOADSAVE instanceof "LoadSaveWindowHD" && typeof global.LoadSaveDeleteHD != "undefined"){
+		LoadSaveDeleteHD();
+		return;
+	}
 
 	var file = SPR_LOADSAVE._targetFile;
 	invalidate SPR_LOADSAVE;

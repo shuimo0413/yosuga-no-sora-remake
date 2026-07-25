@@ -40,11 +40,24 @@ if(!System.createAppLock("CuffsApplication-"+GAME_CAPTION)){
 //
 //------------------------------------------------------------------------------
 @if(__DEBUGMODE__ == 0)
+	var PRODUCT_FATAL_SHOWN = false;
 	System.exceptionHandler = function (e) {
 		System.eventDisabled = true;
 
 		Debug.logAsError();
-		System.inform(e.message);
+		var fatalMessage = "";
+		var fatalTrace = "";
+		try{ fatalMessage = e.message; }catch(eMessage){}
+		try{ fatalTrace = e.trace; }catch(eObjectTrace){}
+		if(fatalTrace === void || fatalTrace == ""){
+			try{ fatalTrace = Scripts.getTraceString(); }catch(eTrace){}
+		}
+		Debug.message("FATAL exception type=" + typeof e + " message=" + fatalMessage + " object=" + e);
+		Debug.message("FATAL trace: " + ((fatalTrace === void || fatalTrace == "") ? "engine exception frame logged above" : fatalTrace));
+		if(!PRODUCT_FATAL_SHOWN){
+			PRODUCT_FATAL_SHOWN = true;
+			System.inform("游戏运行发生错误，程序将关闭。详细信息已写入日志。");
+		}
 		System.terminate();
 		return true;
 	};
