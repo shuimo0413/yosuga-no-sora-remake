@@ -1,8 +1,14 @@
 // Package launcher: root tvpwin32.exe loads the active content-data runtime.
+var YOSUGA_NATIVE_INFORM = System.inform;
+var YOSUGA_INFORM_ACTIVE = false;
 System.inform = function(msg)
 {
-    Debug.message("!!! INFORM: " + msg);
-    return;
+	Debug.message("!!! INFORM: " + msg);
+	if(YOSUGA_INFORM_ACTIVE) return;
+	YOSUGA_INFORM_ACTIVE = true;
+	try{ YOSUGA_NATIVE_INFORM(msg); }
+	catch(e){ Debug.message("System.inform failed: " + e); }
+	YOSUGA_INFORM_ACTIVE = false;
 };
 
 Storages.addAutoPath("content-data/");

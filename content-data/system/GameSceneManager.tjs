@@ -43,6 +43,7 @@ class SceneManager extends SceneBase{
 	var _sceneChangeTimer;
 
 	var _enableClose;
+	var _sceneFailureNotified;
 
 	function SceneManager(win){
 		_win = win;
@@ -59,6 +60,7 @@ class SceneManager extends SceneBase{
 		_sceneChangeTimer.enabled = false;
 
 		_enableClose = true;
+		_sceneFailureNotified = false;
 
 		_win.addInputNotify(this);
 	}
@@ -76,56 +78,160 @@ class SceneManager extends SceneBase{
 		return canclose;
 	}
 
+	function beginSceneConstruction(){
+		return _win.beginInputTransaction();
+	}
+	function commitSceneConstruction(transaction){
+		try{ _win.commitInputTransaction(transaction); }catch(eCommit){
+			Debug.message("=== input transaction commit failed: " + eCommit);
+		}
+	}
+	function rollbackSceneConstruction(transaction){
+		var objects = [];
+		try{ objects = _win.rollbackInputTransaction(transaction); }catch(eRollback){
+			Debug.message("=== input transaction rollback failed: " + eRollback);
+		}
+		for(var i = 0; i < objects.count; i++)
+			disposeSceneObject(objects[i], false);
+	}
+	function terminateSceneFailure(message){
+		if(_sceneFailureNotified) return false;
+		_sceneFailureNotified = true;
+		System.inform(message);
+		System.terminate();
+		return false;
+	}
+	function disposeSceneObject(obj, doClose){
+		if(obj === void || obj === null) return;
+		if(doClose){
+			try{
+				if(typeof obj.close != "undefined") obj.close();
+			}catch(eClose){
+				Debug.message("=== disposeSceneObject close failed: " + eClose);
+			}
+		}
+		try{ _win.removeInputNotify(obj); }catch(eRem){
+			Debug.message("=== disposeSceneObject removeInputNotify failed: " + eRem);
+		}
+		try{ invalidate obj; }catch(eInv){
+			Debug.message("=== disposeSceneObject invalidate failed: " + eInv);
+		}
+	}
+	function recoverInitialScene(failedScene, reason){
+		Debug.message("=== Initial scene construction failed: scene=" + failedScene + " reason=" + reason);
+		_nextScene = -1;
+		_sceneChangeTimer.enabled = false;
+		(Dictionary.clear incontextof _param)();
+		_scene = -1;
+
+		// Initial non-Title failure gets exactly one isolated Title fallback attempt.
+		if(failedScene != SCENE_TITLE){
+			var fallbackTransaction = beginSceneConstruction();
+			var fallback = null;
+			try{
+				fallback = createSceneObject(SCENE_TITLE);
+			}catch(eFallback){
+				Debug.message("=== Initial title fallback exception: " + eFallback);
+				fallback = null;
+			}
+			if(fallback !== void && fallback !== null){
+				_scene = SCENE_TITLE;
+				_sceneObj[SCENE_TITLE] = fallback;
+				commitSceneConstruction(fallbackTransaction);
+				Debug.message("=== Initial title fallback committed");
+				return true;
+			}
+			rollbackSceneConstruction(fallbackTransaction);
+		}
+
+		Debug.message("=== Initial scene recovery exhausted; terminating");
+		return terminateSceneFailure("场景初始化失败，程序将关闭。详细信息已写入日志。");
+	}
+
 	function changeScene(scene, sync=true, param=%[]){
 		Debug.message("=== changeScene called: scene=" + scene + " _scene=" + _scene + " sync=" + sync + " param.scenario=" + param.scenario);
 
 		(Dictionary.assign incontextof _param)(param);
 
-		if(sync == false || _scene == -1){
-			if(_scene >= 0 && _sceneObj[_scene] !== void && _sceneObj[_scene] !== null){
+		if(_scene == -1)
+			return setScene(scene);
+
+		if(sync == false){
+			var oldIndex = _scene;
+			var oldScene = _sceneObj[oldIndex];
+			var newScene = null;
+			var sceneTransaction = beginSceneConstruction();
+			var oldInputDetached = false;
+
+			if(oldScene !== void && oldScene !== null){
 				try{
-					var oldScene = _sceneObj[_scene];
-					if(typeof oldScene.close == "Function"){
-						oldScene.close();
-					}
-				}catch(e){
-					Debug.message("=== Error closing old scene: " + e);
+					_win.removeInputNotify(oldScene);
+					oldInputDetached = true;
+				}catch(eDetach){
+					Debug.message("=== Error detaching old scene input before construct: " + eDetach);
 				}
 			}
-			setScene(scene);
-		}else{
-			_nextScene = scene;
-			_sceneChangeTimer.enabled = true;
-		}
-	}
 
+			try{
+				newScene = createSceneObject(scene);
+			}catch(eCreate){
+				Debug.message("=== Scene switch construction failed: scene=" + scene + " error=" + eCreate);
+				newScene = null;
+			}
+			if(newScene === void || newScene === null){
+				Debug.message("=== Scene switch construction returned empty: scene=" + scene);
+				if(oldInputDetached && oldScene !== void && oldScene !== null){
+					try{ _win.addInputNotify(oldScene); }catch(eRe){
+						Debug.message("=== Error restoring old scene input after construct failure: " + eRe);
+					}
+				}
+				rollbackSceneConstruction(sceneTransaction);
+				(Dictionary.clear incontextof _param)();
+				return false;
+			}
+
+			if(oldScene !== void && oldScene !== null){
+				try{
+					if(typeof oldScene.close != "undefined") oldScene.close();
+				}catch(eClose){
+					Debug.message("=== Error closing old scene method: " + eClose);
+				}
+				try{ _win.removeInputNotify(oldScene); }catch(eRem){
+					Debug.message("=== Error removeInputNotify old scene: " + eRem);
+				}
+				try{ invalidate oldScene; }catch(eInv){
+					Debug.message("=== Error invalidate old scene: " + eInv);
+				}
+				_sceneObj[oldIndex] = void;
+			}
+
+			_scene = scene;
+			_sceneObj[scene] = newScene;
+			(Dictionary.clear incontextof _param)();
+			commitSceneConstruction(sceneTransaction);
+			return true;
+		}
+
+		_nextScene = scene;
+		_sceneChangeTimer.enabled = true;
+		return true;
+	}
 	function getScene(scene){
 		return _sceneObj[scene];
 	}
 
-	function setScene(scene){
-		Debug.message("=== setScene called: scene=" + scene);
-		System.doCompact(clIdle);
-
-		// @if(__DEBUGMODE__)
-			// if(debug.flagEditer !== void){
-				// debug.onCloseFlagEditer();
-				// debug.showFlagEditer(true);
-			// }
-		// @endif
-
-		_scene = scene;
+	function createSceneObject(scene){
+		var result = null;
 		switch(scene){
 		case SCENE_LOGO:
-			_sceneObj[scene] = new Logo(_win, _win.baseLayer);
-			// changeScene(SCENE_TITLE);  // Disabled auto-transition
+			result = new Logo(_win, _win.baseLayer);
 			break;
 		case SCENE_MOVIE:
-			_sceneObj[scene] = new MovieScene(_win, _win.baseLayer);
+			result = new MovieScene(_win, _win.baseLayer);
 			break;
 		case SCENE_TITLE:
 			var subMenu = int GetElm(_param.submenu, 0);
-			_sceneObj[scene] = new Title(_win, _win.baseLayer, subMenu);
+			result = new Title(_win, _win.baseLayer, subMenu);
 			break;
 		case SCENE_ADV:
 			var recollectParam = %[
@@ -133,64 +239,145 @@ class SceneManager extends SceneBase{
 				start : int GetElm(_param.recollectStart, 0),
 				end : int GetElm(_param.recollectEnd, 0),
 			];
-
-			Debug.message(">>> Creating ADVScreen for scene " + scene); _sceneObj[scene] = new ADVScreen(_win, LAYER_ADVSCREEN, LAYER_ADVMESSAGE, recollectParam);
-			// @if(__DEBUGMODE__)
-				// debug.applyFlagToAdv();
-				// if(debug.flagEditer !== void){
-					// debug.flagEditer.setTarget(_sceneObj[scene]._param);
-					// debug.flagEditer.setPage();
-				// }
-			// @endif
-
-			var label = "";
-			if(_param.label !== void) label = _param.label;
-			if(_param.scenario !== void)
-				_sceneObj[scene].start(_param.scenario, label);
-			else if(_param.debug !== void)
-				_sceneObj[scene].debugStart(_param.debug, label);
-			else if(_param.file !== void)
-				_sceneObj[scene].load(_param.file);
+			Debug.message(">>> Creating ADVScreen for scene " + scene);
+			result = new ADVScreen(_win, LAYER_ADVSCREEN, LAYER_ADVMESSAGE, recollectParam);
+			try{
+				var label = "";
+				if(_param.label !== void) label = _param.label;
+				if(_param.scenario !== void)
+					result.start(_param.scenario, label);
+				else if(_param.debug !== void)
+					result.debugStart(_param.debug, label);
+				else if(_param.file !== void)
+					result.load(_param.file);
+			}catch(eAdvStart){
+				Debug.message("=== ADV post-construct start/load failed: " + eAdvStart);
+				disposeSceneObject(result, false);
+				result = null;
+				throw eAdvStart;
+			}
 			break;
 		case SCENE_ALBUM:
-			_sceneObj[scene] = new AlbumModeScene(_win, _win.baseLayer);
+			result = new AlbumModeScene(_win, _win.baseLayer);
 			break;
 		case SCENE_MUSIC:
-			try{ var __mlog=['GSM before MusicModeScene']; __mlog.save("savedata/music_debug.log"); }catch{}
-			_sceneObj[scene] = new MusicModeScene(_win, _win.baseLayer);
-			try{ var __mlog2=['GSM after MusicModeScene']; __mlog2.save("savedata/music_debug.log"); }catch{}
+			result = new MusicModeScene(_win, _win.baseLayer);
 			break;
 		case SCENE_MEMORIES:
-			_sceneObj[scene] = new MemoriesModeScene(_win, _win.baseLayer);
+			result = new MemoriesModeScene(_win, _win.baseLayer);
 			break;
 		case SCENE_STAFFROLL:
 			var adv = null;
 			if(game.getScene(SCENE_ADV) !== void) adv = game.getScene(SCENE_ADV);
-			_sceneObj[scene] = new StaffRollScene(_win, _win.baseLayer, adv);
+			result = new StaffRollScene(_win, _win.baseLayer, adv);
 			break;
 		case SCENE_VOICE:
-			_sceneObj[scene] = new VoiceModeScene(_win, _win.baseLayer);
+			result = new VoiceModeScene(_win, _win.baseLayer);
 			break;
 		case SCENE_END:
-			_sceneObj[scene] = new EndScene(_win, _win.baseLayer);
-			break;
-		default:
+			result = new EndScene(_win, _win.baseLayer);
 			break;
 		}
-		(Dictionary.clear incontextof _param)();
+		return result;
 	}
 
+	function setScene(scene){
+		Debug.message("=== setScene called: scene=" + scene);
+		System.doCompact(clIdle);
+		var created = null;
+		var sceneTransaction = beginSceneConstruction();
+		try{
+			created = createSceneObject(scene);
+		}catch(e){
+			Debug.message("=== Scene switch construction failed: scene=" + scene + " error=" + e);
+			rollbackSceneConstruction(sceneTransaction);
+			return recoverInitialScene(scene, e);
+		}
+		if(created === void || created === null){
+			Debug.message("=== Scene switch construction returned empty: scene=" + scene);
+			rollbackSceneConstruction(sceneTransaction);
+			return recoverInitialScene(scene, "constructor returned empty");
+		}
+		_scene = scene;
+		_sceneObj[scene] = created;
+		(Dictionary.clear incontextof _param)();
+		commitSceneConstruction(sceneTransaction);
+		return true;
+	}
+	function recoverDeferredScene(current, target, reason){
+		Debug.message("=== Deferred scene fallback: target=" + target + " reason=" + reason);
+		_nextScene = -1;
+		_sceneChangeTimer.enabled = false;
+
+		var oldIndex = _scene;
+		if(current !== void && current !== null)
+			disposeSceneObject(current, false);
+		if(oldIndex >= 0) _sceneObj[oldIndex] = void;
+		(Dictionary.clear incontextof _param)();
+
+		if(target != SCENE_TITLE){
+			var fallbackTransaction = beginSceneConstruction();
+			var fallback = null;
+			try{
+				fallback = createSceneObject(SCENE_TITLE);
+			}catch(eFallback){
+				Debug.message("=== Deferred title fallback failed: " + eFallback);
+				fallback = null;
+			}
+			if(fallback !== void && fallback !== null){
+				_scene = SCENE_TITLE;
+				_sceneObj[SCENE_TITLE] = fallback;
+				commitSceneConstruction(fallbackTransaction);
+				return true;
+			}
+			rollbackSceneConstruction(fallbackTransaction);
+		}
+
+		_scene = -1;
+		return terminateSceneFailure("场景加载失败，程序将关闭。详细信息已写入日志。");
+	}
 	function onWaitSceneChange(){
-		if(_sceneObj[_scene].valid == false){
-			invalidate _sceneObj[_scene];
-			//delete _sceneObj[_scene];
-			_sceneObj[_scene] = void;
-			setScene(_nextScene);
+		var target = _nextScene;
+		var current = null;
+		if(_scene >= 0 && _sceneObj[_scene] !== void && _sceneObj[_scene] !== null)
+			current = _sceneObj[_scene];
+
+		if(current === null){
 			_nextScene = -1;
 			_sceneChangeTimer.enabled = false;
+			if(target >= 0 && !setScene(target))
+				recoverDeferredScene(null, target, "active scene missing and target construction failed");
+			return;
 		}
-	}
+		if(current.valid != false) return;
 
+		var sceneTransaction = beginSceneConstruction();
+		var created = null;
+		try{
+			created = createSceneObject(target);
+		}catch(e){
+			Debug.message("=== Deferred scene construction failed: scene=" + target + " error=" + e);
+			rollbackSceneConstruction(sceneTransaction);
+			recoverDeferredScene(current, target, e);
+			return;
+		}
+		if(created === void || created === null){
+			Debug.message("=== Deferred scene construction returned empty: scene=" + target);
+			rollbackSceneConstruction(sceneTransaction);
+			recoverDeferredScene(current, target, "constructor returned empty");
+			return;
+		}
+
+		var oldIndex = _scene;
+		disposeSceneObject(current, false);
+		_sceneObj[oldIndex] = void;
+		_scene = target;
+		_sceneObj[target] = created;
+		_nextScene = -1;
+		_sceneChangeTimer.enabled = false;
+		(Dictionary.clear incontextof _param)();
+		commitSceneConstruction(sceneTransaction);
+	}
 	function onKeyDown(key, shift, process=true){
 		// @if(__DEBUGMODE__)
 			// if(key == VK_F2){
