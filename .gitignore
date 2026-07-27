@@ -7,6 +7,14 @@ content-data/font/*
 content-data/thumb/*
 content-data/rule/*
 content-data/ui_1920/*
+!content-data/ui_1920/gameoption.png
+!content-data/ui_1920/gameoption.*.png
+!content-data/ui_1920/adv_menu/
+content-data/ui_1920/adv_menu/*
+!content-data/ui_1920/adv_menu/DHK-01.png
+!content-data/ui_1920/adv_menu/DHK-60.png
+!content-data/ui_1920/adv_menu/DHK-62.png
+!content-data/ui_1920/adv_menu/DHK-65.png
 !content-data/ui_1920/save_load_hd/
 !content-data/ui_1920/save_load_hd/**
 

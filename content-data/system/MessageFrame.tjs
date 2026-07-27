@@ -160,6 +160,10 @@ function ResolveMessageRoleNameImageFile(roleName){
 
 class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var _isShow;
+	var _closeHideRequested = false;
+	var _closeHideActive = false;
+	var _closeHideOriginX = 0;
+	var _closeHideOriginY = 0;
 
 	var _name, _mess, _voice, _pan, _volume;
 
@@ -186,6 +190,13 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var _systemMenuArea;
 	var _systemMenu;
 	var _menuCallArea;
+	var _systemMenuHint = null;
+	var _systemMenuHintTarget = null;
+	var _systemMenuAutoHideTimer;
+	var _systemMenuAutoHidden = false;
+	var _systemMenuPointerInside = false;
+	var _systemMenuMoveX = 0;
+	var _systemMenuMoveY = 0;
 
 	//各種ボタン
 	var _btn = [];
@@ -200,9 +211,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 
 	/* const - 布局常量（1920x1080） */
 	var _btnVoice	= 0;	// 语音重播按钮索引
-	var _btnClose	= 1;	// 关闭按钮索引
-	var _btnTextSettings	= 2;	// 文字设置按钮索引
-	var _btnFavVoice	= 3;	// 语音收藏按钮索引
+	var _btnTextSettings	= 1;	// 文字设置按钮索引
+	var _btnFavVoice	= 2;	// 语音收藏按钮索引
+	var _btnMessageHide	= 3;	// 提示条右侧的文本框隐藏按钮
 
 	var FRAME_WIDTH  = 1920;	// 消息框宽度
 	var FRAME_HEIGHT = 320;		// 消息框高度
@@ -212,6 +223,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var	FRAME_Y = WINDOW_HEIGHT - FRAME_HEIGHT;		// 消息框 Y（贴底）
 
 	var BASE_MOVE_H = MENU_HEIGHT;	// 基座隐藏时上移距离
+	var CLOSE_HIDE_MOVE_Y = 120;		// 关闭时向下滑动距离
 
 	var	BASE_X = FRAME_X;			// 消息层基座 X
 	var	BASE_Y = FRAME_Y;	// 消息层基座 Y
@@ -233,8 +245,18 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var	FACE_IMG_H = 300;				// avatar maxH
 	var	BTN_BASE_X1 = (WINDOW_WIDTH - MENU_WIDTH) -100;	// 菜单呼出热区 X
 	var	BTN_BASE_Y1 = WINDOW_HEIGHT - MENU_HEIGHT ;	// 菜单呼出热区 Y
-	var	BTN_BASE_X3 = 1650;		// 系统菜单 X
+	var SYSTEM_MENU_INDICATOR_WIDTH = 40;	// 自动模式旋转图标显示宽度
+	var	BTN_BASE_X3 = 1650 - SYSTEM_MENU_INDICATOR_WIDTH;	// 系统菜单容器向左扩展，按钮屏幕位置保持不变
 	var	BTN_BASE_Y3 = 870;		// 系统菜单 Y
+	var SYSTEM_MENU_AUTO_HIDE_DELAY = 3000;
+	var SYSTEM_MENU_AUTO_HIDE_TIME = 200;
+	var SYSTEM_MENU_HIDDEN_X = WINDOW_WIDTH;
+	var SYSTEM_MENU_HINT_X = WINDOW_WIDTH - 222;	// 提示条左移，与隐藏按钮拉开间距
+	var SYSTEM_MENU_HINT_Y = FRAME_Y + 24;		// 对话框右上方
+	var MESSAGE_HIDE_X = WINDOW_WIDTH - 44;		// 22px 图标右侧留 12px
+	var MESSAGE_HIDE_Y = SYSTEM_MENU_HINT_Y + 6;		// 与 36px 提示条垂直居中
+	var MESSAGE_HIDE_FILE = "ui_1920/adv_menu/DHK-65.png";
+	var MESSAGE_HIDE_HINT_FILE = "ui_1920/adv_menu/DHK-40.png";
 
 	var	VOICE_X = BASE_X + 510;		// 语音重播按钮 X
 	var	VOICE_Y = BASE_Y + 30;		// 语音重播按钮 Y
@@ -249,9 +271,6 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var FAV_VOICE_PTN = 2;
 	var FAV_VOICE_NORMAL_PTN = 0;	// 白色
 	var FAV_VOICE_FOCUS_PTN = 1;	// 灰色
-
-	var	CLOSE_X = BASE_X + FRAME_WIDTH - 47;	// 关闭按钮 X
-	var	CLOSE_Y = BASE_Y + 10;		// 关闭按钮 Y
 
 	var BLINK_X = BASE_X + FRAME_WIDTH - 47;	// 等待输入闪烁光标 X
 	var BLINK_Y = FRAME_Y + 99;			// 等待输入闪烁光标 Y
@@ -270,15 +289,16 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		// %[type:"frame", base:"frame_m2/M2_MSG_CHARACTER.png", blink:[BLINK_X, BASE_Y + 104], mark:"FRM_0168"],
 
 
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-29.png", blink:[BLINK_X, BASE_Y + 0]],
+		// DHK-29～36 是系统按钮的悬浮提示条，不能作为剧情文本框底图。
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0]],
 		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0161"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-30.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0162"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-31.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0163"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-32.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0164"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-33.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0165"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-34.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0166"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-35.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0167"],
-		%[type:"frame", base:"ui_1920/adv_menu/DHK-36.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0168"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0162"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0163"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0164"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0165"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0166"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0167"],
+		%[type:"frame", base:"ui_1920/adv_menu/DHK-28.png", blink:[BLINK_X, BASE_Y + 0], mark:"FRM_0168"],
 
 		// %[type:"nobel", w:1280, h:720]
 
@@ -336,7 +356,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.hitType = htMask;
 			.hitThreshold = 256;
 			.opacity = 0;
-			.visible = true;
+			.visible = false;
 		}
 		_blinkA = new global.Sprite(win, _base);
 		with(_blinkA){
@@ -346,7 +366,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.hitType = htMask;
 			.hitThreshold = 256;
 			.opacity = 0;
-			.visible = true;
+			.visible = false;
 		}
 
 		_blinkTimer = new Timer(onBlinkTimer, "");
@@ -359,10 +379,31 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.absolute = 1002;
 			.setPos(BTN_BASE_X3, BTN_BASE_Y3);
 		}
+		_systemMenuAutoHideTimer = new Timer(onSystemMenuAutoHideTimer, "");
+		with(_systemMenuAutoHideTimer){
+			.interval = SYSTEM_MENU_AUTO_HIDE_DELAY;
+			.capacity = 1;
+			.enabled = false;
+		}
+		_systemMenuHint = new global.Sprite(win, this);
+		with(_systemMenuHint){
+			.absolute = 1003;
+			.hitThreshold = 256;
+			.visible = false;
+		}
+		_btn[_btnMessageHide] = new Button(win, _base);
+		with(_btn[_btnMessageHide]){
+			.create(MESSAGE_HIDE_FILE, 2);
+			.absolute = 1000;
+			.setPos(MESSAGE_HIDE_X, MESSAGE_HIDE_Y);
+			.visible = true;
+		}
 
 		with(_menuCallArea){
-			.setSize(_systemMenu.width, _systemMenu.height);
-			.setPos(BTN_BASE_X1, BTN_BASE_Y1);
+			.absolute = 1001;
+			// 固定在按钮组原位；菜单移出屏幕后仍可从这里唤回。
+			.setSize(WINDOW_WIDTH - BTN_BASE_X3, _systemMenu.height);
+			.setPos(BTN_BASE_X3, BTN_BASE_Y3);
 			.visible = true;
 		}
 
@@ -382,14 +423,6 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.setPos(VOICE_X, VOICE_Y);
 			.visible = false;
 		}
-		// 关闭对话框
-		_btn[_btnClose] = new Button(win, _base);
-		with(_btn[_btnClose]){
-			.create("frame_m2/M2_MSG_CLOSE.png", 2);
-			.setPos(CLOSE_X, CLOSE_Y);
-			.visible = true;
-		}
-
 		// 文字设置
 		_btn[_btnTextSettings] = new Button(win, _base);
 		with(_btn[_btnTextSettings]){
@@ -432,10 +465,16 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_isShow = false;
 	}
 	function finalize(){
+		if(isvalid(_systemMenuAutoHideTimer))
+			_systemMenuAutoHideTimer.enabled = false;
+		invalidate _systemMenuAutoHideTimer;
 		InvalidateArray(_btn);
 		invalidate _btn;
 		invalidate _systemMenu;
 		invalidate _systemMenuArea;
+		invalidate _systemMenuHint;
+		_systemMenuHint = null;
+		_systemMenuHintTarget = null;
 		InvalidateArray(_msgBase);
 		invalidate _maName;
 		invalidate _maMess;
@@ -457,30 +496,97 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 
 	function show(time=0){
+		prepareSystemMenuForShow();
 		stopActivation();
-		if(time == 0){
+		if(_closeHideActive){
+			_base.stopActivation();
+			_systemMenu.stopActivation();
+
 			opacity = 255;
-			onShowEnd();
+			if(time == 0){
+				setPos(_closeHideOriginX, _closeHideOriginY);
+				_base.opacity = 255;
+				_systemMenu.opacity = 255;
+				onShowEnd();
+			}else{
+				setTransitionCompleteCall(onShowEnd);
+				setMovingEnvelope(
+					left, top,
+					_closeHideOriginX, _closeHideOriginY,
+					2);
+				beginActivation(time);
+
+				_base.setBlendingEnvelope(255);
+				_base.beginActivation(time);
+				_systemMenu.setBlendingEnvelope(255);
+				_systemMenu.beginActivation(time);
+			}
+			_closeHideActive = false;
 		}else{
-			setTransitionCompleteCall(onShowEnd);
-			setBlendingEnvelope(255);
-			beginActivation(time);
+			if(time == 0){
+				opacity = 255;
+				onShowEnd();
+			}else{
+				setTransitionCompleteCall(onShowEnd);
+				setBlendingEnvelope(255);
+				beginActivation(time);
+			}
 		}
 
 		HitThresholdSelectItems(_btn, 0);
+		_menuCallArea.hitThreshold = 0;
 
 		_systemMenu.buttonEnable(true);
 
 		_isShow = true;
+		restartSystemMenuAutoHide();
 	}
 	function hide(time=0, fFaceHide=false){
-		if(time == 0){
-			opacity = 0;
-			onHideEnd();
+		stopSystemMenuAutoHide();
+		_menuCallArea.hitThreshold = 256;
+		hideSystemMenuHint();
+
+		var closeHide = _closeHideRequested;
+		_closeHideRequested = false;
+
+		if(closeHide){
+			stopActivation();
+			_base.stopActivation();
+			_systemMenu.stopActivation();
+
+			_closeHideActive = true;
+			_closeHideOriginX = left;
+			_closeHideOriginY = top;
+			opacity = 255;
+
+			if(time == 0){
+				setPos(_closeHideOriginX, _closeHideOriginY + CLOSE_HIDE_MOVE_Y);
+				_base.opacity = 0;
+				_systemMenu.opacity = 0;
+				onHideEnd();
+			}else{
+				setTransitionCompleteCall(onHideEnd);
+				setMovingEnvelope(
+					left, top,
+					_closeHideOriginX, _closeHideOriginY + CLOSE_HIDE_MOVE_Y,
+					2);
+				beginActivation(time);
+
+				// 主体与系统菜单分别渐隐，确保右下角关闭按钮不会延迟残留。
+				_base.setBlendingEnvelope(0);
+				_base.beginActivation(time);
+				_systemMenu.setBlendingEnvelope(0);
+				_systemMenu.beginActivation(time);
+			}
 		}else{
-			setTransitionCompleteCall(onHideEnd);
-			setBlendingEnvelope(0);
-			beginActivation(time);
+			if(time == 0){
+				opacity = 0;
+				onHideEnd();
+			}else{
+				setTransitionCompleteCall(onHideEnd);
+				setBlendingEnvelope(0);
+				beginActivation(time);
+			}
 		}
 
 		HitThresholdSelectItems(_btn, 256);
@@ -503,6 +609,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		}
 	}
 	function hideMessage(time=0){
+		hideSystemMenuHint();
 		with(_base){
 			.setBlendingEnvelope(0);
 			.beginActivation(time);
@@ -556,7 +663,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			with(_msgBase[id].inner){
 				.loadImages(FRAMELIST[id].base);
 				.setSizeToImageSize();
-				.setPos(FRAME_X, BASE_Y);
+				// 全宽文本框底图实际高 318px，按窗口底边对齐以免底部露出 2px 背景。
+				var frameY = .width >= FRAME_WIDTH ? WINDOW_HEIGHT - .height : BASE_Y;
+				.setPos(FRAME_X, frameY);
 				.hitThreshold = 256;
 				.opacity = (255 * CONFIG.windowDepth) \ 100;
 				.visible = true;
@@ -616,7 +725,142 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(_imgFace !== void) _imgFace.absolute = 250;
 		if(_imgName !== void) _imgName.absolute = 250;
 		if(isvalid(_systemMenuArea)) _systemMenuArea.absolute = 1001;
+		if(isvalid(_menuCallArea)) _menuCallArea.absolute = 1001;
 		if(isvalid(_systemMenu)) _systemMenu.absolute = 1002;
+		if(isvalid(_systemMenuHint)) _systemMenuHint.absolute = 1003;
+		if(_btn[_btnMessageHide] !== void) _btn[_btnMessageHide].absolute = 1000;
+	}
+
+	function showSystemMenuHint(target, file){
+		if(file === void || file == "" || !isvalid(_systemMenuHint)) return;
+
+		with(_systemMenuHint){
+			.stopActivation();
+			.loadImages(file);
+			.setSizeToImageSize();
+			.setPos(SYSTEM_MENU_HINT_X, SYSTEM_MENU_HINT_Y);
+			.opacity = 255;
+			.visible = true;
+		}
+		_systemMenuHintTarget = target;
+	}
+
+	function hideSystemMenuHint(target=null){
+		if(!isvalid(_systemMenuHint)) return;
+		if(target !== null && _systemMenuHintTarget !== target) return;
+
+		_systemMenuHint.visible = false;
+		_systemMenuHintTarget = null;
+	}
+
+	function systemMenuShownX(){
+		return BTN_BASE_X3 + _systemMenuMoveX;
+	}
+	function systemMenuShownY(){
+		return BTN_BASE_Y3 + _systemMenuMoveY;
+	}
+	function isSystemMenuAutoHideEnabled(){
+		// ToggleButton 的深色按下态是 state=true；现有 lock 属性与其语义相反。
+		return isvalid(_systemMenu) && !_systemMenu.lock;
+	}
+	function isCursorInSystemMenuArea(){
+		if(!isvalid(_menuCallArea)) return false;
+		return (
+			_menuCallArea.left <= cursorX &&
+			cursorX < _menuCallArea.left + _menuCallArea.width &&
+			_menuCallArea.top <= cursorY &&
+			cursorY < _menuCallArea.top + _menuCallArea.height
+		);
+	}
+	function cancelSystemMenuAutoHideTimer(){
+		if(isvalid(_systemMenuAutoHideTimer))
+			_systemMenuAutoHideTimer.enabled = false;
+	}
+	function stopSystemMenuAutoHide(){
+		cancelSystemMenuAutoHideTimer();
+		_systemMenuPointerInside = false;
+	}
+	function prepareSystemMenuForShow(){
+		if(!isvalid(_systemMenu)) return;
+
+		cancelSystemMenuAutoHideTimer();
+		_systemMenu.stopActivation();
+		_systemMenu.setPos(systemMenuShownX(), systemMenuShownY());
+		_systemMenuAutoHidden = false;
+
+		if(isvalid(_menuCallArea))
+			_menuCallArea.setPos(systemMenuShownX(), systemMenuShownY());
+	}
+	function showSystemMenuFromAutoHide(time=SYSTEM_MENU_AUTO_HIDE_TIME){
+		if(!isvalid(_systemMenu)) return;
+
+		cancelSystemMenuAutoHideTimer();
+		if(!_systemMenuAutoHidden &&
+			_systemMenu.left == systemMenuShownX() &&
+			_systemMenu.top == systemMenuShownY()){
+			return;
+		}
+
+		_systemMenu.stopActivation();
+		if(time == 0){
+			_systemMenu.setPos(systemMenuShownX(), systemMenuShownY());
+		}else{
+			_systemMenu.setMovingEnvelope(
+				_systemMenu.left, _systemMenu.top,
+				systemMenuShownX(), systemMenuShownY(), 2);
+			_systemMenu.beginActivation(time);
+		}
+		_systemMenuAutoHidden = false;
+	}
+	function restartSystemMenuAutoHide(){
+		cancelSystemMenuAutoHideTimer();
+		if(!_isShow || !isSystemMenuAutoHideEnabled()) return;
+		if(_systemMenuPointerInside || isCursorInSystemMenuArea()) return;
+
+		with(_systemMenuAutoHideTimer){
+			.interval = SYSTEM_MENU_AUTO_HIDE_DELAY;
+			.enabled = true;
+		}
+	}
+	function onSystemMenuAutoHideTimer(){
+		cancelSystemMenuAutoHideTimer();
+		if(!_isShow || !isSystemMenuAutoHideEnabled()) return;
+		if(_systemMenuPointerInside || isCursorInSystemMenuArea()) return;
+
+		hideSystemMenuHint();
+		_systemMenu.stopActivation();
+		_systemMenu.setMovingEnvelope(
+			_systemMenu.left, _systemMenu.top,
+			SYSTEM_MENU_HIDDEN_X, systemMenuShownY(), 2);
+		_systemMenu.beginActivation(SYSTEM_MENU_AUTO_HIDE_TIME);
+		_systemMenuAutoHidden = true;
+	}
+	function onSystemMenuPointerEnter(){
+		if(!_isShow) return;
+
+		_systemMenuPointerInside = true;
+		cancelSystemMenuAutoHideTimer();
+		if(isSystemMenuAutoHideEnabled())
+			showSystemMenuFromAutoHide();
+	}
+	function onSystemMenuPointerLeave(){
+		if(!_isShow) return;
+
+		if(isCursorInSystemMenuArea()){
+			_systemMenuPointerInside = true;
+			return;
+		}
+
+		_systemMenuPointerInside = false;
+		restartSystemMenuAutoHide();
+	}
+	function onSystemMenuLockChanged(){
+		showSystemMenuFromAutoHide();
+		_systemMenuPointerInside = isCursorInSystemMenuArea();
+		if(isSystemMenuAutoHideEnabled())
+			restartSystemMenuAutoHide();
+		else
+			cancelSystemMenuAutoHideTimer();
 	}
 
 	function setMessageAreaStyle(type){
@@ -925,25 +1169,33 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_systemMenu.refresh();
 	}
 
-	function onMouseMenuAreaEnter(target){
-		if(_systemMenu.lock) return;
+	function refreshJumpButtons(){
+		_systemMenu.refreshJumpButtons();
+	}
 
+	function onMouseMenuAreaEnter(target){
 		_systemMenuArea.enter();
 		_systemMenu.enable = true;
+		onSystemMenuPointerEnter();
 	}
 	function onMouseMenuAreaLeave(target){
-		if(	_menuCallArea.left <= cursorX && cursorX < _menuCallArea.left + _menuCallArea.width &&
-			_menuCallArea.top <= cursorY && cursorY < _menuCallArea.top + _menuCallArea.height){
-			return;
-		}
-
-		onMenuLeave();
+		onSystemMenuPointerLeave();
 	}
 	function onMenuLeave(){
-		if(_systemMenu.lock) return;
-
+		hideSystemMenuHint();
 		_systemMenuArea.leave();
-		_systemMenu.enable = false;
+		onSystemMenuPointerLeave();
+	}
+
+	function requestCloseHide(){
+		if(_advObj.isAuto()) _advObj.auto(false);
+		if(_advObj.isSkip()) _advObj.skip(false);
+
+		_closeHideRequested = true;
+		_advObj.callSystemWindow(ADVScreen.SYSWIN_HIDE);
+
+		// callSystemWindow 可能因当前状态拒绝隐藏，避免影响下一次普通隐藏。
+		if(_isShow) _closeHideRequested = false;
 	}
 
 	function onMenuDecide(ev){
@@ -954,6 +1206,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			break;
 		case "auto" :
 			_advObj.auto(_systemMenu.auto);
+			break;
+		case "lock" :
+			onSystemMenuLockChanged();
 			break;
 		case "load" :
 			_advObj.callSystemWindow(ADVScreen.SYSWIN_LOAD);
@@ -967,11 +1222,12 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		case "log" :
 			_advObj.callSystemWindow(ADVScreen.SYSWIN_HISTORY);
 			break;
+		case "title" :
+			hideSystemMenuHint();
+			_advObj.callSystemWindow(ADVScreen.SYSWIN_TITLE);
+			break;
 		case "hide" :
-			if(_advObj.isAuto()) _advObj.auto(false);
-			if(_advObj.isSkip()) _advObj.skip(false);
-
-			_advObj.callSystemWindow(ADVScreen.SYSWIN_HIDE);
+			requestCloseHide();
 			break;
 
 		case "jumpSelectPrev" : _advObj.jump(ADVScreen.JUMPSTATE_SELECT_PREV); break;
@@ -1005,12 +1261,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 				_textSettingsMenu.show(_btn[_btnTextSettings]);
 			}
 			break;
-		case _btn[_btnClose] :
+		case _btn[_btnMessageHide] :
 		case "hide" :
-			if(_advObj.isAuto()) _advObj.auto(false);
-			if(_advObj.isSkip()) _advObj.skip(false);
-
-			_advObj.callSystemWindow(ADVScreen.SYSWIN_HIDE);
+			requestCloseHide();
 			break;
 		}
 	}
@@ -1018,8 +1271,12 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_advObj.onMouseDown(0, 0, mbRight, 0);
 	}
 	function onButtonEnter(target){
+		if(target == _btn[_btnMessageHide])
+			showSystemMenuHint(target, MESSAGE_HIDE_HINT_FILE);
 	}
 	function onButtonLeave(target){
+		if(target == _btn[_btnMessageHide])
+			hideSystemMenuHint(target);
 	}
 
 	function onCompleteOutput(target){
@@ -1052,41 +1309,18 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 
 	function showBlink(time=0){
+		// 等待输入的单/双下箭头不再显示；保留对象以免影响既有消息完成流程。
 		_blink.stopActivation();
 		_blink.opacity = 0;
+		_blink.visible = false;
 		_blinkA.stopActivation();
 		_blinkA.opacity = 0;
-
-		if(_systemMenu.auto == 0){
-			if(time){
-				with(_blink){
-					.opacity = 128;
-					//.setZoomingEnvelope(150, 100);
-					.setBlendingEnvelope(255);
-					.beginActivation(time);
-				}
-				_blinkTimer.enabled = true;
-			}else{
-				_blink.opacity = 255;
-			}
-			_tgtBlink = _blink;
-		}else{
-			if(time){
-				with(_blinkA){
-					.opacity = 128;
-					//.setZoomingEnvelope(150, 100);
-					.setBlendingEnvelope(255);
-					.beginActivation(time);
-				}
-				_blinkTimer.enabled = true;
-			}else{
-				_blinkA.opacity = 255;
-			}
-
-			_tgtBlink = _blinkA;
-		}
+		_blinkA.visible = false;
+		_blinkTimer.enabled = false;
+		_tgtBlink = null;
 	}
 	function hideBlink(time=0){
+		_blinkTimer.enabled = false;
 		if(_tgtBlink === null) return;
 
 		_tgtBlink.stopActivation();
@@ -1098,7 +1332,6 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		}else{
 			_tgtBlink.opacity = 0;
 		}
-		_blinkTimer.enabled = false;
 		_tgtBlink = null;
 	}
 
@@ -1107,12 +1340,18 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 
 	function movePos(x=0, y=0, time=300){
-		if(FRAMELIST[_type].type == "frame")
-			_systemMenu.setMovingEnvelope(_systemMenu.left, _systemMenu.top, BTN_BASE_X3 + x, BTN_BASE_Y3 + y, 2);
-		else
-			_systemMenu.setMovingEnvelope(_systemMenu.left, _systemMenu.top, BTN_BASE_X3 + x, BTN_BASE_Y3 + y, 2);
+		_systemMenuMoveX = x;
+		_systemMenuMoveY = y;
+
+		_systemMenu.stopActivation();
+		var menuX = _systemMenuAutoHidden ? SYSTEM_MENU_HIDDEN_X : systemMenuShownX();
+		_systemMenu.setMovingEnvelope(
+			_systemMenu.left, _systemMenu.top,
+			menuX, systemMenuShownY(), 2);
 
 		_systemMenu.beginActivation(time);
+		if(isvalid(_menuCallArea))
+			_menuCallArea.setPos(systemMenuShownX(), systemMenuShownY());
 		_base.setMovingEnvelope(_base.left, _base.top, 0 + x, 0 + y, 2);
 		_base.beginActivation(time);
 	}
@@ -1446,29 +1685,59 @@ FaceWindow.FW_HIDEONCE = 3;	// 立绘单次隐藏
 
 class SystemMenu extends SubMenu{
 	var _adv;
+	var _messageFrame;
 
 	var _btn = [];
 
 	var _btn = [];
+
+	var _autoIndicator;
+	var _autoIndicatorSource;
+	var _autoIndicatorFrames = [];
+	var _autoIndicatorTimer;
+	var _autoIndicatorFrame = 0;
+	var _buttonsEnabled = false;
+
+	var AUTO_INDICATOR_FILE = "ui_1920/adv_menu/DHK-01.png";
+	var AUTO_INDICATOR_FRAME_COUNT = 12;
+	var AUTO_INDICATOR_FRAME_WIDTH = 40;
+	var AUTO_INDICATOR_FRAME_HEIGHT = 40;
+	var AUTO_INDICATOR_INTERVAL = 70;
+	var AUTO_INDICATOR_X = 0;
+	var AUTO_INDICATOR_Y = 128;
+	var SYSTEM_MENU_BUTTON_OFFSET_X = AUTO_INDICATOR_FRAME_WIDTH;
 
 	var _files = [
-		["ui_1920/adv_menu/DHK-22.png",  [12 + 120, 60]],
-		["ui_1920/adv_menu/DHK-23.png",  [12 + 180, 60]],
-		["ui_1920/adv_menu/DHK-20.png",  [12 + 0 , 60]],
-		["ui_1920/adv_menu/DHK-21.png",  [12 + 60 , 60]],
-		["ui_1920/adv_menu/DHK-25.png",  [12 + 60 , 120]],
-		["ui_1920/adv_menu/DHK-17.png",  [12 + 60 , 0]],
-		["ui_1920/adv_menu/DHK-18.png",  [12 + 120 , 0]],
-		["ui_1920/adv_menu/DHK-24.png",  [12 + 0 , 120]],
-		["ui_1920/adv_menu/DHK-26.png",  [12 + 120, 120]],
-		["ui_1920/adv_menu/DHK-59.png",  [12 + 180, 0]],
-		["ui_1920/adv_menu/DHK-27.png",  [12 + 180, 120]],
-		["ui_1920/adv_menu/DHK-16.png",  [12 +  0, 0]],
+		["ui_1920/adv_menu/DHK-22.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 120, 60]],
+		["ui_1920/adv_menu/DHK-23.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 180, 60]],
+		["ui_1920/adv_menu/DHK-20.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 0 , 60]],
+		["ui_1920/adv_menu/DHK-21.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 60 , 60]],
+		["ui_1920/adv_menu/DHK-25.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 60 , 120]],
+		["ui_1920/adv_menu/DHK-17.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 60 , 0]],
+		["ui_1920/adv_menu/DHK-18.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 120 , 0]],
+		["ui_1920/adv_menu/DHK-24.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 0 , 120]],
+		["ui_1920/adv_menu/DHK-26.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 120, 120]],
+		["ui_1920/adv_menu/DHK-19.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 180, 0]],
+		["ui_1920/adv_menu/DHK-60.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 180, 120]],
+		["ui_1920/adv_menu/DHK-16.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X +  0, 0]],
+	];
+	var _hintFiles = [
+		"ui_1920/adv_menu/DHK-35.png",	// 快速保存
+		"ui_1920/adv_menu/DHK-34.png",	// 快速读取
+		"ui_1920/adv_menu/DHK-33.png",	// 保存存档
+		"ui_1920/adv_menu/DHK-31.png",	// 读取存档
+		"ui_1920/adv_menu/DHK-38.png",	// 系统设置
+		"ui_1920/adv_menu/DHK-29.png",	// 自动模式
+		"ui_1920/adv_menu/DHK-30.png",	// 快进模式
+		"ui_1920/adv_menu/DHK-36.png",	// 文本记录
+		"ui_1920/adv_menu/DHK-37.png",	// 锁定按钮
+		"ui_1920/adv_menu/DHK-32.png",	// 下一选项
+		"ui_1920/adv_menu/DHK-62.png",	// 返回标题
+		"ui_1920/adv_menu/DHK-43.png",	// 上一选项
 	];
 
 
 	var _qsaveMenu;
-	var _jumpMenu;
 	var _configMenu;
 
 	var HIDE_OPACITY = 0;		// 菜单隐藏时透明度
@@ -1477,10 +1746,54 @@ class SystemMenu extends SubMenu{
 		SubMenu(win, par, o);
 		_name = "SystemMenu";
 		_adv = adv;
+		_messageFrame = par;
 
 		hasImage = false;
 
 		setSize(1500,180);
+
+		// 构造时把 480x40 图集等分成 12 个独立 40x40 图层；
+		// 运行时只切换图层显隐，不移动源图或图像原点。
+		_autoIndicatorSource = new global.Layer(win, this);
+		with(_autoIndicatorSource){
+			.loadImages(AUTO_INDICATOR_FILE);
+			.setSizeToImageSize();
+			.hitThreshold = 256;
+			.visible = false;
+		}
+		_autoIndicator = new global.Layer(win, this);
+		with(_autoIndicator){
+			.hasImage = false;
+			.setSize(AUTO_INDICATOR_FRAME_WIDTH, AUTO_INDICATOR_FRAME_HEIGHT);
+			.setPos(AUTO_INDICATOR_X, AUTO_INDICATOR_Y);
+			.hitThreshold = 256;
+			.visible = false;
+		}
+		for(var i=0;i<AUTO_INDICATOR_FRAME_COUNT;i++){
+			_autoIndicatorFrames[i] = new global.Layer(win, _autoIndicator);
+			with(_autoIndicatorFrames[i]){
+				.setImageSize(AUTO_INDICATOR_FRAME_WIDTH, AUTO_INDICATOR_FRAME_HEIGHT);
+				.setSize(AUTO_INDICATOR_FRAME_WIDTH, AUTO_INDICATOR_FRAME_HEIGHT);
+				.type = ltAlpha;
+				.fillRect(0, 0,
+					AUTO_INDICATOR_FRAME_WIDTH, AUTO_INDICATOR_FRAME_HEIGHT,
+					0x00000000);
+				.copyRect(
+					0, 0, _autoIndicatorSource,
+					AUTO_INDICATOR_FRAME_WIDTH * i, 0,
+					AUTO_INDICATOR_FRAME_WIDTH, AUTO_INDICATOR_FRAME_HEIGHT);
+				.setPos(0, 0);
+				.hitThreshold = 256;
+				.visible = false;
+			}
+		}
+		setAutoIndicatorFrame(0);
+		_autoIndicatorTimer = new Timer(onAutoIndicatorTimer, "");
+		with(_autoIndicatorTimer){
+			.interval = AUTO_INDICATOR_INTERVAL;
+			.capacity = 1;
+			.enabled = false;
+		}
 
 		var index = 0;
 		_btn[index] = new Button(win, this);
@@ -1540,33 +1853,30 @@ class SystemMenu extends SubMenu{
 			index++;
 		}
 
-		_btn[index] = new ToggleButton(win, this);
+		// 下一选项是普通按钮，不保留按下状态。
+		_btn[index] = new Button(win, this);
 		with(_btn[index]){
 			.create(_files[index][0], 2);
 			.setPos(_files[index][1][0], _files[index][1][1]);
-			._nNormalB = ._nFocusB = ._nInvalidB = 1;
 			index++;
 		}
-		_btn[index] = new ToggleButton(win, this);
+		// 右下角返回标题按钮只有普通和悬浮两态。
+		_btn[index] = new Button(win, this);
 		with(_btn[index]){
 			.create(_files[index][0], 2);
 			.setPos(_files[index][1][0], _files[index][1][1]);
-			._nNormalB = ._nFocusB = ._nInvalidB = 1;
 			index++;
 		}
-		_btn[index] = new ToggleButton(win, this);
+		// 上一选项是普通按钮，可根据选择栈状态禁用。
+		_btn[index] = new Button(win, this);
 		with(_btn[index]){
 			.create(_files[index][0], 2);
 			.setPos(_files[index][1][0], _files[index][1][1]);
-			._nNormalB = ._nFocusB = ._nInvalidB = 1;
 			index++;
 		}
 
 		_qsaveMenu = new global.QuickSaveMenu(win, par, this);
 		_qsaveMenu.join = JOIN_TOP;
-
-		_jumpMenu = new JumpMenu(win, par, this);
-		_jumpMenu.join = JOIN_TOP;
 
 		_configMenu = new ConfigSubMenu(win, par, this, _adv);
 		_configMenu.join = JOIN_TOP;
@@ -1577,24 +1887,13 @@ class SystemMenu extends SubMenu{
 		addItem(_btn[3]);
 		addItem(_btn[4], _configMenu);
 		addItem(_btn[5]);
-		addItem(_btn[10]);
-		addItem(_btn[11]);
-		addItem(_btn[12]);
-		if(_adv.isRecollect())
-			addItem(_btn[6]);
-		else
-			addItem(_btn[6], _jumpMenu);
+		addItem(_btn[6]);
 		addItem(_btn[7]);
 		addItem(_btn[8]);
-
-		if(_adv.isRecollect())
-			addItem(_btn[9]);
-		else
-			addItem(_btn[9], _jumpMenu);
-
+		// 前后选项按钮直接执行跳转，不绑定悬浮子菜单。
+		addItem(_btn[9]);
 		addItem(_btn[10]);
 		addItem(_btn[11]);
-		addItem(_btn[12]);
 
 		lock = (CONFIG.systemMenuLock != 0);
 
@@ -1602,16 +1901,68 @@ class SystemMenu extends SubMenu{
 //		if(lock) opacity =255;
 		opacity = 255;
 
-		refresh();
+		// ADVScreen 此时尚未初始化选择历史栈和参数，只设置安全的初始状态。
+		refresh(false);
 	}
 	function finalize(){
+		if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint();
+		if(isvalid(_autoIndicatorTimer))
+			_autoIndicatorTimer.enabled = false;
+		invalidate _autoIndicatorTimer;
+		InvalidateArray(_autoIndicatorFrames);
+		invalidate _autoIndicatorFrames;
+		invalidate _autoIndicator;
+		invalidate _autoIndicatorSource;
 		invalidate _qsaveMenu;
-		invalidate _jumpMenu;
 		invalidate _configMenu;
+		_messageFrame = null;
 		super.finalize();
 	}
 
-	function refresh(){
+	function setAutoIndicatorFrame(frame){
+		if(frame < 0 || frame >= AUTO_INDICATOR_FRAME_COUNT) frame = 0;
+
+		if(_autoIndicatorFrame >= 0 &&
+			_autoIndicatorFrame < _autoIndicatorFrames.count &&
+			isvalid(_autoIndicatorFrames[_autoIndicatorFrame])){
+			_autoIndicatorFrames[_autoIndicatorFrame].visible = false;
+		}
+		_autoIndicatorFrame = frame;
+		if(_autoIndicatorFrame < _autoIndicatorFrames.count &&
+			isvalid(_autoIndicatorFrames[_autoIndicatorFrame])){
+			_autoIndicatorFrames[_autoIndicatorFrame].visible = true;
+		}
+	}
+
+	function syncAutoIndicator(){
+		if(!isvalid(_autoIndicator) || !isvalid(_autoIndicatorTimer)) return;
+
+		var active = _buttonsEnabled && _btn[5].state;
+		if(active){
+			if(!_autoIndicator.visible){
+				setAutoIndicatorFrame(0);
+				_autoIndicator.visible = true;
+			}
+			_autoIndicatorTimer.enabled = true;
+		}else{
+			_autoIndicatorTimer.enabled = false;
+			_autoIndicator.visible = false;
+			setAutoIndicatorFrame(0);
+		}
+	}
+
+	function onAutoIndicatorTimer(){
+		if(!_buttonsEnabled || !_btn[5].state || !isvalid(_autoIndicator)){
+			syncAutoIndicator();
+			return;
+		}
+
+		var nextFrame = _autoIndicatorFrame + 1;
+		if(nextFrame >= AUTO_INDICATOR_FRAME_COUNT) nextFrame = 0;
+		setAutoIndicatorFrame(nextFrame);
+	}
+
+	function refresh(refreshJump=true){
 		_qsaveMenu.refresh();
 		if(saveMan.qsaveStack()){
 			addItem(_btn[1], _qsaveMenu);
@@ -1631,6 +1982,28 @@ class SystemMenu extends SubMenu{
 			}
 			removeItem(_btn[1]);
 		}
+
+		if(refreshJump){
+			refreshJumpButtons();
+		}else{
+			// 构造阶段还不能读取 ADVScreen 的选择状态。
+			var nextValid = !_adv.isRecollect();
+			_btn[11].valid = false;
+			_btn[11].opacity = 96;
+			_btn[9].valid = nextValid;
+			_btn[9].opacity = nextValid ? 255 : 96;
+		}
+	}
+
+	function refreshJumpButtons(){
+		var jumpAvailable = !_adv.isRecollect();
+		var prevValid = jumpAvailable && _adv.canJumpSelectPrev();
+		var nextValid = jumpAvailable && !_adv.isSelectTerminate() && !_adv.isSelect();
+
+		_btn[11].valid = prevValid;
+		_btn[11].opacity = prevValid ? 255 : 96;
+		_btn[9].valid = nextValid;
+		_btn[9].opacity = nextValid ? 255 : 96;
 	}
 
 	function onButtonDownL(target){
@@ -1647,7 +2020,17 @@ class SystemMenu extends SubMenu{
 		case _btn[5] : event = "auto"; break;
 		case _btn[6] : event = "skip"; break;
 		case _btn[7] : event = "log"; break;
-		case _btn[9] : event = "hide"; break;
+		case _btn[9] :
+			refreshJumpButtons();
+			if(!_btn[9].valid) return;
+			event = "jumpSelectNext";
+			break;
+		case _btn[10] : event = "title"; break;
+		case _btn[11] :
+			refreshJumpButtons();
+			if(!_btn[11].valid) return;
+			event = "jumpSelectPrev";
+			break;
 		case _btn[8] :
 			lock = (target.state == 0);
 			event = "lock";
@@ -1659,33 +2042,47 @@ class SystemMenu extends SubMenu{
 	function onButtonDownR(target){}
 	function onButtonEnter(target){
 		switch(target){
-		case _btn[6] :
-			_jumpMenu.jumpPrevValid(_adv.countOfStackSelect() != 0);
-			_jumpMenu.jumpNextValid(!_adv.isSelectTerminate() && !_adv.isSelect());
+		case _btn[9] :
+		case _btn[11] :
+			refreshJumpButtons();
+			break;
 		}
 		super.onButtonEnter(target);
+
+		if(!enable || !isvalid(_messageFrame)) return;
+		for(var i=0;i<_btn.count;i++){
+			if(target == _btn[i]){
+				_messageFrame.showSystemMenuHint(target, _hintFiles[i]);
+				break;
+			}
+		}
+	}
+	function onButtonLeave(target){
+		if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint(target);
+		super.onButtonLeave(target);
 	}
 
 	function buttonEnable(flag){
+		_buttonsEnabled = flag;
 		if(flag){
+			refreshJumpButtons();
 			HitThresholdSelectItems(_btn, 0);
 			hitThreshold = 0;
 		}else{
+			if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint();
 			HitThresholdSelectItems(_btn, 256);
 			hitThreshold = 256;
 		}
+		syncAutoIndicator();
 	}
 
 	function onMenuEnter(){
-//		setBlendingEnvelope(255);
-//		beginActivation(100);
+		if(isvalid(_messageFrame))
+			_messageFrame.onSystemMenuPointerEnter();
 		super.onMenuEnter();
 	}
 	function onMenuLeave(){
-//		if(!lock){
-//			setBlendingEnvelope(HIDE_OPACITY);
-//			beginActivation(100);
-//		}
+		if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint();
 		parent.onMenuLeave();
 
 		super.onMenuLeave();
@@ -1701,7 +2098,10 @@ class SystemMenu extends SubMenu{
 
 	property auto{
 		getter(){return _btn[5].state;}
-		setter(v){_btn[5].state = v;}
+		setter(v){
+			_btn[5].state = v;
+			syncAutoIndicator();
+		}
 	}
 	property skip{
 		getter(){return _btn[6].state;}
@@ -1839,53 +2239,6 @@ class QuickSaveMenu extends SubMenu{
 				break;
 			}
 		}
-	}
-}
-class JumpMenu extends SubMenu{
-	var _btn = [];
-
-	function JumpMenu(win, par, o=null){
-		SubMenu(...);
-		_name = "JumpMenu";
-		hasImage = false;
-
-		loadImages("FRM_0133");
-		setSizeToImageSize();
-
-		_btn[0] = new Button(win, this);
-		with(_btn[0]){
-			.create("FRM_0130", 2);
-			.setPos(5, 9);
-		}
-		_btn[1] = new Button(win, this);
-		with(_btn[1]){
-			.create("FRM_0131", 2);
-			.setPos(134, 9);
-		}
-
-		addItem(_btn[0]);
-		addItem(_btn[1]);
-	}
-	function finalize(){
-		super.finalize();
-	}
-
-	function onButtonDownL(target){
-		switch(target){
-		case _btn[0] : target = "jumpSelectPrev"; break;
-		case _btn[1] : target = "jumpSelectNext"; break;
-		}
-
-		onMenuDecide(target);
-	}
-
-	function jumpPrevValid(f){
-		_btn[0].valid = f;
-		_btn[0].opacity = f ? 255 : 96;
-	}
-	function jumpNextValid(f){
-		_btn[1].valid = f;
-		_btn[1].opacity = f ? 255 : 96;
 	}
 }
 
