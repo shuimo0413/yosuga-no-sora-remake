@@ -8,7 +8,7 @@
 var ADV_TEXT_STYLE = %[
 	messageFontSize:50,
 	messagePrerenderedSize:48,
-	messageLineHeight:50,
+	messageLineHeight:60,
 	backlogFontSize:40,
 	backlogPrerenderedSize:36,
 	backlogLineHeight:40,
@@ -53,6 +53,27 @@ function ApplyBacklogTextDrawStyle(area){
 		ADV_TEXT_STYLE.shadowWidth,
 		ADV_TEXT_STYLE.backlogShadowX, ADV_TEXT_STYLE.backlogShadowY);
 	area.resetDrawTextParam();
+}
+
+var SHORTCUT_MENU_FONT_FILE = "Xiaolai-Regular.ttf";
+var SHORTCUT_MENU_FONT_FACE = null;
+try{
+	if(typeof global.Font == "Object" &&
+		typeof global.Font.addFont == "Object" &&
+		Storages.isExistentStorage(SHORTCUT_MENU_FONT_FILE)){
+		var shortcutMenuFontFaces =
+			global.Font.addFont(SHORTCUT_MENU_FONT_FILE);
+		if(shortcutMenuFontFaces.count > 0)
+			SHORTCUT_MENU_FONT_FACE = shortcutMenuFontFaces[0];
+		invalidate shortcutMenuFontFaces;
+	}
+}catch(e){
+	dm("Shortcut menu Xiaolai font fallback: " + e);
+}
+
+function GetShortcutMenuFontFace(){
+	return SHORTCUT_MENU_FONT_FACE !== null ?
+		SHORTCUT_MENU_FONT_FACE : FONT_DEFAULT_FACE;
 }
 
 // 说话人 PNG（与 SystemWindow 履历一致）
@@ -192,6 +213,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var _menuCallArea;
 	var _systemMenuHint = null;
 	var _systemMenuHintTarget = null;
+	var _shortcutLoadFile = "";
+	var _shortcutSaveIndex = -1;
+	var _shortcutSaveFile = "";
 	var _systemMenuAutoHideTimer;
 	var _systemMenuAutoHidden = false;
 	var _systemMenuPointerInside = false;
@@ -1236,7 +1260,89 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		case "qsave" : _advObj.quickSave(); break;
 
 		case "qload" : _advObj.quickLoad(event[1]); break;
+		case "slotload" : requestShortcutLoad(event[1]); break;
+		case "slotsave" : requestShortcutSave(event[1]); break;
 		}
+	}
+
+	function requestShortcutLoad(filename){
+		if(filename === void || filename == "") return;
+		// 项目全局函数沿用原有的 Proccesing 拼写。
+		// 这里若写成 IsLoadProcessing 会在点击存档槽时直接抛脚本异常。
+		if(IsLoadProccesing()) return;
+
+		_shortcutLoadFile = filename;
+		if(_advObj.isAuto()) _advObj.auto(false);
+		if(_advObj.isSkip()) _advObj.skip(false);
+
+		if(CONFIG.confirmWindow[SystemRegister.CONFIRM_LOAD])
+			PlaySystemVoice("ロード：確認");
+		CallConfirm(
+			"$c:aquamarine,midnightblue;存档读取确认",
+			SystemRegister.CONFIRM_LOAD,
+			runShortcutLoad,
+			cancelShortcutLoad);
+	}
+	function runShortcutLoad(){
+		var filename = _shortcutLoadFile;
+		_shortcutLoadFile = "";
+		if(filename == "") return;
+
+		hideSystemMenuHint();
+		PlaySystemVoice("ロード：実行");
+		_advObj.load(filename);
+	}
+	function cancelShortcutLoad(){
+		_shortcutLoadFile = "";
+	}
+
+	function requestShortcutSave(indexText){
+		var index = -1;
+		try{ index = int indexText; }catch(e){ index = -1; }
+		var saveCount = SAVEDATA_BOOK_MAX * SAVEDATA_PAGE_MAX * SAVEDATA_PAGE_NUM;
+		if(index < 0 || index >= saveCount) return;
+
+		var info = saveMan.at(index);
+		if(info !== void && info.lock !== void && info.lock) return;
+
+		var book = index \ SAVEDATA_PAGEDATA_MAX;
+		var slot = index % SAVEDATA_PAGEDATA_MAX;
+		_shortcutSaveIndex = index;
+		_shortcutSaveFile =
+			"save%02d_%03d.bmp".sprintf(book + 1, slot + 1);
+
+		if(_advObj.isAuto()) _advObj.auto(false);
+		if(_advObj.isSkip()) _advObj.skip(false);
+
+		if(info !== void && info.valid){
+			PlaySystemVoice("セーブ：上書き");
+			CallConfirm(
+				"$c:violet,indigo;存档覆盖确认",
+				SystemRegister.CONFIRM_OVERWRITE,
+				runShortcutSave,
+				cancelShortcutSave);
+		}else{
+			runShortcutSave();
+		}
+	}
+	function runShortcutSave(){
+		var index = _shortcutSaveIndex;
+		var filename = _shortcutSaveFile;
+		_shortcutSaveIndex = -1;
+		_shortcutSaveFile = "";
+		if(index < 0 || filename == "") return;
+
+		hideSystemMenuHint();
+		PlaySystemVoice("セーブ：実行");
+		_advObj.save(filename, index);
+		SetNewSaveNo(index + 1);
+		SaveSystemRegister();
+		_systemMenu.refresh();
+		Information("已保存", 1000);
+	}
+	function cancelShortcutSave(){
+		_shortcutSaveIndex = -1;
+		_shortcutSaveFile = "";
 	}
 
 	function onButtonDownL(target){
@@ -1738,7 +1844,18 @@ class SystemMenu extends SubMenu{
 
 
 	var _qsaveMenu;
+	var _saveMenu;
+	var _loadMenu;
 	var _configMenu;
+
+	var _shortcutOpenTimer;
+	var _shortcutCloseTimer;
+	var _shortcutPendingButton = null;
+	var _shortcutPendingMenu = null;
+	var _shortcutOpenButton = null;
+	var _shortcutOpenMenu = null;
+	var SHORTCUT_OPEN_DELAY = 200;
+	var SHORTCUT_CLOSE_DELAY = 300;
 
 	var HIDE_OPACITY = 0;		// 菜单隐藏时透明度
 
@@ -1878,11 +1995,32 @@ class SystemMenu extends SubMenu{
 		_qsaveMenu = new global.QuickSaveMenu(win, par, this);
 		_qsaveMenu.join = JOIN_TOP;
 
+		_saveMenu = new global.LoadShortcutMenu(win, par, this, true);
+		_saveMenu.join = JOIN_TOP;
+
+		_loadMenu = new global.LoadShortcutMenu(win, par, this, false);
+		_loadMenu.join = JOIN_TOP;
+
 		_configMenu = new ConfigSubMenu(win, par, this, _adv);
 		_configMenu.join = JOIN_TOP;
 
+		_shortcutOpenTimer = new Timer(onShortcutOpenTimer, "");
+		with(_shortcutOpenTimer){
+			.interval = SHORTCUT_OPEN_DELAY;
+			.capacity = 1;
+			.enabled = false;
+		}
+		_shortcutCloseTimer = new Timer(onShortcutCloseTimer, "");
+		with(_shortcutCloseTimer){
+			.interval = SHORTCUT_CLOSE_DELAY;
+			.capacity = 1;
+			.enabled = false;
+		}
+
 		addItem(_btn[0]);
-		addItem(_btn[1], _qsaveMenu);
+		// 第二排的快捷浮窗由本类延时控制，避免鼠标向上经过时立即
+		// 弹出并盖住第一排按钮。
+		addItem(_btn[1]);
 		addItem(_btn[2]);
 		addItem(_btn[3]);
 		addItem(_btn[4], _configMenu);
@@ -1906,6 +2044,10 @@ class SystemMenu extends SubMenu{
 	}
 	function finalize(){
 		if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint();
+		cancelShortcutOpen();
+		cancelShortcutClose();
+		invalidate _shortcutOpenTimer;
+		invalidate _shortcutCloseTimer;
 		if(isvalid(_autoIndicatorTimer))
 			_autoIndicatorTimer.enabled = false;
 		invalidate _autoIndicatorTimer;
@@ -1914,9 +2056,109 @@ class SystemMenu extends SubMenu{
 		invalidate _autoIndicator;
 		invalidate _autoIndicatorSource;
 		invalidate _qsaveMenu;
+		invalidate _saveMenu;
+		invalidate _loadMenu;
 		invalidate _configMenu;
 		_messageFrame = null;
 		super.finalize();
+	}
+
+	function shortcutMenuForButton(target){
+		switch(target){
+		case _btn[1] : return _qsaveMenu;
+		case _btn[2] : return _saveMenu;
+		case _btn[3] : return _loadMenu;
+		}
+		return null;
+	}
+
+	function cancelShortcutOpen(){
+		if(isvalid(_shortcutOpenTimer))
+			_shortcutOpenTimer.enabled = false;
+		_shortcutPendingButton = null;
+		_shortcutPendingMenu = null;
+	}
+
+	function cancelShortcutClose(){
+		if(isvalid(_shortcutCloseTimer))
+			_shortcutCloseTimer.enabled = false;
+	}
+
+	function requestShortcutOpen(target, menu){
+		if(menu === null || !isvalid(menu)) return;
+
+		cancelShortcutOpen();
+		if(_shortcutOpenMenu == menu){
+			cancelShortcutClose();
+			if(!menu.visible) menu.show(target);
+			return;
+		}
+
+		_shortcutPendingButton = target;
+		_shortcutPendingMenu = menu;
+		with(_shortcutOpenTimer){
+			.interval = SHORTCUT_OPEN_DELAY;
+			.enabled = true;
+		}
+	}
+
+	function requestShortcutClose(menu=null){
+		if(_shortcutOpenMenu === null) return;
+		if(menu !== null && menu != _shortcutOpenMenu) return;
+
+		cancelShortcutClose();
+		with(_shortcutCloseTimer){
+			.interval = SHORTCUT_CLOSE_DELAY;
+			.enabled = true;
+		}
+	}
+
+	function closeShortcutMenu(){
+		cancelShortcutClose();
+		if(_shortcutOpenMenu !== null && isvalid(_shortcutOpenMenu)){
+			_shortcutOpenMenu.hideSubMenu();
+			_shortcutOpenMenu.hide();
+		}
+		_shortcutOpenButton = null;
+		_shortcutOpenMenu = null;
+	}
+
+	function onShortcutOpenTimer(){
+		if(isvalid(_shortcutOpenTimer))
+			_shortcutOpenTimer.enabled = false;
+
+		var target = _shortcutPendingButton;
+		var menu = _shortcutPendingMenu;
+		_shortcutPendingButton = null;
+		_shortcutPendingMenu = null;
+
+		if(!_buttonsEnabled || target === null || menu === null) return;
+		if(!isButtonEnter(target)) return;
+
+		closeShortcutMenu();
+		_shortcutOpenButton = target;
+		_shortcutOpenMenu = menu;
+		menu.show(target);
+	}
+
+	function onShortcutCloseTimer(){
+		if(isvalid(_shortcutCloseTimer))
+			_shortcutCloseTimer.enabled = false;
+		closeShortcutMenu();
+	}
+
+	function onShortcutMenuEnter(menu){
+		if(menu != _shortcutOpenMenu) return;
+		cancelShortcutClose();
+		if(isvalid(_messageFrame))
+			_messageFrame.onSystemMenuPointerEnter();
+	}
+
+	function onShortcutMenuLeave(menu){
+		if(menu != _shortcutOpenMenu) return;
+		requestShortcutClose(menu);
+		if(isvalid(_messageFrame))
+			_messageFrame.onSystemMenuPointerLeave();
 	}
 
 	function setAutoIndicatorFrame(frame){
@@ -1964,8 +2206,10 @@ class SystemMenu extends SubMenu{
 
 	function refresh(refreshJump=true){
 		_qsaveMenu.refresh();
+		_saveMenu.refresh();
+		_loadMenu.refresh();
 		if(saveMan.qsaveStack()){
-			addItem(_btn[1], _qsaveMenu);
+			addItem(_btn[1]);
 			_btn[1].opacity = 255;
 			_btn[1].valid = true;
 		}else{
@@ -2007,6 +2251,9 @@ class SystemMenu extends SubMenu{
 	}
 
 	function onButtonDownL(target){
+		cancelShortcutOpen();
+		closeShortcutMenu();
+
 		var event = "";
 		switch(target){
 		case _btn[0] : event = "qsave"; break;
@@ -2041,6 +2288,15 @@ class SystemMenu extends SubMenu{
 	}
 	function onButtonDownR(target){}
 	function onButtonEnter(target){
+		var shortcutMenu = shortcutMenuForButton(target);
+		if(shortcutMenu !== null){
+			requestShortcutOpen(target, shortcutMenu);
+		}else{
+			cancelShortcutOpen();
+			// 配置按钮有自己的悬浮菜单，切换到它时不保留存读档浮窗。
+			if(target == _btn[4]) closeShortcutMenu();
+		}
+
 		switch(target){
 		case _btn[9] :
 		case _btn[11] :
@@ -2059,6 +2315,12 @@ class SystemMenu extends SubMenu{
 	}
 	function onButtonLeave(target){
 		if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint(target);
+
+		if(target == _shortcutPendingButton)
+			cancelShortcutOpen();
+		if(target == _shortcutOpenButton)
+			requestShortcutClose(_shortcutOpenMenu);
+
 		super.onButtonLeave(target);
 	}
 
@@ -2070,6 +2332,8 @@ class SystemMenu extends SubMenu{
 			hitThreshold = 0;
 		}else{
 			if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint();
+			cancelShortcutOpen();
+			closeShortcutMenu();
 			HitThresholdSelectItems(_btn, 256);
 			hitThreshold = 256;
 		}
@@ -2129,58 +2393,37 @@ class SystemMenu extends SubMenu{
 class QuickSaveMenu extends SubMenu{
 	var _btn = [];
 
-	var MAX = 9;				// 快速存档槽位数
+	var MAX = 9;
+	var PANEL_WIDTH = 522;
+	var PANEL_HEIGHT = 340;
+	var HOVER_GAP_HEIGHT = 100;
+	var SLOT_WIDTH = 150;
+	var SLOT_HEIGHT = 80;
+	var SLOT_GAP_X = 14;
+	var SLOT_GAP_Y = 14;
+	var SLOT_START_X = 22;
+	var SLOT_START_Y = 60;
+
+	var PANEL_COLOR = 0xad80b0c0;
+	var SLOT_COLOR = 0xb0446f76;
+	var SLOT_HOVER_INNER_COLOR = 0xd0477d86;
+	var SLOT_HOVER_OVERLAY_COLOR = 0x387ac6d0;
+	var LABEL_COLOR = 0xb0154751;
 
 	function QuickSaveMenu(win, par, o=null){
 		SubMenu(...);
+		_name = "QuickLoadShortcutMenu";
 
-		loadImages("FRM_0141");
-		setSizeToImageSize();
+		// 快捷读档浮窗与 SystemMenu 同属 MessageFrame 的直属图层；
+		// 显式放到菜单提示之上，避免被消息框和系统按钮遮住。
+		absolute = 1004;
+		type = ltAlpha;
+		setImageSize(PANEL_WIDTH, PANEL_HEIGHT);
+		setSize(PANEL_WIDTH, PANEL_HEIGHT);
+		fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 0);
+		paintPanel();
 
-		var img = new global.Layer(win, this);
-		img.loadImages("FRM_0142");
-		img.setSizeToImageSize();
-
-		var alpha = new global.Layer(win, this);
-		with(alpha){
-			.loadImages("FRM_0305");
-			.setSizeToImageSize();
-		}
-
-		for(var i=0;i<MAX;i++){
-			_btn[i] = %[];
-			_btn[i].btn = new Button(win, this);
-			_btn[i].info = new global.Layer(win, _btn[i].btn);
-			with(_btn[i].btn){
-				.create(img, 2);
-				.setPos(73, 10 + 30*(MAX-i-1));
-				.visible = false;
-
-				_btn[i].info.setSize(.width, height);
-			}
-			with(_btn[i].info){
-				.hitThreshold = 256;
-				.visible = true;
-			}
-			_btn[i].menu = new global.SubMenu(win, par, o);
-			with(_btn[i].menu){
-				.setSize(alpha.width, alpha.height);
-
-				.hitThreshold = 256;
-
-				.face = dfMask;
-				.copyRect(0, 0, alpha, 0, 0, alpha.width, alpha.height);
-				.holdAlpha = true;
-				.face = dfMain;			//此后，只复制主要部分。
-
-				.join = JOIN_RIGHT;
-			}
-			_btn[i].file = "";
-			addItem(_btn[i].btn, _btn[i].menu);
-		}
-
-		invalidate alpha;
-
+		createSlots(win);
 		refresh();
 	}
 	function finalize(){
@@ -2188,58 +2431,943 @@ class QuickSaveMenu extends SubMenu{
 		super.finalize();
 	}
 
-	function refresh(){
-		var i = 0;
+	function paintRounded(
+		layer, x, y, width, height, color,
+		radius=6, corners=15){
+		if(radius <= 0){
+			layer.fillRect(x, y, width, height, color);
+			return;
+		}
+		if(radius * 2 > width) radius = width \ 2;
+		if(radius * 2 > height) radius = height \ 2;
 
-		var img = new global.Layer(window, this);
+		var baseAlpha = (color >> 24) & 0xff;
+		var rgb = color & 0x00ffffff;
+		for(var row=0;row<height;row++){
+			var boundary = 0;
+			var leftRounded = false;
+			var rightRounded = false;
+			if(row < radius){
+				var dy = radius - row - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+				leftRounded = (corners & 0x01) != 0;
+				rightRounded = (corners & 0x02) != 0;
+			}else if(row >= height - radius){
+				var edgeRow = height - 1 - row;
+				var dy = radius - edgeRow - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+				leftRounded = (corners & 0x08) != 0;
+				rightRounded = (corners & 0x04) != 0;
+			}
 
-		for(;i<saveMan.qsaveStack();i++){
-			var save = saveMan.atQSave(i);
-			_btn[i].btn.visible = true;
-			with(_btn[i].info){
-				var trans = 128 + ((MAX-i-1) * 128) \ MAX;
+			var leftInset =
+				leftRounded ? int(boundary + 0.999) : 0;
+			var rightInset =
+				rightRounded ? int(boundary + 0.999) : 0;
+			var span = width - leftInset - rightInset;
+			if(span > 0)
+				layer.fillRect(
+					x + leftInset, y + row,
+					span, 1,
+					color);
 
-				var realDate = save.realDate.split("_");
-				var day = realDate[0];
-				var time = realDate[1];
+			if(leftInset > 0){
+				var coverage = leftInset - boundary;
+				var edgeAlpha = int(baseAlpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor = (edgeAlpha << 24) | rgb;
+					layer.fillRect(
+						x + leftInset - 1, y + row,
+						1, 1,
+						edgeColor);
+				}
+			}
+			if(rightInset > 0){
+				var coverage = rightInset - boundary;
+				var edgeAlpha = int(baseAlpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor = (edgeAlpha << 24) | rgb;
+					layer.fillRect(
+						x + width - rightInset, y + row,
+						1, 1,
+						edgeColor);
+				}
+			}
+		}
+	}
 
+	function paintPanel(){
+		paintRounded(
+			this, 0, 0,
+			PANEL_WIDTH, PANEL_HEIGHT,
+			PANEL_COLOR, 12, 0x01);
+
+		font.face = GetShortcutMenuFontFace();
+		font.bold = true;
+		font.height = 24;
+		var title = "快速读档";
+		var titleX = (PANEL_WIDTH - font.getTextWidth(title)) \ 2;
+		drawText(
+			titleX, 18, title,
+			0xf4fbfa, 255, true, 1024, 0x285b63, 1);
+	}
+
+	function paintSlotFrame(layer, offsetX, hover){
+		var innerColor = hover ? SLOT_HOVER_INNER_COLOR : SLOT_COLOR;
+		layer.fillRect(offsetX, 0, SLOT_WIDTH, SLOT_HEIGHT, 0);
+		paintRounded(
+			layer, offsetX, 0,
+			SLOT_WIDTH, SLOT_HEIGHT,
+			innerColor, 8);
+	}
+
+	function createSlots(win){
+		var slotImage = new global.Layer(win, this);
+		with(slotImage){
+			.setImageSize(SLOT_WIDTH * 2, SLOT_HEIGHT);
+			.setSize(SLOT_WIDTH * 2, SLOT_HEIGHT);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+		}
+		paintSlotFrame(slotImage, 0, false);
+		paintSlotFrame(slotImage, SLOT_WIDTH, true);
+
+		for(var i=0;i<MAX;i++){
+			var column = i % 3;
+			var row = i \ 3;
+			_btn[i] = %[];
+			_btn[i].btn = new Button(win, this);
+			with(_btn[i].btn){
+				.create(slotImage, 2);
+				.setPos(
+					SLOT_START_X + column * (SLOT_WIDTH + SLOT_GAP_X),
+					SLOT_START_Y + row * (SLOT_HEIGHT + SLOT_GAP_Y));
+				.visible = true;
+			}
+
+			_btn[i].thumb = new global.Layer(win, _btn[i].btn);
+			with(_btn[i].thumb){
+				.setImageSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setPos(0, 0);
+				.type = ltAlpha;
 				.fillRect(0, 0, .width, .height, 0);
-
 				.font.height = 20;
-				.drawText(10, 2, day, RGB(255,255,255), trans, true, 1024, RGB(0,0,96), 2, 1, 1);
-
-				.font.height = 15;
-				.drawText(121, 6, time, RGB(255,255,255), trans, true, 1024, RGB(32,128,32), 2, 1, 1);
+				.hitThreshold = 256;
+				.visible = true;
 			}
-			with(_btn[i].menu){
-				img.loadImages(DATA_PATH + save.file);
-				img.setSizeToImageSize();
 
-				.copyRect(0, 0, img, 0, 0, .width, .height);
-
-				@if(__DEBUGMODE__)
-					.font.height = 18;
-					.drawText(4, 2, save.file, 0xffffff);
-				@endif
+			_btn[i].hover = new global.Layer(win, _btn[i].btn);
+			with(_btn[i].hover){
+				.setImageSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setPos(0, 0);
+				.type = ltAlpha;
+				.fillRect(0, 0, .width, .height, 0);
+				.hitThreshold = 256;
+				.visible = false;
 			}
-			_btn[i].file = save.file;
-		}
-		for(;i<MAX;i++){
+			paintRounded(
+				_btn[i].hover, 0, 0,
+				SLOT_WIDTH, SLOT_HEIGHT,
+				SLOT_HOVER_OVERLAY_COLOR, 8);
+
+			_btn[i].label = new global.Layer(win, _btn[i].btn);
+			with(_btn[i].label){
+				.setImageSize(50, 24);
+				.setSize(50, 24);
+				.setPos(8, 7);
+				.type = ltAlpha;
+				.fillRect(0, 0, .width, .height, 0);
+				.font.height = 18;
+				.hitThreshold = 256;
+				.visible = true;
+			}
 			_btn[i].file = "";
-			_btn[i].btn.visible = false;
+			addItem(_btn[i].btn);
 		}
 
-		invalidate img;
+		invalidate slotImage;
+	}
+
+	function clipThumbnailCorners(target){
+		var mask = new global.Layer(window, this);
+		with(mask){
+			.setImageSize(target.width, target.height);
+			.setSize(target.width, target.height);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+		}
+		paintRounded(
+			mask, 0, 0,
+			target.width, target.height,
+			0xffffffff, 8);
+		var originalFace = target.face;
+		target.face = dfMask;
+		target.copyRect(
+			0, 0, mask,
+			0, 0, target.width, target.height);
+		target.face = originalFace;
+		invalidate mask;
+	}
+
+	function show(target=null){
+		refresh();
+		super.show(target);
+		// 与存/读档面板使用相同的无命中通行间隔。
+		if(target !== null) top -= HOVER_GAP_HEIGHT;
+	}
+
+	function loadThumbnail(target, filename){
+		if(filename === void || filename == "") return false;
+
+		var image = new global.Layer(window, this);
+		var loaded = false;
+		try{
+			if(Storages.isExistentStorage(DATA_PATH + filename))
+				image.loadImages(DATA_PATH + filename);
+			else if(Storages.isExistentStorage(filename))
+				image.loadImages(filename);
+			else if(Storages.isExistentStorage("savedata/" + filename))
+				image.loadImages("savedata/" + filename);
+			else
+				throw "thumbnail not found";
+
+			image.setSizeToImageSize();
+
+			var sourceX = 0;
+			var sourceY = 0;
+			var sourceWidth = image.width;
+			var sourceHeight = image.height;
+			if(image.width * target.height > image.height * target.width){
+				sourceWidth = (image.height * target.width) \ target.height;
+				sourceX = (image.width - sourceWidth) \ 2;
+			}else if(image.width * target.height < image.height * target.width){
+				sourceHeight = (image.width * target.height) \ target.width;
+				sourceY = (image.height - sourceHeight) \ 2;
+			}
+			target.stretchCopy(
+				0, 0, target.width, target.height,
+				image,
+				sourceX, sourceY, sourceWidth, sourceHeight,
+				stFastLinear);
+			clipThumbnailCorners(target);
+			loaded = true;
+		}catch(e){
+			dm("QuickLoadShortcutMenu thumbnail failed: " + filename + ": " + e);
+		}
+		invalidate image;
+		return loaded;
+	}
+
+	function refresh(){
+		var stack = saveMan.qsaveStack();
+		for(var i=0;i<MAX;i++){
+			var save = i < stack ? saveMan.atQSave(i) : void;
+			var valid = save !== void && save.valid;
+
+			with(_btn[i].thumb){
+				.fillRect(0, 0, .width, .height, 0);
+				if(!valid){
+					var emptyText = "—";
+					var emptyX = (.width - .font.getTextWidth(emptyText)) \ 2;
+					.drawText(
+						emptyX, 21, emptyText,
+						0x719399, 255, true, 1024, 0xd9e5e5, 1);
+				}
+			}
+			with(_btn[i].label){
+				.fillRect(0, 0, .width, .height, 0);
+			}
+			paintRounded(
+				_btn[i].label, 0, 0,
+				_btn[i].label.width, _btn[i].label.height,
+				LABEL_COLOR, 12);
+			with(_btn[i].label){
+				var text = "Q%d".sprintf(i + 1);
+				var textX = (.width - .font.getTextWidth(text)) \ 2;
+				.drawText(
+					textX, 3, text,
+					valid ? 0xf2fafa : 0x9db8bb,
+					255, true, 1024, 0x255b48, 1);
+			}
+
+			_btn[i].file = valid ? save.file : "";
+			if(valid) loadThumbnail(_btn[i].thumb, save.file);
+			_btn[i].hover.visible = false;
+			_btn[i].btn.valid = valid;
+			_btn[i].btn.opacity = valid ? 255 : 120;
+		}
+	}
+
+	function onButtonEnter(target){
+		for(var i=0;i<_btn.count;i++){
+			if(_btn[i].btn == target){
+				_btn[i].hover.visible =
+					target.valid && _btn[i].file != "";
+				break;
+			}
+		}
+		super.onButtonEnter(target);
+	}
+	function onButtonLeave(target){
+		for(var i=0;i<_btn.count;i++){
+			if(_btn[i].btn == target){
+				_btn[i].hover.visible = false;
+				break;
+			}
+		}
+		super.onButtonLeave(target);
 	}
 
 	function onButtonDownL(target){
 		for(var i=0;i<_btn.count;i++){
 			if(_btn[i].btn == target){
+				if(_btn[i].file == "") return;
 				onMenuDecide("qload/" + _btn[i].file);
 				break;
 			}
 		}
 	}
+
+	function onMenuEnter(){
+		if(isvalid(owner) &&
+			typeof owner.onShortcutMenuEnter != "undefined")
+			owner.onShortcutMenuEnter(this);
+		super.onMenuEnter();
+	}
+	function onMenuLeave(){
+		if(isvalid(owner) &&
+			typeof owner.onShortcutMenuLeave != "undefined")
+			owner.onShortcutMenuLeave(this);
+		super.onMenuLeave();
+	}
+}
+
+// 存档/读档按钮共用的悬浮快捷面板。面板位置仍由 JOIN_TOP 对齐，
+// 打开意图与跨越间隔时的关闭缓冲由 SystemMenu 统一控制。
+class LoadShortcutMenu extends SubMenu{
+	var _btn = [];
+	var _nav = [];
+	var _pageLabel;
+	var _saveMode = false;
+
+	var _page = -1;
+	var PAGE_SIZE = 12;
+	var PANEL_WIDTH = 686;
+	var PANEL_HEIGHT = 340;
+	// 存读档按钮位于菜单第二排（y=60）。面板整体上移 100px，
+	// 让面板底边与对话框上沿横线对齐。
+	var HOVER_GAP_HEIGHT = 100;
+	var SLOT_WIDTH = 150;
+	var SLOT_HEIGHT = 80;
+	var SLOT_GAP_X = 14;
+	var SLOT_GAP_Y = 14;
+	var SLOT_START_X = 22;
+	var SLOT_START_Y = 60;
+
+	var PANEL_COLOR = 0xad80b0c0;
+	var PANEL_GRADIENT_COLOR = null;
+	var ACCENT_COLOR = 0xfff2fafa;
+	var SLOT_COLOR = 0xb0446f76;
+	var SLOT_HOVER_INNER_COLOR = 0xd0477d86;
+	var SLOT_HOVER_OVERLAY_COLOR = 0x387ac6d0;
+	var SLOT_EMPTY_DISABLED_COLOR = 0x90405f65;
+	var LABEL_COLOR = 0xb0154751;
+	var LABEL_DISABLED_TEXT_COLOR = 0x8ca9ac;
+	var LABEL_TEXT_SHADOW_COLOR = 0x234f59;
+	var LABEL_TEXT_SHADOW_WIDTH = 1;
+	var EMPTY_TEXT_COLOR = 0xc3d2d4;
+	var EMPTY_TEXT_SHADOW_COLOR = 0xd9e5e5;
+	var PAGE_BACKGROUND_COLOR = 0xe0ddebed;
+	var PAGE_TEXT_COLOR = 0x315e67;
+	var PAGE_TEXT_SHADOW_COLOR = 0xf4fbfb;
+	var NAV_BACKGROUND_COLOR = 0x01000000;
+	var NAV_HOVER_BACKGROUND_COLOR = 0x604a8590;
+	var NAV_TEXT_COLOR = 0xdce9eb;
+	var NAV_HOVER_TEXT_COLOR = 0xf2fafa;
+	var NAV_TEXT_SHADOW_COLOR = 0x285b63;
+
+	function LoadShortcutMenu(win, par, o=null, saveMode=false){
+		SubMenu(...);
+		_saveMode = saveMode;
+		_name = _saveMode ? "SaveShortcutMenu" : "LoadShortcutMenu";
+		if(_saveMode){
+			// 存档页从紫色自然过渡回菜单原本的青蓝色。
+			PANEL_COLOR = 0xad7b577c;
+			PANEL_GRADIENT_COLOR = 0xad80b0c0;
+			ACCENT_COLOR = 0xffffff;
+			SLOT_COLOR = 0xc0d6cbd6;
+			SLOT_HOVER_INNER_COLOR = 0xd0a085a1;
+			SLOT_HOVER_OVERLAY_COLOR = 0x407b577c;
+			LABEL_COLOR = 0xd06e466f;
+			LABEL_DISABLED_TEXT_COLOR = 0xbda8bd;
+			LABEL_TEXT_SHADOW_COLOR = 0x6e466f;
+			LABEL_TEXT_SHADOW_WIDTH = 0;
+			EMPTY_TEXT_COLOR = 0x6e466f;
+			EMPTY_TEXT_SHADOW_COLOR = 0xe9dfe9;
+			PAGE_BACKGROUND_COLOR = 0xe0d6cbd6;
+			PAGE_TEXT_COLOR = 0x6e466f;
+			PAGE_TEXT_SHADOW_COLOR = 0xf9f3f9;
+			NAV_BACKGROUND_COLOR = 0x808f6b90;
+			NAV_HOVER_BACKGROUND_COLOR = 0xb06e466f;
+			NAV_TEXT_COLOR = 0xf0e7f0;
+			NAV_HOVER_TEXT_COLOR = 0xffffff;
+			NAV_TEXT_SHADOW_COLOR = 0x4f3151;
+		}
+
+		absolute = 1004;
+		type = ltAlpha;
+		// 图层范围只包含真正可见的面板，不再用透明尾部占位，
+		// 避免透明区域仍拦截第一排按钮的鼠标事件。
+		setImageSize(PANEL_WIDTH, PANEL_HEIGHT);
+		setSize(PANEL_WIDTH, PANEL_HEIGHT);
+		fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 0);
+		paintPanel();
+
+		createNavigation(win);
+		createSlots(win);
+		refresh();
+	}
+	function finalize(){
+		InvalidateArray(_btn);
+		InvalidateArray(_nav);
+		invalidate _pageLabel;
+		super.finalize();
+	}
+
+	function paintRounded(
+		layer, x, y, width, height, color,
+		radius=6, corners=15){
+		if(radius <= 0){
+			layer.fillRect(x, y, width, height, color);
+			return;
+		}
+		if(radius * 2 > width) radius = width \ 2;
+		if(radius * 2 > height) radius = height \ 2;
+
+		var baseAlpha = (color >> 24) & 0xff;
+		var rgb = color & 0x00ffffff;
+		for(var row=0;row<height;row++){
+			var boundary = 0;
+			var leftRounded = false;
+			var rightRounded = false;
+			if(row < radius){
+				var dy = radius - row - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+				leftRounded = (corners & 0x01) != 0;
+				rightRounded = (corners & 0x02) != 0;
+			}else if(row >= height - radius){
+				var edgeRow = height - 1 - row;
+				var dy = radius - edgeRow - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+				leftRounded = (corners & 0x08) != 0;
+				rightRounded = (corners & 0x04) != 0;
+			}
+
+			var leftInset =
+				leftRounded ? int(boundary + 0.999) : 0;
+			var rightInset =
+				rightRounded ? int(boundary + 0.999) : 0;
+			var span = width - leftInset - rightInset;
+			if(span > 0)
+				layer.fillRect(
+					x + leftInset, y + row,
+					span, 1,
+					color);
+
+			if(leftInset > 0){
+				var coverage = leftInset - boundary;
+				var edgeAlpha = int(baseAlpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor = (edgeAlpha << 24) | rgb;
+					layer.fillRect(
+						x + leftInset - 1, y + row,
+						1, 1,
+						edgeColor);
+				}
+			}
+			if(rightInset > 0){
+				var coverage = rightInset - boundary;
+				var edgeAlpha = int(baseAlpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor = (edgeAlpha << 24) | rgb;
+					layer.fillRect(
+						x + width - rightInset, y + row,
+						1, 1,
+						edgeColor);
+				}
+			}
+		}
+	}
+
+	function paintSavePanelGradient(){
+		var radius = 12;
+		var denominator = PANEL_HEIGHT - 1;
+		var startAlpha = (PANEL_COLOR >> 24) & 0xff;
+		var startRed = (PANEL_COLOR >> 16) & 0xff;
+		var startGreen = (PANEL_COLOR >> 8) & 0xff;
+		var startBlue = PANEL_COLOR & 0xff;
+		var endAlpha = (PANEL_GRADIENT_COLOR >> 24) & 0xff;
+		var endRed = (PANEL_GRADIENT_COLOR >> 16) & 0xff;
+		var endGreen = (PANEL_GRADIENT_COLOR >> 8) & 0xff;
+		var endBlue = PANEL_GRADIENT_COLOR & 0xff;
+
+		for(var row=0;row<PANEL_HEIGHT;row++){
+			var alpha = startAlpha +
+				((endAlpha - startAlpha) * row) \ denominator;
+			var red = startRed +
+				((endRed - startRed) * row) \ denominator;
+			var green = startGreen +
+				((endGreen - startGreen) * row) \ denominator;
+			var blue = startBlue +
+				((endBlue - startBlue) * row) \ denominator;
+			var rowColor =
+				(alpha << 24) |
+				(red << 16) |
+				(green << 8) |
+				blue;
+
+			var boundary = 0;
+			var leftInset = 0;
+			if(row < radius){
+				var dy = radius - row - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+				leftInset = int(boundary + 0.999);
+			}
+
+			fillRect(
+				leftInset, row,
+				PANEL_WIDTH - leftInset, 1,
+				rowColor);
+			if(leftInset > 0){
+				var coverage = leftInset - boundary;
+				var edgeAlpha = int(alpha * coverage);
+				if(edgeAlpha > 0)
+					fillRect(
+						leftInset - 1, row,
+						1, 1,
+						(edgeAlpha << 24) |
+						(rowColor & 0x00ffffff));
+			}
+		}
+	}
+
+	function paintPanel(){
+		if(_saveMode){
+			// 存档面板无描边：上方紫色，向下过渡到原青蓝色。
+			paintSavePanelGradient();
+			return;
+		}
+		paintRounded(
+			this, 0, 0,
+			PANEL_WIDTH, PANEL_HEIGHT,
+			PANEL_COLOR, 12, 0x01);
+	}
+
+	function paintSlotFrame(layer, offsetX, hover){
+		var innerColor = hover ? SLOT_HOVER_INNER_COLOR : SLOT_COLOR;
+		layer.fillRect(offsetX, 0, SLOT_WIDTH, SLOT_HEIGHT, 0);
+		paintRounded(
+			layer, offsetX, 0,
+			SLOT_WIDTH, SLOT_HEIGHT,
+			innerColor, 8);
+	}
+
+	function createNavigation(win){
+		var navX = [22, 72, 122, 520, 570, 620];
+		var navLabels = ["|◀", "◀◀", "◀", "▶", "▶▶", "▶|"];
+		var navWidth = 44;
+		var navHeight = 36;
+		for(var i=0;i<navLabels.count;i++){
+			var navImage = new global.Layer(win, this);
+			with(navImage){
+				.setImageSize(navWidth * 2, navHeight);
+				.setSize(navWidth * 2, navHeight);
+				.type = ltAlpha;
+				.fillRect(0, 0, .width, .height, 0);
+				.font.height = 24;
+			}
+			paintRounded(
+				navImage, 0, 0,
+				navWidth, navHeight,
+				NAV_BACKGROUND_COLOR, 10);
+			paintRounded(
+				navImage, navWidth, 0,
+				navWidth, navHeight,
+				NAV_HOVER_BACKGROUND_COLOR, 10);
+
+			with(navImage){
+				var textWidth = .font.getTextWidth(navLabels[i]);
+				var textX = (navWidth - textWidth) \ 2;
+				.drawText(
+					textX, 5, navLabels[i],
+					NAV_TEXT_COLOR,
+					255, true, 1024, NAV_TEXT_SHADOW_COLOR, 1);
+				.drawText(
+					navWidth + textX, 5, navLabels[i],
+					NAV_HOVER_TEXT_COLOR,
+					255, true, 1024, NAV_TEXT_SHADOW_COLOR, 1);
+			}
+			_nav[i] = new Button(win, this);
+			with(_nav[i]){
+				.create(navImage, 2);
+				.setPos(navX[i], 12);
+				.visible = true;
+			}
+			invalidate navImage;
+			addItem(_nav[i]);
+		}
+
+		_pageLabel = new global.Layer(win, this);
+		with(_pageLabel){
+			.setImageSize(124, 36);
+			.setSize(124, 36);
+			.setPos(281, 15);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+			.font.face = GetShortcutMenuFontFace();
+			.font.bold = true;
+			.font.height = 21;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		invalidate navX;
+		invalidate navLabels;
+	}
+
+	function createSlots(win){
+		var slotImage = new global.Layer(win, this);
+		with(slotImage){
+			.setImageSize(SLOT_WIDTH * 2, SLOT_HEIGHT);
+			.setSize(SLOT_WIDTH * 2, SLOT_HEIGHT);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+		}
+		paintSlotFrame(slotImage, 0, false);
+		paintSlotFrame(slotImage, SLOT_WIDTH, true);
+
+		for(var i=0;i<PAGE_SIZE;i++){
+			var column = i % 4;
+			var row = i \ 4;
+			_btn[i] = %[];
+			_btn[i].btn = new Button(win, this);
+			with(_btn[i].btn){
+				.create(slotImage, 2);
+				.setPos(
+					SLOT_START_X + column * (SLOT_WIDTH + SLOT_GAP_X),
+					SLOT_START_Y + row * (SLOT_HEIGHT + SLOT_GAP_Y));
+				.visible = true;
+			}
+
+			_btn[i].thumb = new global.Layer(win, _btn[i].btn);
+			with(_btn[i].thumb){
+				.setImageSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setPos(0, 0);
+				.type = ltAlpha;
+				.fillRect(0, 0, .width, .height, 0);
+				.font.height = 20;
+				.hitThreshold = 256;
+				.visible = true;
+			}
+
+			_btn[i].hover = new global.Layer(win, _btn[i].btn);
+			with(_btn[i].hover){
+				.setImageSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setSize(SLOT_WIDTH, SLOT_HEIGHT);
+				.setPos(0, 0);
+				.type = ltAlpha;
+				.fillRect(0, 0, .width, .height, 0);
+				.hitThreshold = 256;
+				.visible = false;
+			}
+			paintRounded(
+				_btn[i].hover, 0, 0,
+				SLOT_WIDTH, SLOT_HEIGHT,
+				SLOT_HOVER_OVERLAY_COLOR, 8);
+
+			_btn[i].label = new global.Layer(win, _btn[i].btn);
+			with(_btn[i].label){
+				.setImageSize(50, 24);
+				.setSize(50, 24);
+				.setPos(8, 7);
+				.type = ltAlpha;
+				.fillRect(0, 0, .width, .height, 0);
+				.font.height = 18;
+				.hitThreshold = 256;
+				.visible = true;
+			}
+			_btn[i].file = "";
+			addItem(_btn[i].btn);
+		}
+
+		invalidate slotImage;
+	}
+
+	function clipThumbnailCorners(target){
+		var mask = new global.Layer(window, this);
+		with(mask){
+			.setImageSize(target.width, target.height);
+			.setSize(target.width, target.height);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+		}
+		paintRounded(
+			mask, 0, 0,
+			target.width, target.height,
+			0xffffffff, 8);
+		var originalFace = target.face;
+		target.face = dfMask;
+		target.copyRect(
+			0, 0, mask,
+			0, 0, target.width, target.height);
+		target.face = originalFace;
+		invalidate mask;
+	}
+
+	function pageCount(){
+		var count = SAVEDATA_BOOK_MAX * SAVEDATA_PAGE_MAX * SAVEDATA_PAGE_NUM;
+		return (count + PAGE_SIZE - 1) \ PAGE_SIZE;
+	}
+
+	function refresh(){
+		if(_page < 0){
+			if(_saveMode){
+				var nextSave = GetNewSaveNo();
+				if(nextSave <= 0) nextSave = saveMan.newestIndex() + 1;
+				_page = nextSave > 0 ? (nextSave - 1) \ PAGE_SIZE : 0;
+			}else{
+				var newest = saveMan.newestIndex();
+				_page = newest >= 0 ? newest \ PAGE_SIZE : 0;
+			}
+		}
+		setPage(_page);
+	}
+
+	function show(target=null){
+		refresh();
+		super.show(target);
+		// 用实际位置偏移留出通行区，通行区不属于浮窗图层。
+		if(target !== null) top -= HOVER_GAP_HEIGHT;
+	}
+
+	function onMenuEnter(){
+		if(isvalid(owner) &&
+			typeof owner.onShortcutMenuEnter != "undefined")
+			owner.onShortcutMenuEnter(this);
+		super.onMenuEnter();
+	}
+	function onMenuLeave(){
+		if(isvalid(owner) &&
+			typeof owner.onShortcutMenuLeave != "undefined")
+			owner.onShortcutMenuLeave(this);
+		super.onMenuLeave();
+	}
+
+	function setPage(page){
+		var count = pageCount();
+		if(page < 0) page = 0;
+		if(page >= count) page = count - 1;
+		_page = page;
+
+		refreshPageLabel();
+		refreshNavigation();
+		refreshSlots();
+	}
+
+	function refreshPageLabel(){
+		_pageLabel.fillRect(0, 0, _pageLabel.width, _pageLabel.height, 0);
+		paintRounded(
+			_pageLabel, 0, 0,
+			_pageLabel.width, _pageLabel.height,
+			PAGE_BACKGROUND_COLOR, 18);
+
+		var text = "%02d / %02d".sprintf(_page + 1, pageCount());
+		var x = (_pageLabel.width - _pageLabel.font.getTextWidth(text)) \ 2;
+		_pageLabel.drawText(
+			x, 7, text,
+			PAGE_TEXT_COLOR,
+			255, true, 1024, PAGE_TEXT_SHADOW_COLOR, 1);
+	}
+
+	function refreshNavigation(){
+		var canBack = _page > 0;
+		var canForward = _page < pageCount() - 1;
+		for(var i=0;i<3;i++){
+			_nav[i].valid = canBack;
+			_nav[i].opacity = canBack ? 255 : 96;
+		}
+		for(var i=3;i<6;i++){
+			_nav[i].valid = canForward;
+			_nav[i].opacity = canForward ? 255 : 96;
+		}
+	}
+
+	function loadThumbnail(target, filename){
+		if(filename === void || filename == "") return false;
+
+		var image = new global.Layer(window, this);
+		var loaded = false;
+		try{
+			if(Storages.isExistentStorage(DATA_PATH + filename))
+				image.loadImages(DATA_PATH + filename);
+			else if(Storages.isExistentStorage(filename))
+				image.loadImages(filename);
+			else if(Storages.isExistentStorage("savedata/" + filename))
+				image.loadImages("savedata/" + filename);
+			else
+				throw "thumbnail not found";
+
+			image.setSizeToImageSize();
+
+			// 按目标槽位比例从源缩略图中央裁切，再缩放填满。
+			// 这样不会把 16:9 存档截图横向压扁成槽位比例。
+			var sourceX = 0;
+			var sourceY = 0;
+			var sourceWidth = image.width;
+			var sourceHeight = image.height;
+			if(image.width * target.height > image.height * target.width){
+				sourceWidth = (image.height * target.width) \ target.height;
+				sourceX = (image.width - sourceWidth) \ 2;
+			}else if(image.width * target.height < image.height * target.width){
+				sourceHeight = (image.width * target.height) \ target.width;
+				sourceY = (image.height - sourceHeight) \ 2;
+			}
+			target.stretchCopy(
+				0, 0, target.width, target.height,
+				image,
+				sourceX, sourceY, sourceWidth, sourceHeight,
+				stFastLinear);
+			clipThumbnailCorners(target);
+			loaded = true;
+		}catch(e){
+			dm(
+				(_saveMode ? "SaveShortcutMenu" : "LoadShortcutMenu") +
+				" thumbnail failed: " + filename + ": " + e);
+		}
+		invalidate image;
+		return loaded;
+	}
+
+	function refreshSlots(){
+		for(var i=0;i<PAGE_SIZE;i++){
+			var dataIndex = _page * PAGE_SIZE + i;
+			var info = saveMan.at(dataIndex);
+			var valid = info !== void && info.valid;
+			var locked = valid && info.lock !== void && info.lock;
+			var actionable = _saveMode ? !locked : valid;
+
+			with(_btn[i].thumb){
+				.fillRect(0, 0, .width, .height, 0);
+			}
+			if(!valid && !_saveMode)
+				paintRounded(
+					_btn[i].thumb, 0, 0,
+					_btn[i].thumb.width, _btn[i].thumb.height,
+					SLOT_EMPTY_DISABLED_COLOR, 8);
+			with(_btn[i].label){
+				.fillRect(0, 0, .width, .height, 0);
+			}
+			paintRounded(
+				_btn[i].label, 0, 0,
+				_btn[i].label.width, _btn[i].label.height,
+				LABEL_COLOR, 12);
+			with(_btn[i].label){
+				var label = "%03d".sprintf(dataIndex + 1);
+				var labelX = (.width - .font.getTextWidth(label)) \ 2;
+				.drawText(
+					labelX, 3, label,
+					actionable ?
+						ACCENT_COLOR : LABEL_DISABLED_TEXT_COLOR,
+					255, true, 1024,
+					LABEL_TEXT_SHADOW_COLOR,
+					LABEL_TEXT_SHADOW_WIDTH);
+			}
+
+			_btn[i].dataIndex = dataIndex;
+			_btn[i].file = valid ? info.file : "";
+			if(valid) loadThumbnail(_btn[i].thumb, info.file);
+
+			if(!valid){
+				with(_btn[i].thumb){
+					var emptyText = _saveMode ? "空" : "—";
+					var emptyX = (.width - .font.getTextWidth(emptyText)) \ 2;
+					.drawText(
+						emptyX, 30, emptyText,
+						EMPTY_TEXT_COLOR,
+						255, true, 1024, EMPTY_TEXT_SHADOW_COLOR, 1);
+				}
+			}else if(locked){
+				paintRounded(
+					_btn[i].thumb, 0, 0,
+					_btn[i].thumb.width, _btn[i].thumb.height,
+					0x80311d28, 8);
+				with(_btn[i].thumb){
+					var lockText = "锁";
+					var lockX = (.width - .font.getTextWidth(lockText)) \ 2;
+					.drawText(
+						lockX, 22, lockText,
+						0xf1c3d5, 255, true, 1024, 0x4b2638, 1);
+				}
+			}
+
+			_btn[i].hover.visible = false;
+			_btn[i].btn.valid = actionable;
+			_btn[i].btn.opacity = actionable ? 255 : 120;
+		}
+	}
+
+	function onButtonEnter(target){
+		for(var i=0;i<_btn.count;i++){
+			if(_btn[i].btn == target){
+				_btn[i].hover.visible =
+					target.valid && _btn[i].file != "";
+				break;
+			}
+		}
+		super.onButtonEnter(target);
+	}
+	function onButtonLeave(target){
+		for(var i=0;i<_btn.count;i++){
+			if(_btn[i].btn == target){
+				_btn[i].hover.visible = false;
+				break;
+			}
+		}
+		super.onButtonLeave(target);
+	}
+
+	function onButtonDownL(target){
+		switch(target){
+		case _nav[0] : setPage(0); return;
+		case _nav[1] : setPage(_page - 10); return;
+		case _nav[2] : setPage(_page - 1); return;
+		case _nav[3] : setPage(_page + 1); return;
+		case _nav[4] : setPage(_page + 10); return;
+		case _nav[5] : setPage(pageCount() - 1); return;
+		}
+
+		for(var i=0;i<_btn.count;i++){
+			if(target == _btn[i].btn){
+				if(_saveMode){
+					hide();
+					onMenuDecide("slotsave/" + _btn[i].dataIndex);
+					return;
+				}
+				if(_btn[i].file == "") return;
+				hide();
+				onMenuDecide("slotload/" + _btn[i].file);
+				return;
+			}
+		}
+	}
+	function onButtonDownR(target){}
 }
 
 // 文本设置的菜单
