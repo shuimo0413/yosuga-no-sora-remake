@@ -25,6 +25,13 @@ content-data/ui_1920/adv_menu/*
 
 *.dmp
 
+# macOS launcher output and generated local links
+.DS_Store
+content-data/.DS_Store
+content-data/font-macos.ttc
+content-data/*_hev1_original.mp4
+savedata/mac-launch.log
+
 # 日志与临时输出
 # out.txt
 # err.txt

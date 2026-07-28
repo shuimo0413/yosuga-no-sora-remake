@@ -151,6 +151,22 @@ AddAutoPath("content-data/collect_voice/");
 
 delete AddAutoPath;
 
+// krkrsdl2 does not enumerate macOS system fonts. The launcher exposes a CJK
+// font in the project directory, and Font.addFont returns the exact face name
+// that this runtime can use.
+var initializePlatform = System.platformName;
+var initializeMacOS =
+	initializePlatform == "Mac OS X" || initializePlatform == "macOS";
+if(initializeMacOS &&
+	typeof global.Font == "Object" &&
+	typeof global.Font.addFont == "Object" &&
+	Storages.isExistentStorage("font-macos.ttc")){
+	var macFontFaces = global.Font.addFont("font-macos.ttc");
+	if(macFontFaces.count > 0)
+		System.setArgument("-deffont", macFontFaces[0]);
+	invalidate macFontFaces;
+}
+
 //プラグイン追加
 Plugins.link("extrans.dll");
 Plugins.link("csvParser.dll");
@@ -172,6 +188,12 @@ function LoadScript(name){
 }
 
 //各システム読み込み
+// csvParser.dll and windowEx.dll are Win32 plugins. Use the existing TJS
+// compatibility paths when krkrsdl2 does not expose their native classes.
+if(initializeMacOS)
+	LoadScript("csvParserCompat.tjs");
+if(initializeMacOS && typeof Window.registerExEvent == "undefined")
+	Window.registerExEvent = function(){};
 LoadScript("Utility.tjs");
 LoadScript("AffineLayer.tjs");
 LoadScript("Sprite.tjs");
