@@ -76,6 +76,53 @@ function GetShortcutMenuFontFace(){
 		SHORTCUT_MENU_FONT_FACE : FONT_DEFAULT_FACE;
 }
 
+function PaintMenuRoundedRect(
+	layer, x, y, width, height, color, radius=8){
+	if(radius <= 0){
+		layer.fillRect(x, y, width, height, color);
+		return;
+	}
+	if(radius * 2 > width) radius = width \ 2;
+	if(radius * 2 > height) radius = height \ 2;
+
+	var baseAlpha = (color >> 24) & 0xff;
+	var rgb = color & 0x00ffffff;
+	for(var row=0;row<height;row++){
+		var boundary = 0;
+		if(row < radius){
+			var dy = radius - row - 0.5;
+			boundary =
+				radius - Math.sqrt(radius * radius - dy * dy);
+		}else if(row >= height - radius){
+			var edgeRow = height - 1 - row;
+			var dy = radius - edgeRow - 0.5;
+			boundary =
+				radius - Math.sqrt(radius * radius - dy * dy);
+		}
+
+		var inset = int(boundary + 0.999);
+		var span = width - inset * 2;
+		if(span > 0)
+			layer.fillRect(
+				x + inset, y + row,
+				span, 1, color);
+
+		if(inset > 0){
+			var coverage = inset - boundary;
+			var edgeAlpha = int(baseAlpha * coverage);
+			if(edgeAlpha > 0){
+				var edgeColor = (edgeAlpha << 24) | rgb;
+				layer.fillRect(
+					x + inset - 1, y + row,
+					1, 1, edgeColor);
+				layer.fillRect(
+					x + width - inset, y + row,
+					1, 1, edgeColor);
+			}
+		}
+	}
+}
+
 // 说话人 PNG（与 SystemWindow 履历一致）
 var MESSAGE_NAME_UI_PATH = "ui_1920/name/";
 var ROLE_NAME_IMAGES = [
@@ -275,12 +322,16 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var SYSTEM_MENU_AUTO_HIDE_DELAY = 3000;
 	var SYSTEM_MENU_AUTO_HIDE_TIME = 200;
 	var SYSTEM_MENU_HIDDEN_X = WINDOW_WIDTH;
-	var SYSTEM_MENU_HINT_X = WINDOW_WIDTH - 222;	// 提示条左移，与隐藏按钮拉开间距
+	var SYSTEM_MENU_HINT_WIDTH = 180;
+	var SYSTEM_MENU_HINT_HEIGHT = 42;
+	var SYSTEM_MENU_HINT_FONT_SIZE = 22;
+	var SYSTEM_MENU_HINT_X =
+		WINDOW_WIDTH - 60 - SYSTEM_MENU_HINT_WIDTH;	// 右边缘保持原位
 	var SYSTEM_MENU_HINT_Y = FRAME_Y + 24;		// 对话框右上方
 	var MESSAGE_HIDE_X = WINDOW_WIDTH - 44;		// 22px 图标右侧留 12px
-	var MESSAGE_HIDE_Y = SYSTEM_MENU_HINT_Y + 6;		// 与 36px 提示条垂直居中
+	var MESSAGE_HIDE_Y = SYSTEM_MENU_HINT_Y + 9;		// 与 42px 提示条垂直居中
 	var MESSAGE_HIDE_FILE = "ui_1920/adv_menu/DHK-65.png";
-	var MESSAGE_HIDE_HINT_FILE = "ui_1920/adv_menu/DHK-40.png";
+	var MESSAGE_HIDE_HINT_TEXT = "隐藏界面";
 
 	var	VOICE_X = BASE_X + 510;		// 语音重播按钮 X
 	var	VOICE_Y = BASE_Y + 30;		// 语音重播按钮 Y
@@ -409,9 +460,16 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.capacity = 1;
 			.enabled = false;
 		}
-		_systemMenuHint = new global.Sprite(win, this);
+		_systemMenuHint = new global.Layer(win, this);
 		with(_systemMenuHint){
 			.absolute = 1003;
+			.setImageSize(SYSTEM_MENU_HINT_WIDTH, SYSTEM_MENU_HINT_HEIGHT);
+			.setSize(SYSTEM_MENU_HINT_WIDTH, SYSTEM_MENU_HINT_HEIGHT);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+			.font.face = GetShortcutMenuFontFace();
+			.font.bold = true;
+			.font.height = SYSTEM_MENU_HINT_FONT_SIZE;
 			.hitThreshold = 256;
 			.visible = false;
 		}
@@ -755,13 +813,21 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(_btn[_btnMessageHide] !== void) _btn[_btnMessageHide].absolute = 1000;
 	}
 
-	function showSystemMenuHint(target, file){
-		if(file === void || file == "" || !isvalid(_systemMenuHint)) return;
+	function showSystemMenuHint(target, hintText){
+		if(hintText === void || hintText == "" || !isvalid(_systemMenuHint)) return;
 
 		with(_systemMenuHint){
 			.stopActivation();
-			.loadImages(file);
-			.setSizeToImageSize();
+			.fillRect(0, 0, .width, .height, 0);
+			PaintMenuRoundedRect(
+				_systemMenuHint, 0, 0,
+				.width, .height,
+				0xad80b0c0, 12);
+			var textX = (.width - .font.getTextWidth(hintText)) \ 2;
+			.drawText(
+				textX, 8, hintText,
+				0xf2fafa,
+				255, true, 1024, 0x285b63, 1);
 			.setPos(SYSTEM_MENU_HINT_X, SYSTEM_MENU_HINT_Y);
 			.opacity = 255;
 			.visible = true;
@@ -1378,7 +1444,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 	function onButtonEnter(target){
 		if(target == _btn[_btnMessageHide])
-			showSystemMenuHint(target, MESSAGE_HIDE_HINT_FILE);
+			showSystemMenuHint(target, MESSAGE_HIDE_HINT_TEXT);
 	}
 	function onButtonLeave(target){
 		if(target == _btn[_btnMessageHide])
@@ -1827,19 +1893,19 @@ class SystemMenu extends SubMenu{
 		["ui_1920/adv_menu/DHK-60.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 180, 120]],
 		["ui_1920/adv_menu/DHK-16.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X +  0, 0]],
 	];
-	var _hintFiles = [
-		"ui_1920/adv_menu/DHK-35.png",	// 快速保存
-		"ui_1920/adv_menu/DHK-34.png",	// 快速读取
-		"ui_1920/adv_menu/DHK-33.png",	// 保存存档
-		"ui_1920/adv_menu/DHK-31.png",	// 读取存档
-		"ui_1920/adv_menu/DHK-38.png",	// 系统设置
-		"ui_1920/adv_menu/DHK-29.png",	// 自动模式
-		"ui_1920/adv_menu/DHK-30.png",	// 快进模式
-		"ui_1920/adv_menu/DHK-36.png",	// 文本记录
-		"ui_1920/adv_menu/DHK-37.png",	// 锁定按钮
-		"ui_1920/adv_menu/DHK-32.png",	// 下一选项
-		"ui_1920/adv_menu/DHK-62.png",	// 返回标题
-		"ui_1920/adv_menu/DHK-43.png",	// 上一选项
+	var _hintTexts = [
+		"快速保存",
+		"快速读取",
+		"保存存档",
+		"读取存档",
+		"系统设置",
+		"自动模式",
+		"快进模式",
+		"文本记录",
+		"锁定按钮",
+		"下一选项",
+		"返回主页",
+		"上一选项",
 	];
 
 
@@ -2308,7 +2374,7 @@ class SystemMenu extends SubMenu{
 		if(!enable || !isvalid(_messageFrame)) return;
 		for(var i=0;i<_btn.count;i++){
 			if(target == _btn[i]){
-				_messageFrame.showSystemMenuHint(target, _hintFiles[i]);
+				_messageFrame.showSystemMenuHint(target, _hintTexts[i]);
 				break;
 			}
 		}
