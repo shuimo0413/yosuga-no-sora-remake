@@ -23,6 +23,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	var _charVisible = [];
 
 	var _decide = false;
+	var _openingMovie = false;
 	var _pageAnimating = false;
 	var _pendingPage = -1;
 	var _pageDirection = 0;
@@ -119,35 +120,35 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	// Per-character scene list (from legacy MemoriesModeScene)
 	var _LIST = [
 		[
-			%[chk:51, start:51, end:51, frm:"FRM_06R21", src:"00_a020/recollect"],
-			%[chk:52, start:52, end:52, frm:"FRM_06R22", src:"00_a022/recollect"],
-			%[chk:53, start:53, end:53, frm:"FRM_06R23", src:"00_a025b/recollect"],
-			%[chk:54, start:54, end:54, frm:"FRM_06R24", src:"00_a026/recollect"],
-			%[chk:55, start:55, end:55, frm:"FRM_06R25", src:"00_a032/recollect"]
+			%[chk:51, start:51, end:51, frm:"FRM_06R21", thumb:"thumb/FRM_06R21.png", src:"00_a020/recollect"],
+			%[chk:52, start:52, end:52, frm:"FRM_06R22", thumb:"thumb/FRM_06R22.png", src:"00_a022/recollect"],
+			%[chk:53, start:53, end:53, frm:"FRM_06R23", thumb:"thumb/FRM_06R23.png", src:"00_a025b/recollect"],
+			%[chk:54, start:54, end:54, frm:"FRM_06R24", thumb:"thumb/FRM_06R24.png", src:"00_a026/recollect"],
+			%[chk:55, start:55, end:55, frm:"FRM_06R25", thumb:"thumb/FRM_06R25.png", src:"00_a032/recollect"]
 		], [
-			%[chk:61, start:61, end:61, frm:"FRM_06R26", src:"00_b005/recollect"],
-			%[chk:62, start:62, end:62, frm:"FRM_06R27", src:"00_b021/recollect"],
-			%[chk:63, start:63, end:63, frm:"FRM_06R28", src:"00_b025/recollect"],
-			%[chk:64, start:64, end:64, frm:"FRM_06R29", src:"00_b032/recollect"]
+			%[chk:61, start:61, end:61, frm:"FRM_06R26", thumb:"thumb/FRM_06R26.png", src:"00_b005/recollect"],
+			%[chk:62, start:62, end:62, frm:"FRM_06R27", thumb:"thumb/FRM_06R27.png", src:"00_b021/recollect"],
+			%[chk:63, start:63, end:63, frm:"FRM_06R28", thumb:"thumb/FRM_06R28.png", src:"00_b025/recollect"],
+			%[chk:64, start:64, end:64, frm:"FRM_06R29", thumb:"thumb/FRM_06R29.png", src:"00_b032/recollect"]
 		], [
-			%[chk:71, start:71, end:71, frm:"FRM_06R30", src:"00_c019b/recollect"],
-			%[chk:72, start:72, end:72, frm:"FRM_06R31", src:"00_c023/recollect"],
-			%[chk:73, start:73, end:73, frm:"FRM_06R32", src:"00_c034/recollect"]
+			%[chk:71, start:71, end:71, frm:"FRM_06R30", thumb:"thumb/FRM_06R30.png", src:"00_c019b/recollect"],
+			%[chk:72, start:72, end:72, frm:"FRM_06R31", thumb:"thumb/FRM_06R31.png", src:"00_c023/recollect"],
+			%[chk:73, start:73, end:73, frm:"FRM_06R32", thumb:"thumb/FRM_06R32.png", src:"00_c034/recollect"]
 		], [
-			%[chk:81, start:81, end:81, frm:"FRM_06R33", src:"00_d025b/recollect"],
-			%[chk:82, start:82, end:82, frm:"FRM_06R34", src:"00_d028b/recollect"],
-			%[chk:83, start:83, end:83, frm:"FRM_06R35", src:"00_d042b/recollect"]
+			%[chk:81, start:81, end:81, frm:"FRM_06R33", thumb:"thumb/FRM_06R33.png", src:"00_d025b/recollect"],
+			%[chk:82, start:82, end:82, frm:"FRM_06R34", thumb:"thumb/FRM_06R34.png", src:"00_d028b/recollect"],
+			%[chk:83, start:83, end:83, frm:"FRM_06R35", thumb:"thumb/FRM_06R35.png", src:"00_d042b/recollect"]
 		], [
-			%[chk:91, start:91, end:91, frm:"FRM_06R36", src:"00_e013c/recollect"],
-			%[chk:92, start:92, end:92, frm:"FRM_06R37", src:"00_e024b/recollect"],
-			%[chk:93, start:93, end:93, frm:"FRM_06R38", src:"00_e036/recollect"]
+			%[chk:91, start:91, end:91, frm:"FRM_06R36", thumb:"thumb/FRM_06R36.png", src:"00_e013c/recollect"],
+			%[chk:92, start:92, end:92, frm:"FRM_06R37", thumb:"thumb/FRM_06R37.png", src:"00_e024b/recollect"],
+			%[chk:93, start:93, end:93, frm:"FRM_06R38", thumb:"thumb/FRM_06R38.png", src:"00_e036/recollect"]
 		], [
-			%[chk: 0, start: 0, end: 0, frm:"FRM_06R49", src:"movie/opening"],
-			%[chk:11, start:11, end:11, frm:"FRM_06R50", src:"movie/スタッフロール_穹"],
-			%[chk:12, start:12, end:12, frm:"FRM_06R51", src:"movie/スタッフロール_奈緒"],
-			%[chk:13, start:13, end:13, frm:"FRM_06R52", src:"movie/スタッフロール_瑛"],
-			%[chk:14, start:14, end:14, frm:"FRM_06R53", src:"movie/スタッフロール_一葉"],
-			%[chk:15, start:15, end:15, frm:"FRM_06R54", src:"movie/スタッフロール_初佳"]
+			%[chk: 0, start: 0, end: 0, frm:"FRM_06R49", thumb:"thumb/FRM_06R49.png", src:"movie/opening"],
+			%[chk:11, start:11, end:11, frm:"FRM_06R50", thumb:"thumb/FRM_06R50.png", src:"movie/スタッフロール_穹"],
+			%[chk:12, start:12, end:12, frm:"FRM_06R51", thumb:"thumb/FRM_06R51.png", src:"movie/スタッフロール_奈緒"],
+			%[chk:13, start:13, end:13, frm:"FRM_06R52", thumb:"thumb/FRM_06R52.png", src:"movie/スタッフロール_瑛"],
+			%[chk:14, start:14, end:14, frm:"FRM_06R53", thumb:"thumb/FRM_06R53.png", src:"movie/スタッフロール_一葉"],
+			%[chk:15, start:15, end:15, frm:"FRM_06R54", thumb:"thumb/FRM_06R54.png", src:"movie/スタッフロール_初佳"]
 		]
 	];
 
@@ -299,6 +300,11 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	function finalize()
 	{
 		window.removeInputNotify(this);
+		if(_openingMovie)
+		{
+			_openingMovie = false;
+			StopMovie();
+		}
 
 		InvalidateArray(_btnChar);
 		InvalidateArray(_btnThumb);
@@ -332,6 +338,50 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		dst.copyRect(0, 0, _previewSrc, srcX, 0, FRAME_W, FRAME_H);
 	}
 
+	function stretchThumbCover(dst, src)
+	{
+		if(dst === void || src === void) return;
+
+		var srcW = src.imageWidth;
+		var srcH = src.imageHeight;
+		if(srcW <= 0 || srcH <= 0) return;
+
+		// Generated HD thumbnails already match the card's image area.
+		// Copy them 1:1 so the runtime cannot introduce new scaling artifacts.
+		if(srcW == THUMB_W && srcH == THUMB_H)
+		{
+			dst.copyRect(THUMB_INSET_X, THUMB_INSET_Y,
+				src, 0, 0, THUMB_W, THUMB_H);
+			return;
+		}
+
+		var cropX = 0;
+		var cropY = 0;
+		var cropW = srcW;
+		var cropH = srcH;
+
+		// Preserve the source aspect ratio while filling the wide HD card.
+		// Recollection thumbnails are nearly square, so crop the top/bottom
+		// instead of stretching character faces horizontally.
+		if(srcW * THUMB_H > srcH * THUMB_W)
+		{
+			cropW = (srcH * THUMB_W) \ THUMB_H;
+			if(cropW < 1) cropW = 1;
+			cropX = (srcW - cropW) \ 2;
+		}
+		else if(srcW * THUMB_H < srcH * THUMB_W)
+		{
+			cropH = (srcW * THUMB_H) \ THUMB_W;
+			if(cropH < 1) cropH = 1;
+			cropY = (srcH - cropH) \ 2;
+		}
+
+		dst.stretchCopy(
+			THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
+			src, cropX, cropY, cropW, cropH,
+			stCubic);
+	}
+
 	function paintThumb(slot, unlocked, hover)
 	{
 		if(slot < 0 || slot >= MAX_THUMB) return;
@@ -343,27 +393,31 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 			var tgt = _list[_selChar];
 			if(tgt === void || index >= tgt.count) return;
 			var frm = tgt[index].frm;
+			var thumb = (tgt[index].thumb !== void) ? tgt[index].thumb : frm;
 			try
 			{
-				_thumbSrc.loadImages(frm);
+				_thumbSrc.loadImages(thumb);
 				_thumbSrc.setSizeToImageSize();
-				_thumbBase[slot].stretchCopy(
-					THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
-					_thumbSrc, 0, 0, _thumbSrc.imageWidth, _thumbSrc.imageHeight,
-					stFastLinear);
+				stretchThumbCover(_thumbBase[slot], _thumbSrc);
 			}
 			catch
 			{
 				try
 				{
-					_thumbSrc.loadImages("FRM_0106");
+					_thumbSrc.loadImages(frm);
 					_thumbSrc.setSizeToImageSize();
-					_thumbBase[slot].stretchCopy(
-						THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
-						_thumbSrc, 0, 0, _thumbSrc.imageWidth, _thumbSrc.imageHeight,
-						stFastLinear);
+					stretchThumbCover(_thumbBase[slot], _thumbSrc);
 				}
-				catch {}
+				catch
+				{
+					try
+					{
+						_thumbSrc.loadImages("FRM_0106");
+						_thumbSrc.setSizeToImageSize();
+						stretchThumbCover(_thumbBase[slot], _thumbSrc);
+					}
+					catch {}
+				}
 			}
 
 			clipThumbCorners(_thumbBase[slot]);
@@ -396,7 +450,8 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 				continue;
 			}
 			_btnChar[i].visible = true;
-			_btnChar[i].ptnNormal = (i == char) ? 1 : 0;
+			_btnChar[i].ptnNormal = (i == char) ? 2 : 0;
+			_btnChar[i].ptnFocus = (i == char) ? 2 : 1;
 			_btnChar[i].setButton(_btnChar[i].ptnNormal);
 			_btnChar[i].opacity = (i == char) ? 255 : 190;
 		}
@@ -578,6 +633,12 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		if(tgt === void || id < 0 || id >= tgt.count) return;
 		if(!isUnlocked(tgt[id])) return;
 
+		if(tgt[id].src == "movie/opening")
+		{
+			startOpeningMovie();
+			return;
+		}
+
 		_decide = true;
 		setInput();
 
@@ -604,8 +665,50 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		close();
 	}
 
+	function startOpeningMovie()
+	{
+		_decide = true;
+		setInput();
+
+		StopSystemSound();
+		StopBgm();
+		_base.visible = false;
+		_openingMovie = true;
+
+		if(!PlayMovie("yosugacn", this))
+			finishOpeningMovie();
+	}
+
+	function finishOpeningMovie()
+	{
+		if(!_openingMovie) return;
+
+		_openingMovie = false;
+		StopMovie();
+		_base.visible = true;
+		_base.opacity = 255;
+		_decide = false;
+		setInput();
+		PlayBgm("BGM17");
+		window.flushMouseTracking();
+	}
+
+	function action(ev)
+	{
+		if(_openingMovie &&
+		   ev.type == "Movie.onStatusChanged" &&
+		   ev.status == "stop")
+			finishOpeningMovie();
+	}
+
 	function onMouseDown(x, y, button, shift)
 	{
+		if(_openingMovie)
+		{
+			if(button == mbRight)
+				finishOpeningMovie();
+			return;
+		}
 		if(_decide || _pageAnimating) return;
 		if(button == mbRight)
 			changeScene(SCENE_TITLE);
@@ -626,6 +729,12 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 
 	function onKeyDown(key, shift)
 	{
+		if(_openingMovie)
+		{
+			if(key == VK_ESCAPE || key == VK_RETURN || key == VK_SPACE)
+				finishOpeningMovie();
+			return;
+		}
 		if(_decide || _pageAnimating) return;
 
 		if(key == VK_ESCAPE)

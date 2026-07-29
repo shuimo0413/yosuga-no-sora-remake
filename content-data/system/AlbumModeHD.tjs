@@ -266,9 +266,6 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			originY + gridH \ 2 - _btnPageNext.height \ 2);
 
 		_nav = new AppreciationBottomNav(win, _base, this, SCENE_ALBUM);
-		// The selected tab should use the same bright frame as hover.
-		_nav.btnCg.ptnInvalid = _nav.btnCg.ptnFocus;
-		_nav.btnCg.setButton(_nav.btnCg.ptnFocus);
 
 		setPage(0, 0);
 		setInput(false);
@@ -396,7 +393,8 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 				continue;
 			}
 			_btnChar[i].visible = true;
-			_btnChar[i].ptnNormal = (i == char) ? 1 : 0;
+			_btnChar[i].ptnNormal = (i == char) ? 2 : 0;
+			_btnChar[i].ptnFocus = (i == char) ? 2 : 1;
 			_btnChar[i].setButton(_btnChar[i].ptnNormal);
 			_btnChar[i].opacity = (i == char) ? 255 : 190;
 		}

@@ -12,6 +12,7 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	var _nav;
 
 	var _hitboxSrc;
+	var _idleHitbox = [];
 	var _hoverHitbox;
 	var _selHitbox;
 	var _hoverIndex = -1;
@@ -19,6 +20,7 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 	// bgm_hitbox.png: 3 states side-by-side (hover / idle / selected)
 	var HITBOX_HOVER = 0;
+	var HITBOX_IDLE = 1;
 	var HITBOX_SELECTED = 2;
 
 	var TRACK_W = 471;
@@ -142,6 +144,20 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			}
 			_btn[i].hitThreshold = 0;
 			_btn[i].setPos(x, y);
+
+			_idleHitbox[i] = new global.Layer(win, _base);
+			with(_idleHitbox[i])
+			{
+				.setImageSize(TRACK_W, TRACK_H);
+				.setSize(TRACK_W, TRACK_H);
+				.copyRect(0, 0, _hitboxSrc,
+					HITBOX_IDLE * TRACK_W, 0, TRACK_W, TRACK_H);
+				.setPos(x, y);
+				.absolute = _btn[i].absolute - 2;
+				.hitThreshold = 256;
+				.visible = true;
+			}
+
 			addChainItem(_btn[i]);
 		}
 
@@ -163,6 +179,7 @@ class MusicModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		BGM.volume = _tempConfigVol;
 
 		InvalidateArray(_btn);
+		InvalidateArray(_idleHitbox);
 		if(_nav !== void) _nav.finalize();
 		invalidate _nav;
 		invalidate _hoverHitbox;
