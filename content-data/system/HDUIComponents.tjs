@@ -42,13 +42,15 @@ class HDStripButton extends HDImageButtonBase
     var _normalWidth = 0;
     var _hoverSourceX = 0;
     var _hoverWidth = 0;
+    var _disableSourceX = 0;
+    var _disableWidth = 0;
 
     function HDStripButton(win, par)
     {
         super.HDImageButtonBase(win, par);
     }
 
-    function create(storage, stateCount=2, firstStateWidth=0)
+    function create(storage, stateCount=2, firstStateWidth=0, lastStateWidth=0)
     {
         _stateCount = stateCount;
         _source = new global.Layer(window, this);
@@ -65,6 +67,20 @@ class HDStripButton extends HDImageButtonBase
             _normalWidth = firstStateWidth;
             _hoverSourceX = firstStateWidth;
             _hoverWidth = hoverWidth;
+            _disableSourceX = 0;
+            _disableWidth = _normalWidth;
+        }
+        else if(stateCount == 3 && firstStateWidth > 0 && lastStateWidth > 0)
+        {
+            _normalWidth = firstStateWidth;
+            _hoverSourceX = firstStateWidth;
+            _disableSourceX = _source.width - lastStateWidth;
+            _hoverWidth = _disableSourceX - _hoverSourceX;
+            _disableWidth = lastStateWidth;
+
+            _stateWidth = _normalWidth;
+            if(_hoverWidth > _stateWidth) _stateWidth = _hoverWidth;
+            if(_disableWidth > _stateWidth) _stateWidth = _disableWidth;
         }
         else
         {
@@ -72,6 +88,10 @@ class HDStripButton extends HDImageButtonBase
             _normalWidth = _stateWidth;
             _hoverSourceX = _stateWidth;
             _hoverWidth = _stateWidth;
+            _disableSourceX = _stateCount >= 3 ? _stateWidth * 2 : 0;
+            _disableWidth = _stateCount >= 3
+                ? (_source.width - _disableSourceX)
+                : _normalWidth;
         }
 
         setSize(_stateWidth, _stateHeight);
@@ -85,12 +105,14 @@ class HDStripButton extends HDImageButtonBase
     function redraw()
     {
         fillRect(0, 0, imageWidth, imageHeight, 0x00000000);
-        copyRect(0, 0, _source, 0, 0, _normalWidth, _stateHeight);
-        copyRect(_stateWidth, 0, _source, _hoverSourceX, 0, _hoverWidth, _stateHeight);
+        var normalX = (_stateWidth - _normalWidth) \ 2;
+        var hoverX = (_stateWidth - _hoverWidth) \ 2;
+        var disableX = (_stateWidth - _disableWidth) \ 2;
 
-        var disableSrcX = _stateCount >= 3 ? _hoverSourceX + _hoverWidth : 0;
-        var disableSrcW = _stateCount >= 3 ? (_source.width - disableSrcX) : _normalWidth;
-        copyRect(_stateWidth * 2, 0, _source, disableSrcX, 0, disableSrcW, _stateHeight);
+        copyRect(normalX, 0, _source, 0, 0, _normalWidth, _stateHeight);
+        copyRect(_stateWidth + hoverX, 0, _source, _hoverSourceX, 0, _hoverWidth, _stateHeight);
+        copyRect(_stateWidth * 2 + disableX, 0, _source,
+            _disableSourceX, 0, _disableWidth, _stateHeight);
     }
 
     function finalize()

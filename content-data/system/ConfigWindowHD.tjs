@@ -157,10 +157,12 @@ class ConfigWindowHD2 extends SettingWindowBase
         return btn;
     }
 
-    function makeImageStripButton(storage, x, y, stateCount=2, firstStateWidth=0, pageTarget=null)
+    function makeImageStripButton(storage, x, y, stateCount=2,
+                                  firstStateWidth=0, lastStateWidth=0,
+                                  pageTarget=null)
     {
         var btn = new HDStripButton(window, _root);
-        btn.create(storage, stateCount, firstStateWidth);
+        btn.create(storage, stateCount, firstStateWidth, lastStateWidth);
         btn.setPos(x, y);
         addChainItem(btn);
 
@@ -328,7 +330,7 @@ class ConfigWindowHD2 extends SettingWindowBase
     {
         _btnResetSetting = makeImageStripButton(HD_SETTINGS_ROOT + "reset_seetting.png", 42, 1037);
         _btnResetText = makeImageStripButton(HD_SETTINGS_ROOT + "reset_text.png", 245, 1037);
-        _btnKey = makeImageStripButton(HD_SETTINGS_ROOT + "key.png", 520, 1037, 3, 105);
+        _btnKey = makeImageStripButton(HD_SETTINGS_ROOT + "key.png", 520, 1037, 3, 105, 105);
         // 返回游戏放左侧，返回标题放右侧。
         _btnClose = makeImageStripButton(HD_SETTINGS_ROOT + "continue.png", 1268, 995, 3);
         _btnTitle = makeImageStripButton(HD_SETTINGS_ROOT + "title.png", 1607, 995);
