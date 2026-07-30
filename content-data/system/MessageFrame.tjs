@@ -313,9 +313,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 
 	var	FACE_IMG_PATH = "character_1920/";		// avatar path
 	var	FACE_IMG_X = 0;				// avatar X
-	var	FACE_IMG_Y = BASE_Y + 30;			// avatar Y
-	var	FACE_IMG_W = 480;				// avatar maxW
-	var	FACE_IMG_H = 300;				// avatar maxH
+	var	FACE_IMG_Y = BASE_Y - 40;			// avatar Y
+	var	FACE_IMG_W = 500;				// avatar maxW
+	var	FACE_IMG_H = 360;				// avatar maxH
 	var	BTN_BASE_X1 = (WINDOW_WIDTH - MENU_WIDTH) -100;	// 菜单呼出热区 X
 	var	BTN_BASE_Y1 = WINDOW_HEIGHT - MENU_HEIGHT ;	// 菜单呼出热区 Y
 	var SYSTEM_MENU_INDICATOR_WIDTH = 40;	// 自动模式旋转图标显示宽度
