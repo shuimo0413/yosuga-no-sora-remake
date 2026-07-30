@@ -674,8 +674,11 @@ class ConfigWindowHD2 extends SettingWindowBase
         onMouseDown(0, 0, mbRight, 0);
     }
 
-    function onMouseDown(x, y, button, shift)
+    function onMouseDown(x, y, button, shift, windowNotify=false)
     {
+        // Controls and Window InputNotify both report the same physical click.
+        // Handle global right-click navigation only from the Window notification.
+        if(!windowNotify) return;
         if(button != mbRight) return;
         if(_keyPopup.visible)
         {

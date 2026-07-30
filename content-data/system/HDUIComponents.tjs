@@ -404,7 +404,8 @@ class HDKeyPopup extends Layer
     function onMouseDown(x, y, button, shift)
     {
         releaseCapture();
-        if(button == mbRight) _owner.closeKeyPopup();
+        // ConfigWindowHD receives the same click through Window input notify
+        // and owns popup dismissal, so do not close it twice here.
     }
 }
 
