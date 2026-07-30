@@ -264,7 +264,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var _shortcutSaveIndex = -1;
 	var _shortcutSaveFile = "";
 	var _systemMenuAutoHideTimer;
-	var _systemMenuAutoHidden = false;
+	var _systemMenuSlideState = 0;
 	var _systemMenuPointerInside = false;
 	var _systemMenuMoveX = 0;
 	var _systemMenuMoveY = 0;
@@ -272,6 +272,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	//各種ボタン
 	var _btn = [];
 	var _textSettingsMenu;
+	var _volumeSettingsMenu;
 
 	//デバッグ用
 	@if(__DEBUGMODE__)
@@ -281,10 +282,11 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	@endif
 
 	/* const - 布局常量（1920x1080） */
-	var _btnVoice	= 0;	// 语音重播按钮索引
+	var _btnVoice	= 0;	// DHK-14 音量设置按钮索引
 	var _btnTextSettings	= 1;	// 文字设置按钮索引
 	var _btnFavVoice	= 2;	// 语音收藏按钮索引
 	var _btnMessageHide	= 3;	// 提示条右侧的文本框隐藏按钮
+	var _btnVoicePlay	= 4;	// DHK-13 语音播放按钮索引
 
 	var FRAME_WIDTH  = 1920;	// 消息框宽度
 	var FRAME_HEIGHT = 320;		// 消息框高度
@@ -317,14 +319,33 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var	BTN_BASE_X1 = (WINDOW_WIDTH - MENU_WIDTH) -100;	// 菜单呼出热区 X
 	var	BTN_BASE_Y1 = WINDOW_HEIGHT - MENU_HEIGHT ;	// 菜单呼出热区 Y
 	var SYSTEM_MENU_INDICATOR_WIDTH = 40;	// 自动模式旋转图标显示宽度
-	var	BTN_BASE_X3 = 1650 - SYSTEM_MENU_INDICATOR_WIDTH;	// 系统菜单容器向左扩展，按钮屏幕位置保持不变
+	var SYSTEM_MENU_INDICATOR_RIGHT_GAP = 8;
+	var	BTN_BASE_X3 =
+		1650 - SYSTEM_MENU_INDICATOR_WIDTH -
+		SYSTEM_MENU_INDICATOR_RIGHT_GAP;	// 动图左移，按钮屏幕位置保持不变
 	var	BTN_BASE_Y3 = 870;		// 系统菜单 Y
-	var SYSTEM_MENU_AUTO_HIDE_DELAY = 3000;
+	var SYSTEM_MENU_HEIGHT = 180;
+	var SYSTEM_MENU_AUTO_HIDE_DELAY = 1000;
 	var SYSTEM_MENU_AUTO_HIDE_TIME = 200;
-	var SYSTEM_MENU_HIDDEN_X = WINDOW_WIDTH;
+	var SYSTEM_MENU_BUTTON_LEFT_GAP = 12;
+	// 第一列按钮在菜单内的 x=40+8+12；停在这里时按钮刚好全部出屏，
+	// 40x40 自动模式动画向左多留 8px，与右侧唤回竖条分开。
+	var SYSTEM_MENU_HIDDEN_X =
+		WINDOW_WIDTH - SYSTEM_MENU_INDICATOR_WIDTH -
+		SYSTEM_MENU_INDICATOR_RIGHT_GAP - SYSTEM_MENU_BUTTON_LEFT_GAP;
+	var SYSTEM_MENU_SLIDE_SHOWN = 0;
+	var SYSTEM_MENU_SLIDE_HIDING = 1;
+	var SYSTEM_MENU_SLIDE_HIDDEN = 2;
+	var SYSTEM_MENU_SLIDE_SHOWING = 3;
+	var SYSTEM_MENU_RECALL_FILE = "ui_1920/adv_menu/DHK-58.png";
+	var SYSTEM_MENU_RECALL_STATE_COUNT = 2;
+	var SYSTEM_MENU_RECALL_NORMAL_WIDTH = 8;
+	var SYSTEM_MENU_RECALL_RIGHT_MARGIN = 6;
+	var SYSTEM_MENU_RECALL_HIT_PADDING = 4;
+	var SYSTEM_MENU_RECALL_HOVER_DELAY = 40;
 	var SYSTEM_MENU_HINT_WIDTH = 180;
 	var SYSTEM_MENU_HINT_HEIGHT = 42;
-	var SYSTEM_MENU_HINT_FONT_SIZE = 22;
+	var SYSTEM_MENU_HINT_FONT_SIZE = 28;
 	var SYSTEM_MENU_HINT_X =
 		WINDOW_WIDTH - 60 - SYSTEM_MENU_HINT_WIDTH;	// 右边缘保持原位
 	var SYSTEM_MENU_HINT_Y = FRAME_Y + 24;		// 对话框右上方
@@ -333,16 +354,19 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var MESSAGE_HIDE_FILE = "ui_1920/adv_menu/DHK-65.png";
 	var MESSAGE_HIDE_HINT_TEXT = "隐藏界面";
 
-	var	VOICE_X = BASE_X + 510;		// 语音重播按钮 X
-	var	VOICE_Y = BASE_Y + 30;		// 语音重播按钮 Y
+	var VOICE_PLAY_X = BASE_X + 510;	// DHK-13 占用原语音按钮槽位
+	var	VOICE_Y = BASE_Y + 30;		// 语音/音量按钮组 Y
+	var VOICE_PLAY_Y = VOICE_Y;
+	var FAV_VOICE_X = VOICE_PLAY_X + 38;	// 收藏移到第二个槽位
+	var	VOICE_X = VOICE_PLAY_X + 75;	// DHK-14 音量设置移到第三个槽位
 
-	var TEXT_SETTINGS_X = VOICE_X + 40;		// 文字设置按钮 X
-	var TEXT_SETTINGS_Y = VOICE_Y;		// 文字设置按钮 Y
+	// 四个图标的画布宽度和透明边距不同，按可见图形中心等距对齐。
+	var TEXT_SETTINGS_X = VOICE_X + 44;		// 与语音图标中心间距 40px
+	var TEXT_SETTINGS_Y = VOICE_Y + 2;
 
-	// 语音收藏按钮（位置请自行调整）
-	var FAV_VOICE_X = TEXT_SETTINGS_X + 40;
-	var FAV_VOICE_Y = VOICE_Y;
-	var FAV_VOICE_FILE = "ui_1920/adv_menu/WBJL-14.png";
+	// 语音收藏按钮
+	var FAV_VOICE_Y = VOICE_Y + 5;		// 星形气泡的视觉重心偏上，额外下移 3px
+	var FAV_VOICE_FILE = "ui_1920/adv_menu/DHK-66.png";
 	var FAV_VOICE_PTN = 2;
 	var FAV_VOICE_NORMAL_PTN = 0;	// 白色
 	var FAV_VOICE_FOCUS_PTN = 1;	// 灰色
@@ -447,7 +471,13 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_blinkTimer = new Timer(onBlinkTimer, "");
 		_blinkTimer.interval = 4500;
 
-		_menuCallArea = new MenuArea(win, this, this);
+		_menuCallArea = new SystemMenuRecallArea(
+			win, this, this,
+			SYSTEM_MENU_RECALL_FILE,
+			SYSTEM_MENU_RECALL_STATE_COUNT,
+			SYSTEM_MENU_RECALL_NORMAL_WIDTH,
+			SYSTEM_MENU_RECALL_HIT_PADDING,
+			SYSTEM_MENU_RECALL_HOVER_DELAY);
 		_systemMenuArea = new SystemMenuArea(win, this);
 		_systemMenu = new SystemMenu(win, this, , _advObj);
 		with(_systemMenu){
@@ -482,11 +512,11 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		}
 
 		with(_menuCallArea){
-			.absolute = 1001;
-			// 固定在按钮组原位；菜单移出屏幕后仍可从这里唤回。
-			.setSize(WINDOW_WIDTH - BTN_BASE_X3, _systemMenu.height);
-			.setPos(BTN_BASE_X3, BTN_BASE_Y3);
-			.visible = true;
+			.absolute = 1004;
+			.setPos(
+				WINDOW_WIDTH - SYSTEM_MENU_RECALL_RIGHT_MARGIN - .width,
+				BTN_BASE_Y3 + (SYSTEM_MENU_HEIGHT - .height) \ 2);
+			.setRecallEnabled(false);
 		}
 
 		with(_systemMenuArea){
@@ -497,13 +527,22 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.visible = true;
 		}
 
-		//音声再生
+		// DHK-13 音声再生
+		_btn[_btnVoicePlay] = new Button(win, _base);
+		with(_btn[_btnVoicePlay]){
+			.create("ui_1920/adv_menu/DHK-13.png", 2);
+			.ptnInvalid = 1;
+			.setPos(VOICE_PLAY_X, VOICE_PLAY_Y);
+			.valid = false;
+			.visible = true;
+		}
+
+		// DHK-14 音量设置
 		_btn[_btnVoice] = new Button(win, _base);
 		with(_btn[_btnVoice]){
-			// .create("frame_m2/M2_MSG_VOICE.png", 2);
 			.create("ui_1920/adv_menu/DHK-14.png", 2);
 			.setPos(VOICE_X, VOICE_Y);
-			.visible = false;
+			.visible = true;
 		}
 		// 文字设置
 		_btn[_btnTextSettings] = new Button(win, _base);
@@ -519,12 +558,15 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			.create(FAV_VOICE_FILE, FAV_VOICE_PTN);
 			.ptnNormal = FAV_VOICE_NORMAL_PTN;
 			.ptnFocus = FAV_VOICE_FOCUS_PTN;
-			.setButton(FAV_VOICE_NORMAL_PTN);
+			.ptnInvalid = FAV_VOICE_FOCUS_PTN;
 			.setPos(FAV_VOICE_X, FAV_VOICE_Y);
-			.visible = false;
+			.valid = false;
+			.visible = true;
 		}
 
 		_textSettingsMenu = new TextSettingsMenu(win, _base, this, _advObj);
+		_volumeSettingsMenu = new VolumeSettingsMenu(
+			win, _base, this, _advObj);
 
 		@if(__DEBUGMODE__)
 			_voiceProgress = [];
@@ -550,6 +592,8 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(isvalid(_systemMenuAutoHideTimer))
 			_systemMenuAutoHideTimer.enabled = false;
 		invalidate _systemMenuAutoHideTimer;
+		setSystemMenuRecallVisible(false);
+		clearSystemMenuSlideCallback();
 		InvalidateArray(_btn);
 		invalidate _btn;
 		invalidate _systemMenu;
@@ -567,6 +611,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		invalidate _blinkTimer;
 		invalidate _menuCallArea;
 		invalidate _textSettingsMenu;
+		invalidate _volumeSettingsMenu;
 		invalidate _base;
 
 		global.Sprite.finalize();
@@ -616,7 +661,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		}
 
 		HitThresholdSelectItems(_btn, 0);
-		_menuCallArea.hitThreshold = 0;
+		setSystemMenuRecallVisible(false);
 
 		_systemMenu.buttonEnable(true);
 
@@ -625,8 +670,10 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 	function hide(time=0, fFaceHide=false){
 		stopSystemMenuAutoHide();
-		_menuCallArea.hitThreshold = 256;
+		setSystemMenuRecallVisible(false);
 		hideSystemMenuHint();
+		clearSystemMenuSlideCallback();
+		_systemMenu.stopActivation();
 
 		var closeHide = _closeHideRequested;
 		_closeHideRequested = false;
@@ -634,7 +681,6 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(closeHide){
 			stopActivation();
 			_base.stopActivation();
-			_systemMenu.stopActivation();
 
 			_closeHideActive = true;
 			_closeHideOriginX = left;
@@ -676,8 +722,11 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_systemMenu.buttonEnable(false);
 
 		if(_textSettingsMenu.visible) _textSettingsMenu.hide();
+		if(_volumeSettingsMenu.visible) _volumeSettingsMenu.hide();
 
 		_isShow = false;
+		_systemMenuSlideState = SYSTEM_MENU_SLIDE_SHOWN;
+		_systemMenuPointerInside = false;
 	}
 	function isShow(){
 		return _isShow;
@@ -807,9 +856,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(_imgFace !== void) _imgFace.absolute = 250;
 		if(_imgName !== void) _imgName.absolute = 250;
 		if(isvalid(_systemMenuArea)) _systemMenuArea.absolute = 1001;
-		if(isvalid(_menuCallArea)) _menuCallArea.absolute = 1001;
 		if(isvalid(_systemMenu)) _systemMenu.absolute = 1002;
 		if(isvalid(_systemMenuHint)) _systemMenuHint.absolute = 1003;
+		if(isvalid(_menuCallArea)) _menuCallArea.absolute = 1004;
 		if(_btn[_btnMessageHide] !== void) _btn[_btnMessageHide].absolute = 1000;
 	}
 
@@ -817,15 +866,10 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(hintText === void || hintText == "" || !isvalid(_systemMenuHint)) return;
 
 		with(_systemMenuHint){
-			.stopActivation();
 			.fillRect(0, 0, .width, .height, 0);
-			PaintMenuRoundedRect(
-				_systemMenuHint, 0, 0,
-				.width, .height,
-				0xad80b0c0, 12);
 			var textX = (.width - .font.getTextWidth(hintText)) \ 2;
 			.drawText(
-				textX, 8, hintText,
+				textX, 10, hintText,
 				0xf2fafa,
 				255, true, 1024, 0x285b63, 1);
 			.setPos(SYSTEM_MENU_HINT_X, SYSTEM_MENU_HINT_Y);
@@ -842,6 +886,15 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_systemMenuHint.visible = false;
 		_systemMenuHintTarget = null;
 	}
+	function closeAllPagePopups(){
+		hideSystemMenuHint();
+		if(isvalid(_textSettingsMenu) && _textSettingsMenu.visible)
+			_textSettingsMenu.hide();
+		if(isvalid(_volumeSettingsMenu) && _volumeSettingsMenu.visible)
+			_volumeSettingsMenu.hide();
+		if(isvalid(_systemMenu))
+			_systemMenu.closeAllPopups();
+	}
 
 	function systemMenuShownX(){
 		return BTN_BASE_X3 + _systemMenuMoveX;
@@ -853,14 +906,22 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		// ToggleButton 的深色按下态是 state=true；现有 lock 属性与其语义相反。
 		return isvalid(_systemMenu) && !_systemMenu.lock;
 	}
-	function isCursorInSystemMenuArea(){
-		if(!isvalid(_menuCallArea)) return false;
-		return (
-			_menuCallArea.left <= cursorX &&
-			cursorX < _menuCallArea.left + _menuCallArea.width &&
-			_menuCallArea.top <= cursorY &&
-			cursorY < _menuCallArea.top + _menuCallArea.height
-		);
+	function positionSystemMenuRecallArea(){
+		if(!isvalid(_menuCallArea)) return;
+		_menuCallArea.setPos(
+			WINDOW_WIDTH - SYSTEM_MENU_RECALL_RIGHT_MARGIN -
+				_menuCallArea.width,
+			systemMenuShownY() +
+				(SYSTEM_MENU_HEIGHT - _menuCallArea.height) \ 2);
+	}
+	function setSystemMenuRecallVisible(flag){
+		if(!isvalid(_menuCallArea)) return;
+		positionSystemMenuRecallArea();
+		_menuCallArea.setRecallEnabled(flag);
+	}
+	function clearSystemMenuSlideCallback(){
+		if(isvalid(_systemMenu))
+			_systemMenu.setTransitionCompleteCall(null);
 	}
 	function cancelSystemMenuAutoHideTimer(){
 		if(isvalid(_systemMenuAutoHideTimer))
@@ -874,79 +935,116 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(!isvalid(_systemMenu)) return;
 
 		cancelSystemMenuAutoHideTimer();
+		setSystemMenuRecallVisible(false);
+		clearSystemMenuSlideCallback();
 		_systemMenu.stopActivation();
 		_systemMenu.setPos(systemMenuShownX(), systemMenuShownY());
-		_systemMenuAutoHidden = false;
+		_systemMenuSlideState = SYSTEM_MENU_SLIDE_SHOWN;
+		_systemMenuPointerInside = false;
+	}
+	function onSystemMenuShowSlideEnd(){
+		clearSystemMenuSlideCallback();
+		if(_systemMenuSlideState != SYSTEM_MENU_SLIDE_SHOWING) return;
 
-		if(isvalid(_menuCallArea))
-			_menuCallArea.setPos(systemMenuShownX(), systemMenuShownY());
+		_systemMenu.setPos(systemMenuShownX(), systemMenuShownY());
+		_systemMenuSlideState = SYSTEM_MENU_SLIDE_SHOWN;
+		_systemMenu.setAutoHidePointerEnabled(true);
+		_systemMenuPointerInside =
+			_systemMenu.isCursorOverButton(cursorX, cursorY);
+		restartSystemMenuAutoHide();
 	}
 	function showSystemMenuFromAutoHide(time=SYSTEM_MENU_AUTO_HIDE_TIME){
 		if(!isvalid(_systemMenu)) return;
 
 		cancelSystemMenuAutoHideTimer();
-		if(!_systemMenuAutoHidden &&
+		if(_systemMenuSlideState == SYSTEM_MENU_SLIDE_SHOWN &&
 			_systemMenu.left == systemMenuShownX() &&
 			_systemMenu.top == systemMenuShownY()){
 			return;
 		}
+		if(_systemMenuSlideState == SYSTEM_MENU_SLIDE_SHOWING) return;
 
+		setSystemMenuRecallVisible(false);
+		clearSystemMenuSlideCallback();
 		_systemMenu.stopActivation();
+		_systemMenu.setAutoHidePointerEnabled(false);
+		_systemMenuSlideState = SYSTEM_MENU_SLIDE_SHOWING;
 		if(time == 0){
 			_systemMenu.setPos(systemMenuShownX(), systemMenuShownY());
+			onSystemMenuShowSlideEnd();
 		}else{
 			_systemMenu.setMovingEnvelope(
 				_systemMenu.left, _systemMenu.top,
 				systemMenuShownX(), systemMenuShownY(), 2);
+			_systemMenu.setTransitionCompleteCall(onSystemMenuShowSlideEnd);
 			_systemMenu.beginActivation(time);
 		}
-		_systemMenuAutoHidden = false;
 	}
 	function restartSystemMenuAutoHide(){
 		cancelSystemMenuAutoHideTimer();
 		if(!_isShow || !isSystemMenuAutoHideEnabled()) return;
-		if(_systemMenuPointerInside || isCursorInSystemMenuArea()) return;
+		if(_systemMenuSlideState != SYSTEM_MENU_SLIDE_SHOWN) return;
+		if(_systemMenuPointerInside) return;
 
 		with(_systemMenuAutoHideTimer){
 			.interval = SYSTEM_MENU_AUTO_HIDE_DELAY;
 			.enabled = true;
 		}
 	}
+	function onSystemMenuHideSlideEnd(){
+		clearSystemMenuSlideCallback();
+		if(_systemMenuSlideState != SYSTEM_MENU_SLIDE_HIDING) return;
+
+		_systemMenu.setPos(SYSTEM_MENU_HIDDEN_X, systemMenuShownY());
+		_systemMenuSlideState = SYSTEM_MENU_SLIDE_HIDDEN;
+		if(_isShow && isSystemMenuAutoHideEnabled())
+			setSystemMenuRecallVisible(true);
+	}
 	function onSystemMenuAutoHideTimer(){
 		cancelSystemMenuAutoHideTimer();
 		if(!_isShow || !isSystemMenuAutoHideEnabled()) return;
-		if(_systemMenuPointerInside || isCursorInSystemMenuArea()) return;
+		if(_systemMenuSlideState != SYSTEM_MENU_SLIDE_SHOWN) return;
+		if(_systemMenuPointerInside) return;
 
 		hideSystemMenuHint();
+		setSystemMenuRecallVisible(false);
+		clearSystemMenuSlideCallback();
 		_systemMenu.stopActivation();
+		_systemMenu.setAutoHidePointerEnabled(false);
+		_systemMenuSlideState = SYSTEM_MENU_SLIDE_HIDING;
 		_systemMenu.setMovingEnvelope(
 			_systemMenu.left, _systemMenu.top,
 			SYSTEM_MENU_HIDDEN_X, systemMenuShownY(), 2);
+		_systemMenu.setTransitionCompleteCall(onSystemMenuHideSlideEnd);
 		_systemMenu.beginActivation(SYSTEM_MENU_AUTO_HIDE_TIME);
-		_systemMenuAutoHidden = true;
 	}
 	function onSystemMenuPointerEnter(){
-		if(!_isShow) return;
+		if(!_isShow ||
+			_systemMenuSlideState != SYSTEM_MENU_SLIDE_SHOWN) return;
 
 		_systemMenuPointerInside = true;
 		cancelSystemMenuAutoHideTimer();
-		if(isSystemMenuAutoHideEnabled())
-			showSystemMenuFromAutoHide();
 	}
 	function onSystemMenuPointerLeave(){
-		if(!_isShow) return;
-
-		if(isCursorInSystemMenuArea()){
-			_systemMenuPointerInside = true;
-			return;
-		}
+		if(!_isShow ||
+			_systemMenuSlideState != SYSTEM_MENU_SLIDE_SHOWN) return;
 
 		_systemMenuPointerInside = false;
 		restartSystemMenuAutoHide();
 	}
+	function onSystemMenuRecallEnter(target){
+		if(!_isShow ||
+			_systemMenuSlideState != SYSTEM_MENU_SLIDE_HIDDEN ||
+			!isSystemMenuAutoHideEnabled()) return;
+
+		// 先撤掉竖条命中，再开始滑入，避免隐藏竖条触发的 leave
+		// 或滑动中的菜单按钮造成重复唤回。
+		setSystemMenuRecallVisible(false);
+		_systemMenuPointerInside = false;
+		showSystemMenuFromAutoHide();
+	}
 	function onSystemMenuLockChanged(){
 		showSystemMenuFromAutoHide();
-		_systemMenuPointerInside = isCursorInSystemMenuArea();
 		if(isSystemMenuAutoHideEnabled())
 			restartSystemMenuAutoHide();
 		else
@@ -1099,13 +1197,11 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 
 		if(isExistentVoiceFile(_voice))
 		{
-			_btn[_btnVoice].visible = true;
-			_btn[_btnFavVoice].visible = true;
+			enableVoiceButton(true);
 		}
 		else
 		{
-			_btn[_btnVoice].visible = false;
-			_btn[_btnFavVoice].visible = false;
+			enableVoiceButton(false);
 		}
 
 		if(fontParam != null){
@@ -1263,14 +1359,6 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_systemMenu.refreshJumpButtons();
 	}
 
-	function onMouseMenuAreaEnter(target){
-		_systemMenuArea.enter();
-		_systemMenu.enable = true;
-		onSystemMenuPointerEnter();
-	}
-	function onMouseMenuAreaLeave(target){
-		onSystemMenuPointerLeave();
-	}
 	function onMenuLeave(){
 		hideSystemMenuHint();
 		_systemMenuArea.leave();
@@ -1413,9 +1501,19 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 
 	function onButtonDownL(target){
 		switch(target){
-		case _btn[_btnVoice] :
+		case _btn[_btnVoicePlay] :
 			if(_advObj.hitretState)
 				_advObj.playVoice(%[file:_voice, pan:_pan, vol:_volume, config:false]);
+			break;
+		case _btn[_btnVoice] :
+			if(_volumeSettingsMenu.visible){
+				_volumeSettingsMenu.hide();
+			}else{
+				if(_textSettingsMenu.visible)
+					_textSettingsMenu.hide();
+				_volumeSettingsMenu.loadFromConfig();
+				_volumeSettingsMenu.show(_btn[_btnVoice]);
+			}
 			break;
 		case _btn[_btnFavVoice] :
 			if(!_advObj.hitretState) break;
@@ -1429,6 +1527,8 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			if(_textSettingsMenu.visible){
 				_textSettingsMenu.hide();
 			}else{
+				if(_volumeSettingsMenu.visible)
+					_volumeSettingsMenu.hide();
 				_textSettingsMenu.loadFromConfig();
 				_textSettingsMenu.show(_btn[_btnTextSettings]);
 			}
@@ -1515,15 +1615,31 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_systemMenuMoveX = x;
 		_systemMenuMoveY = y;
 
+		var moveToHidden =
+			_systemMenuSlideState == SYSTEM_MENU_SLIDE_HIDING ||
+			_systemMenuSlideState == SYSTEM_MENU_SLIDE_HIDDEN;
+		cancelSystemMenuAutoHideTimer();
+		setSystemMenuRecallVisible(false);
+		clearSystemMenuSlideCallback();
 		_systemMenu.stopActivation();
-		var menuX = _systemMenuAutoHidden ? SYSTEM_MENU_HIDDEN_X : systemMenuShownX();
+		var menuX = moveToHidden ?
+			SYSTEM_MENU_HIDDEN_X : systemMenuShownX();
 		_systemMenu.setMovingEnvelope(
 			_systemMenu.left, _systemMenu.top,
 			menuX, systemMenuShownY(), 2);
 
+		if(moveToHidden){
+			_systemMenuSlideState = SYSTEM_MENU_SLIDE_HIDING;
+			_systemMenu.setAutoHidePointerEnabled(false);
+			_systemMenu.setTransitionCompleteCall(onSystemMenuHideSlideEnd);
+		}else{
+			_systemMenuSlideState = SYSTEM_MENU_SLIDE_SHOWING;
+			_systemMenuPointerInside = false;
+			_systemMenu.setAutoHidePointerEnabled(false);
+			_systemMenu.setTransitionCompleteCall(onSystemMenuShowSlideEnd);
+		}
 		_systemMenu.beginActivation(time);
-		if(isvalid(_menuCallArea))
-			_menuCallArea.setPos(systemMenuShownX(), systemMenuShownY());
+		positionSystemMenuRecallArea();
 		_base.setMovingEnvelope(_base.left, _base.top, 0 + x, 0 + y, 2);
 		_base.beginActivation(time);
 	}
@@ -1584,9 +1700,18 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 
 	function enableVoiceButton(f){
-		_btn[_btnVoice].visible = f;
-		if(_btn[_btnFavVoice] !== void)
-			_btn[_btnFavVoice].visible = f;
+		var disabledByAuto = _systemMenu.auto;
+		var enabled = f && !disabledByAuto;
+
+		_btn[_btnVoicePlay].visible = true;
+		_btn[_btnVoicePlay].valid = enabled;
+		_btn[_btnVoicePlay].opacity = disabledByAuto ? 128 : 255;
+		_btn[_btnVoice].visible = true;
+		if(_btn[_btnFavVoice] !== void){
+			_btn[_btnFavVoice].visible = true;
+			_btn[_btnFavVoice].valid = enabled;
+			_btn[_btnFavVoice].opacity = disabledByAuto ? 128 : 255;
+		}
 	}
 
 	property skip{
@@ -1596,25 +1721,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	property auto{
 		setter(v){
 			_systemMenu.auto = v;
-			if(v){
-			//on
-				_btn[_btnVoice].valid = false;
-				_btn[_btnVoice].opacity = 128;
-				if(_btn[_btnFavVoice] !== void)
-				{
-					_btn[_btnFavVoice].valid = false;
-					_btn[_btnFavVoice].opacity = 128;
-				}
-			}else{
-			//off
-				_btn[_btnVoice].valid = true;
-				_btn[_btnVoice].opacity = 255;
-				if(_btn[_btnFavVoice] !== void)
-				{
-					_btn[_btnFavVoice].valid = true;
-					_btn[_btnFavVoice].opacity = 255;
-				}
-			}
+			enableVoiceButton(isExistentVoiceFile(_voice));
 			if(!isPending()) showBlink(300);
 		}
 		getter(){return _systemMenu.auto;}
@@ -1679,21 +1786,102 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			getter(){return _enter;}
 		}
 	}
-	class MenuArea extends Layer{
+	class SystemMenuRecallArea extends Layer{
 		var _owner;
+		var _visual;
+		var _source;
+		var _stateWidth;
+		var _hitPadding;
+		var _hovered = false;
+		var _recallTimer;
 
-		function MenuArea(win, par, owner){
+		function SystemMenuRecallArea(
+			win, par, owner, storage, stateCount, normalWidth,
+			hitPadding, hoverDelay){
 			Layer(win, par);
 			_owner = owner;
+			_hitPadding = hitPadding;
+
+			_visual = new global.Layer(win, this);
+			_source = new global.Layer(win, _visual);
+			with(_source){
+				.loadImages(storage);
+				.setSizeToImageSize();
+				.hitThreshold = 256;
+				.visible = false;
+			}
+			var hoverWidth = _source.width - normalWidth;
+			_stateWidth = hoverWidth > normalWidth ?
+				hoverWidth : normalWidth;
+			_visual.setSize(_stateWidth, _source.height);
+			_visual.setImageSize(_stateWidth * stateCount, _source.height);
+			_visual.type = ltAlpha;
+			_visual.fillRect(
+				0, 0, _visual.imageWidth, _visual.imageHeight, 0x00000000);
+			_visual.copyRect(
+				(_stateWidth - normalWidth) \ 2, 0,
+				_source, 0, 0, normalWidth, _source.height);
+			_visual.copyRect(
+				_stateWidth + (_stateWidth - hoverWidth) \ 2, 0,
+				_source, normalWidth, 0, hoverWidth, _source.height);
+			_visual.setPos(_hitPadding, _hitPadding);
+			_visual.hitThreshold = 256;
+			_visual.visible = true;
+
 			hasImage = false;
-			hitThreshold = 0;
+			setSize(
+				_stateWidth + _hitPadding,
+				_source.height + _hitPadding * 2);
+			hitType = htMask;
+			hitThreshold = 256;
+			setHover(false);
+			visible = false;
+
+			_recallTimer = new Timer(onRecallTimer, "");
+			with(_recallTimer){
+				.interval = hoverDelay;
+				.capacity = 1;
+				.enabled = false;
+			}
+		}
+		function finalize(){
+			if(isvalid(_recallTimer))
+				_recallTimer.enabled = false;
+			invalidate _recallTimer;
+			invalidate _source;
+			invalidate _visual;
+			_owner = null;
+			super.finalize();
+		}
+
+		function setHover(flag){
+			_hovered = flag;
+			_visual.setImagePos(flag ? -_stateWidth : 0, 0);
+		}
+		function setRecallEnabled(flag){
+			if(isvalid(_recallTimer))
+				_recallTimer.enabled = false;
+			setHover(false);
+			cursor = crDefault;
+			hitThreshold = flag ? 0 : 256;
+			visible = flag;
 		}
 
 		function onMouseEnter(){
-			_owner.onMouseMenuAreaEnter(this);
+			setHover(true);
+			cursor = crHandPoint;
+			_recallTimer.enabled = false;
+			_recallTimer.enabled = true;
+		}
+		function onRecallTimer(){
+			_recallTimer.enabled = false;
+			if(!_hovered || !visible || hitThreshold != 0) return;
+			_owner.onSystemMenuRecallEnter(this);
 		}
 		function onMouseLeave(){
-			_owner.onMouseMenuAreaLeave(this);
+			_recallTimer.enabled = false;
+			setHover(false);
+			cursor = crDefault;
 		}
 	}
 }
@@ -1877,7 +2065,9 @@ class SystemMenu extends SubMenu{
 	var AUTO_INDICATOR_INTERVAL = 70;
 	var AUTO_INDICATOR_X = 0;
 	var AUTO_INDICATOR_Y = 128;
-	var SYSTEM_MENU_BUTTON_OFFSET_X = AUTO_INDICATOR_FRAME_WIDTH;
+	var AUTO_INDICATOR_RIGHT_GAP = 8;
+	var SYSTEM_MENU_BUTTON_OFFSET_X =
+		AUTO_INDICATOR_FRAME_WIDTH + AUTO_INDICATOR_RIGHT_GAP;
 
 	var _files = [
 		["ui_1920/adv_menu/DHK-22.png",  [12 + SYSTEM_MENU_BUTTON_OFFSET_X + 120, 60]],
@@ -2188,6 +2378,26 @@ class SystemMenu extends SubMenu{
 		_shortcutOpenButton = null;
 		_shortcutOpenMenu = null;
 	}
+	function closeAllPopups(){
+		// 同时清理延迟任务、状态引用和可见图层，避免关闭后又被计时器打开。
+		cancelShortcutOpen();
+		cancelShortcutClose();
+		closeShortcutMenu();
+		hideSubMenu();
+
+		var menus = [
+			_qsaveMenu, _saveMenu, _loadMenu, _configMenu
+		];
+		for(var i=0;i<menus.count;i++){
+			if(!isvalid(menus[i])) continue;
+			menus[i].hideSubMenu();
+			menus[i].hide();
+		}
+		invalidate menus;
+
+		if(isvalid(_messageFrame))
+			_messageFrame.hideSystemMenuHint();
+	}
 
 	function onShortcutOpenTimer(){
 		if(isvalid(_shortcutOpenTimer))
@@ -2329,7 +2539,12 @@ class SystemMenu extends SubMenu{
 			break;
 		case _btn[2] : event = "save"; break;
 		case _btn[3] : event = "load"; break;
-		case _btn[4] : event = "config"; break;
+		case _btn[4] :
+			// 进入右下角设置页面前，关闭 ADV 页面上的其他所有弹窗。
+			if(isvalid(_messageFrame))
+				_messageFrame.closeAllPagePopups();
+			event = "config";
+			break;
 		case _btn[5] : event = "auto"; break;
 		case _btn[6] : event = "skip"; break;
 		case _btn[7] : event = "log"; break;
@@ -2390,19 +2605,41 @@ class SystemMenu extends SubMenu{
 		super.onButtonLeave(target);
 	}
 
-	function buttonEnable(flag){
-		_buttonsEnabled = flag;
+	function isCursorOverButton(x, y){
+		if(!_buttonsEnabled) return false;
+		var localX = x - left;
+		var localY = y - top;
+		for(var i=0;i<_btn.count;i++){
+			if(!isvalid(_btn[i]) || !_btn[i].visible || !_btn[i].valid)
+				continue;
+			if(_btn[i].left <= localX &&
+				localX < _btn[i].left + _btn[i].width &&
+				_btn[i].top <= localY &&
+				localY < _btn[i].top + _btn[i].height)
+				return true;
+		}
+		return false;
+	}
+
+	function setAutoHidePointerEnabled(flag){
+		if(flag && !_buttonsEnabled) flag = false;
 		if(flag){
-			refreshJumpButtons();
 			HitThresholdSelectItems(_btn, 0);
 			hitThreshold = 0;
 		}else{
 			if(isvalid(_messageFrame)) _messageFrame.hideSystemMenuHint();
 			cancelShortcutOpen();
 			closeShortcutMenu();
+			hideSubMenu();
 			HitThresholdSelectItems(_btn, 256);
 			hitThreshold = 256;
 		}
+	}
+
+	function buttonEnable(flag){
+		_buttonsEnabled = flag;
+		if(flag) refreshJumpButtons();
+		setAutoHidePointerEnabled(flag);
 		syncAutoIndicator();
 	}
 
@@ -2458,23 +2695,35 @@ class SystemMenu extends SubMenu{
 }
 class QuickSaveMenu extends SubMenu{
 	var _btn = [];
+	var _panel;
+	var _title;
 
 	var MAX = 9;
-	var PANEL_WIDTH = 522;
-	var PANEL_HEIGHT = 340;
-	var HOVER_GAP_HEIGHT = 100;
+	var PANEL_WIDTH = 512;
+	var PANEL_HEIGHT = 345;
+	var HOVER_GAP_HEIGHT = 138;
+	var WINDOW_RIGHT_GAP = 18;
 	var SLOT_WIDTH = 150;
 	var SLOT_HEIGHT = 80;
 	var SLOT_GAP_X = 14;
 	var SLOT_GAP_Y = 14;
-	var SLOT_START_X = 22;
+	var SLOT_START_X = 17;
 	var SLOT_START_Y = 60;
+	var SLOT_RADIUS = 7;
+	var THUMB_INSET_X = 4;
+	var THUMB_INSET_Y = 4;
+	var THUMB_WIDTH = 142;
+	var THUMB_HEIGHT = 72;
+	var THUMB_RADIUS = 3;
 
-	var PANEL_COLOR = 0xad80b0c0;
-	var SLOT_COLOR = 0xb0446f76;
-	var SLOT_HOVER_INNER_COLOR = 0xd0477d86;
+	var PANEL_COLOR = 0xf0397990;
+	var PANEL_GRADIENT_COLOR = 0x687ebace;
+	var SLOT_COLOR = 0xe0446f76;
+	var SLOT_HOVER_INNER_COLOR = 0xf0477d86;
 	var SLOT_HOVER_OVERLAY_COLOR = 0x387ac6d0;
+	var SLOT_EMPTY_DISABLED_COLOR = 0x90405f65;
 	var LABEL_COLOR = 0xb0154751;
+	var TITLE_TEXT_COLOR = 0xf4fbfa;
 
 	function QuickSaveMenu(win, par, o=null){
 		SubMenu(...);
@@ -2484,16 +2733,37 @@ class QuickSaveMenu extends SubMenu{
 		// 显式放到菜单提示之上，避免被消息框和系统按钮遮住。
 		absolute = 1004;
 		type = ltAlpha;
-		setImageSize(PANEL_WIDTH, PANEL_HEIGHT);
+		hasImage = false;
 		setSize(PANEL_WIDTH, PANEL_HEIGHT);
-		fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 0);
+
+		_panel = new global.Layer(win, this);
+		with(_panel){
+			.setImageSize(PANEL_WIDTH, PANEL_HEIGHT);
+			.setSize(PANEL_WIDTH, PANEL_HEIGHT);
+			.type = ltAlpha;
+			.absolute = 0;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		_title = new global.Layer(win, this);
+		with(_title){
+			.setImageSize(PANEL_WIDTH, 54);
+			.setSize(PANEL_WIDTH, 54);
+			.type = ltAlpha;
+			.absolute = 1;
+			.hitThreshold = 256;
+			.visible = true;
+		}
 		paintPanel();
+		syncBackgroundOpacity();
 
 		createSlots(win);
 		refresh();
 	}
 	function finalize(){
 		InvalidateArray(_btn);
+		invalidate _panel;
+		invalidate _title;
 		super.finalize();
 	}
 
@@ -2564,20 +2834,89 @@ class QuickSaveMenu extends SubMenu{
 		}
 	}
 
-	function paintPanel(){
-		paintRounded(
-			this, 0, 0,
-			PANEL_WIDTH, PANEL_HEIGHT,
-			PANEL_COLOR, 12, 0x01);
+	function paintPanelGradient(){
+		var radius = 15;
+		var denominator = PANEL_HEIGHT - 1;
+		var startAlpha = (PANEL_COLOR >> 24) & 0xff;
+		var startRed = (PANEL_COLOR >> 16) & 0xff;
+		var startGreen = (PANEL_COLOR >> 8) & 0xff;
+		var startBlue = PANEL_COLOR & 0xff;
+		var endAlpha = (PANEL_GRADIENT_COLOR >> 24) & 0xff;
+		var endRed = (PANEL_GRADIENT_COLOR >> 16) & 0xff;
+		var endGreen = (PANEL_GRADIENT_COLOR >> 8) & 0xff;
+		var endBlue = PANEL_GRADIENT_COLOR & 0xff;
 
-		font.face = GetShortcutMenuFontFace();
-		font.bold = true;
-		font.height = 24;
+		for(var row=0;row<PANEL_HEIGHT;row++){
+			var alpha = startAlpha +
+				((endAlpha - startAlpha) * row) \ denominator;
+			var red = startRed +
+				((endRed - startRed) * row) \ denominator;
+			var green = startGreen +
+				((endGreen - startGreen) * row) \ denominator;
+			var blue = startBlue +
+				((endBlue - startBlue) * row) \ denominator;
+			var rowColor =
+				(alpha << 24) |
+				(red << 16) |
+				(green << 8) |
+				blue;
+
+			var boundary = 0;
+			if(row < radius){
+				var dy = radius - row - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+			}else if(row >= PANEL_HEIGHT - radius){
+				var edgeRow = PANEL_HEIGHT - 1 - row;
+				var dy = radius - edgeRow - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+			}
+
+			var inset = int(boundary + 0.999);
+			var span = PANEL_WIDTH - inset * 2;
+			if(span > 0)
+				_panel.fillRect(inset, row, span, 1, rowColor);
+			if(inset > 0){
+				var coverage = inset - boundary;
+				var edgeAlpha = int(alpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor =
+						(edgeAlpha << 24) |
+						(rowColor & 0x00ffffff);
+					_panel.fillRect(
+						inset - 1, row, 1, 1, edgeColor);
+					_panel.fillRect(
+						PANEL_WIDTH - inset, row,
+						1, 1, edgeColor);
+				}
+			}
+		}
+	}
+
+	function paintPanel(){
+		_panel.fillRect(
+			0, 0, PANEL_WIDTH, PANEL_HEIGHT,
+			0x00000000);
+		paintPanelGradient();
+
+		_title.fillRect(0, 0, _title.width, _title.height, 0);
+		_title.font.face = GetShortcutMenuFontFace();
+		_title.font.bold = true;
+		_title.font.height = 24;
 		var title = "快速读档";
-		var titleX = (PANEL_WIDTH - font.getTextWidth(title)) \ 2;
-		drawText(
-			titleX, 18, title,
-			0xf4fbfa, 255, true, 1024, 0x285b63, 1);
+		var textX =
+			(PANEL_WIDTH - _title.font.getTextWidth(title)) \ 2;
+		_title.drawText(
+			textX, 15, title,
+			TITLE_TEXT_COLOR,
+			255, true, 1024, 0x285b63, 1);
+	}
+	function syncBackgroundOpacity(){
+		var depth = CONFIG.windowDepth;
+		if(depth < 0) depth = 0;
+		if(depth > 100) depth = 100;
+		_panel.opacity = (255 * depth) \ 100;
 	}
 
 	function paintSlotFrame(layer, offsetX, hover){
@@ -2586,7 +2925,12 @@ class QuickSaveMenu extends SubMenu{
 		paintRounded(
 			layer, offsetX, 0,
 			SLOT_WIDTH, SLOT_HEIGHT,
-			innerColor, 8);
+			innerColor, SLOT_RADIUS);
+		paintRounded(
+			layer,
+			offsetX + THUMB_INSET_X, THUMB_INSET_Y,
+			THUMB_WIDTH, THUMB_HEIGHT,
+			innerColor, THUMB_RADIUS);
 	}
 
 	function createSlots(win){
@@ -2610,14 +2954,15 @@ class QuickSaveMenu extends SubMenu{
 				.setPos(
 					SLOT_START_X + column * (SLOT_WIDTH + SLOT_GAP_X),
 					SLOT_START_Y + row * (SLOT_HEIGHT + SLOT_GAP_Y));
+				.absolute = 2;
 				.visible = true;
 			}
 
 			_btn[i].thumb = new global.Layer(win, _btn[i].btn);
 			with(_btn[i].thumb){
-				.setImageSize(SLOT_WIDTH, SLOT_HEIGHT);
-				.setSize(SLOT_WIDTH, SLOT_HEIGHT);
-				.setPos(0, 0);
+				.setImageSize(THUMB_WIDTH, THUMB_HEIGHT);
+				.setSize(THUMB_WIDTH, THUMB_HEIGHT);
+				.setPos(THUMB_INSET_X, THUMB_INSET_Y);
 				.type = ltAlpha;
 				.fillRect(0, 0, .width, .height, 0);
 				.font.height = 20;
@@ -2638,7 +2983,7 @@ class QuickSaveMenu extends SubMenu{
 			paintRounded(
 				_btn[i].hover, 0, 0,
 				SLOT_WIDTH, SLOT_HEIGHT,
-				SLOT_HOVER_OVERLAY_COLOR, 8);
+				SLOT_HOVER_OVERLAY_COLOR, SLOT_RADIUS);
 
 			_btn[i].label = new global.Layer(win, _btn[i].btn);
 			with(_btn[i].label){
@@ -2669,7 +3014,7 @@ class QuickSaveMenu extends SubMenu{
 		paintRounded(
 			mask, 0, 0,
 			target.width, target.height,
-			0xffffffff, 8);
+			0xffffffff, THUMB_RADIUS);
 		var originalFace = target.face;
 		target.face = dfMask;
 		target.copyRect(
@@ -2681,9 +3026,14 @@ class QuickSaveMenu extends SubMenu{
 
 	function show(target=null){
 		refresh();
+		syncBackgroundOpacity();
 		super.show(target);
 		// 与存/读档面板使用相同的无命中通行间隔。
-		if(target !== null) top -= HOVER_GAP_HEIGHT;
+		if(target !== null){
+			top -= HOVER_GAP_HEIGHT;
+			left -= WINDOW_RIGHT_GAP;
+			if(left < 0) left = 0;
+		}
 	}
 
 	function loadThumbnail(target, filename){
@@ -2736,14 +3086,13 @@ class QuickSaveMenu extends SubMenu{
 
 			with(_btn[i].thumb){
 				.fillRect(0, 0, .width, .height, 0);
-				if(!valid){
-					var emptyText = "—";
-					var emptyX = (.width - .font.getTextWidth(emptyText)) \ 2;
-					.drawText(
-						emptyX, 21, emptyText,
-						0x719399, 255, true, 1024, 0xd9e5e5, 1);
-				}
 			}
+			if(!valid)
+				paintRounded(
+					_btn[i].thumb, 0, 0,
+					_btn[i].thumb.width, _btn[i].thumb.height,
+					SLOT_EMPTY_DISABLED_COLOR,
+					THUMB_RADIUS);
 			with(_btn[i].label){
 				.fillRect(0, 0, .width, .height, 0);
 			}
@@ -2818,27 +3167,37 @@ class LoadShortcutMenu extends SubMenu{
 	var _btn = [];
 	var _nav = [];
 	var _pageLabel;
+	var _panel;
 	var _saveMode = false;
 
 	var _page = -1;
+	var PANEL_SCALE = 150;
+	var NAV_SCALE = 135;
 	var PAGE_SIZE = 12;
-	var PANEL_WIDTH = 686;
-	var PANEL_HEIGHT = 340;
-	// 存读档按钮位于菜单第二排（y=60）。面板整体上移 100px，
-	// 让面板底边与对话框上沿横线对齐。
-	var HOVER_GAP_HEIGHT = 100;
-	var SLOT_WIDTH = 150;
-	var SLOT_HEIGHT = 80;
-	var SLOT_GAP_X = 14;
-	var SLOT_GAP_Y = 14;
-	var SLOT_START_X = 22;
-	var SLOT_START_Y = 60;
+	var PANEL_WIDTH = 360;
+	var PANEL_HEIGHT = 221;
+	// 存读档按钮位于菜单第二排（y=60）。向上留出 138px，
+	// 使放大后的面板底边与文本设置弹窗底边对齐。
+	var HOVER_GAP_HEIGHT = 138;
+	var WINDOW_RIGHT_GAP = 12;
+	var SLOT_WIDTH = 80;
+	var SLOT_HEIGHT = 48;
+	var SLOT_GAP_X = 6;
+	var SLOT_GAP_Y = 5;
+	var SLOT_START_X = 11;
+	var SLOT_START_Y = 56;
+	var SLOT_RADIUS = 5;
+	var THUMB_INSET_X = 3;
+	var THUMB_INSET_Y = 3;
+	var THUMB_WIDTH = 74;
+	var THUMB_HEIGHT = 42;
+	var THUMB_RADIUS = 2;
 
-	var PANEL_COLOR = 0xad80b0c0;
-	var PANEL_GRADIENT_COLOR = null;
+	var PANEL_COLOR = 0xf0397990;
+	var PANEL_GRADIENT_COLOR = 0x687ebace;
 	var ACCENT_COLOR = 0xfff2fafa;
-	var SLOT_COLOR = 0xb0446f76;
-	var SLOT_HOVER_INNER_COLOR = 0xd0477d86;
+	var SLOT_COLOR = 0xe0446f76;
+	var SLOT_HOVER_INNER_COLOR = 0xf0477d86;
 	var SLOT_HOVER_OVERLAY_COLOR = 0x387ac6d0;
 	var SLOT_EMPTY_DISABLED_COLOR = 0x90405f65;
 	var LABEL_COLOR = 0xb0154751;
@@ -2847,7 +3206,7 @@ class LoadShortcutMenu extends SubMenu{
 	var LABEL_TEXT_SHADOW_WIDTH = 1;
 	var EMPTY_TEXT_COLOR = 0xc3d2d4;
 	var EMPTY_TEXT_SHADOW_COLOR = 0xd9e5e5;
-	var PAGE_BACKGROUND_COLOR = 0xe0ddebed;
+	var PAGE_BACKGROUND_COLOR = 0xefcbdce3;
 	var PAGE_TEXT_COLOR = 0x315e67;
 	var PAGE_TEXT_SHADOW_COLOR = 0xf4fbfb;
 	var NAV_BACKGROUND_COLOR = 0x01000000;
@@ -2856,26 +3215,31 @@ class LoadShortcutMenu extends SubMenu{
 	var NAV_HOVER_TEXT_COLOR = 0xf2fafa;
 	var NAV_TEXT_SHADOW_COLOR = 0x285b63;
 
+	function scaled(v){
+		return (v * PANEL_SCALE) \ 100;
+	}
+	function navScaled(v){
+		return (v * NAV_SCALE) \ 100;
+	}
+
 	function LoadShortcutMenu(win, par, o=null, saveMode=false){
 		SubMenu(...);
 		_saveMode = saveMode;
 		_name = _saveMode ? "SaveShortcutMenu" : "LoadShortcutMenu";
 		if(_saveMode){
-			// 存档页从紫色自然过渡回菜单原本的青蓝色。
-			PANEL_COLOR = 0xad7b577c;
-			PANEL_GRADIENT_COLOR = 0xad80b0c0;
 			ACCENT_COLOR = 0xffffff;
-			SLOT_COLOR = 0xc0d6cbd6;
-			SLOT_HOVER_INNER_COLOR = 0xd0a085a1;
+			SLOT_COLOR = 0xe06e466f;
+			SLOT_HOVER_INNER_COLOR = 0xf0a085a1;
 			SLOT_HOVER_OVERLAY_COLOR = 0x407b577c;
+			SLOT_EMPTY_DISABLED_COLOR = 0xe0d6cbd6;
 			LABEL_COLOR = 0xd06e466f;
 			LABEL_DISABLED_TEXT_COLOR = 0xbda8bd;
 			LABEL_TEXT_SHADOW_COLOR = 0x6e466f;
 			LABEL_TEXT_SHADOW_WIDTH = 0;
 			EMPTY_TEXT_COLOR = 0x6e466f;
 			EMPTY_TEXT_SHADOW_COLOR = 0xe9dfe9;
-			PAGE_BACKGROUND_COLOR = 0xe0d6cbd6;
-			PAGE_TEXT_COLOR = 0x6e466f;
+			PAGE_BACKGROUND_COLOR = 0xe8d1e1e7;
+			PAGE_TEXT_COLOR = 0x60838c;
 			PAGE_TEXT_SHADOW_COLOR = 0xf9f3f9;
 			NAV_BACKGROUND_COLOR = 0x808f6b90;
 			NAV_HOVER_BACKGROUND_COLOR = 0xb06e466f;
@@ -2884,23 +3248,50 @@ class LoadShortcutMenu extends SubMenu{
 			NAV_TEXT_SHADOW_COLOR = 0x4f3151;
 		}
 
+		PANEL_WIDTH = scaled(PANEL_WIDTH);
+		PANEL_HEIGHT = scaled(PANEL_HEIGHT);
+		WINDOW_RIGHT_GAP = scaled(WINDOW_RIGHT_GAP);
+		SLOT_WIDTH = scaled(SLOT_WIDTH);
+		SLOT_HEIGHT = scaled(SLOT_HEIGHT);
+		SLOT_GAP_X = scaled(SLOT_GAP_X);
+		SLOT_GAP_Y = scaled(SLOT_GAP_Y);
+		SLOT_START_X = scaled(SLOT_START_X);
+		SLOT_START_Y = scaled(SLOT_START_Y);
+		SLOT_RADIUS = scaled(SLOT_RADIUS);
+		THUMB_INSET_X = scaled(THUMB_INSET_X);
+		THUMB_INSET_Y = scaled(THUMB_INSET_Y);
+		THUMB_WIDTH = scaled(THUMB_WIDTH);
+		THUMB_HEIGHT = scaled(THUMB_HEIGHT);
+		THUMB_RADIUS = scaled(THUMB_RADIUS);
+
 		absolute = 1004;
 		type = ltAlpha;
-		// 图层范围只包含真正可见的面板，不再用透明尾部占位，
-		// 避免透明区域仍拦截第一排按钮的鼠标事件。
-		setImageSize(PANEL_WIDTH, PANEL_HEIGHT);
+		hasImage = false;
 		setSize(PANEL_WIDTH, PANEL_HEIGHT);
-		fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 0);
+
+		_panel = new global.Layer(win, this);
+		with(_panel){
+			.setImageSize(PANEL_WIDTH, PANEL_HEIGHT);
+			.setSize(PANEL_WIDTH, PANEL_HEIGHT);
+			.type = ltAlpha;
+			.fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 0);
+			.setPos(0, 0);
+			.absolute = 0;
+			.hitThreshold = 256;
+			.visible = true;
+		}
 		paintPanel();
 
 		createNavigation(win);
 		createSlots(win);
+		syncBackgroundOpacity();
 		refresh();
 	}
 	function finalize(){
 		InvalidateArray(_btn);
 		InvalidateArray(_nav);
 		invalidate _pageLabel;
+		invalidate _panel;
 		super.finalize();
 	}
 
@@ -2971,8 +3362,9 @@ class LoadShortcutMenu extends SubMenu{
 		}
 	}
 
-	function paintSavePanelGradient(){
-		var radius = 12;
+	function paintPanelGradient(){
+		// 与 150% 的文本设置浮窗一致：10px 基准圆角缩放为 15px。
+		var radius = scaled(10);
 		var denominator = PANEL_HEIGHT - 1;
 		var startAlpha = (PANEL_COLOR >> 24) & 0xff;
 		var startRed = (PANEL_COLOR >> 16) & 0xff;
@@ -2999,112 +3391,145 @@ class LoadShortcutMenu extends SubMenu{
 				blue;
 
 			var boundary = 0;
-			var leftInset = 0;
 			if(row < radius){
 				var dy = radius - row - 0.5;
 				boundary =
 					radius - Math.sqrt(radius * radius - dy * dy);
-				leftInset = int(boundary + 0.999);
+			}else if(row >= PANEL_HEIGHT - radius){
+				var edgeRow = PANEL_HEIGHT - 1 - row;
+				var dy = radius - edgeRow - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
 			}
 
-			fillRect(
-				leftInset, row,
-				PANEL_WIDTH - leftInset, 1,
+			var inset = int(boundary + 0.999);
+			var span = PANEL_WIDTH - inset * 2;
+			if(span > 0)
+				_panel.fillRect(
+				inset, row,
+				span, 1,
 				rowColor);
-			if(leftInset > 0){
-				var coverage = leftInset - boundary;
+			if(inset > 0){
+				var coverage = inset - boundary;
 				var edgeAlpha = int(alpha * coverage);
-				if(edgeAlpha > 0)
-					fillRect(
-						leftInset - 1, row,
-						1, 1,
+				if(edgeAlpha > 0){
+					var edgeColor =
 						(edgeAlpha << 24) |
-						(rowColor & 0x00ffffff));
+						(rowColor & 0x00ffffff);
+					_panel.fillRect(
+						inset - 1, row,
+						1, 1,
+						edgeColor);
+					_panel.fillRect(
+						PANEL_WIDTH - inset, row,
+						1, 1,
+						edgeColor);
+				}
 			}
 		}
 	}
 
 	function paintPanel(){
-		if(_saveMode){
-			// 存档面板无描边：上方紫色，向下过渡到原青蓝色。
-			paintSavePanelGradient();
-			return;
-		}
-		paintRounded(
-			this, 0, 0,
-			PANEL_WIDTH, PANEL_HEIGHT,
-			PANEL_COLOR, 12, 0x01);
+		_panel.fillRect(
+			0, 0, PANEL_WIDTH, PANEL_HEIGHT,
+			0x00000000);
+		paintPanelGradient();
 	}
 
 	function paintSlotFrame(layer, offsetX, hover){
-		var innerColor = hover ? SLOT_HOVER_INNER_COLOR : SLOT_COLOR;
+		var outerColor = hover ? SLOT_HOVER_INNER_COLOR : SLOT_COLOR;
 		layer.fillRect(offsetX, 0, SLOT_WIDTH, SLOT_HEIGHT, 0);
 		paintRounded(
 			layer, offsetX, 0,
 			SLOT_WIDTH, SLOT_HEIGHT,
-			innerColor, 8);
+			outerColor, SLOT_RADIUS);
+		paintRounded(
+			layer,
+			offsetX + THUMB_INSET_X, THUMB_INSET_Y,
+			THUMB_WIDTH, THUMB_HEIGHT,
+			outerColor, THUMB_RADIUS);
+	}
+
+	function createScaledTwoStateButton(win, storage, x, y){
+		var source = new global.Layer(win, this);
+		with(source){
+			.loadImages(storage);
+			.setSizeToImageSize();
+			.visible = false;
+		}
+		var sourceStateWidth = source.width \ 2;
+		var targetStateWidth = navScaled(sourceStateWidth);
+		var targetHeight = navScaled(source.height);
+		var buttonImage = new global.Layer(win, this);
+		with(buttonImage){
+			.setImageSize(targetStateWidth * 2, targetHeight);
+			.setSize(targetStateWidth * 2, targetHeight);
+			.type = ltAlpha;
+			.fillRect(0, 0, .width, .height, 0);
+			.stretchCopy(
+				0, 0, targetStateWidth, targetHeight,
+				source,
+				0, 0, sourceStateWidth, source.height,
+				stFastLinear);
+			.stretchCopy(
+				targetStateWidth, 0,
+				targetStateWidth, targetHeight,
+				source,
+				sourceStateWidth, 0,
+				sourceStateWidth, source.height,
+				stFastLinear);
+		}
+
+		var button = new Button(win, this);
+		with(button){
+			.create(buttonImage, 2);
+			.setPos(x, y);
+			.absolute = 2;
+			.visible = true;
+		}
+		invalidate source;
+		invalidate buttonImage;
+		return button;
 	}
 
 	function createNavigation(win){
-		var navX = [22, 72, 122, 520, 570, 620];
-		var navLabels = ["|◀", "◀◀", "◀", "▶", "▶▶", "▶|"];
-		var navWidth = 44;
-		var navHeight = 36;
-		for(var i=0;i<navLabels.count;i++){
-			var navImage = new global.Layer(win, this);
-			with(navImage){
-				.setImageSize(navWidth * 2, navHeight);
-				.setSize(navWidth * 2, navHeight);
-				.type = ltAlpha;
-				.fillRect(0, 0, .width, .height, 0);
-				.font.height = 24;
-			}
-			paintRounded(
-				navImage, 0, 0,
-				navWidth, navHeight,
-				NAV_BACKGROUND_COLOR, 10);
-			paintRounded(
-				navImage, navWidth, 0,
-				navWidth, navHeight,
-				NAV_HOVER_BACKGROUND_COLOR, 10);
-
-			with(navImage){
-				var textWidth = .font.getTextWidth(navLabels[i]);
-				var textX = (navWidth - textWidth) \ 2;
-				.drawText(
-					textX, 5, navLabels[i],
-					NAV_TEXT_COLOR,
-					255, true, 1024, NAV_TEXT_SHADOW_COLOR, 1);
-				.drawText(
-					navWidth + textX, 5, navLabels[i],
-					NAV_HOVER_TEXT_COLOR,
-					255, true, 1024, NAV_TEXT_SHADOW_COLOR, 1);
-			}
-			_nav[i] = new Button(win, this);
-			with(_nav[i]){
-				.create(navImage, 2);
-				.setPos(navX[i], 12);
-				.visible = true;
-			}
-			invalidate navImage;
+		var navFiles = [
+			"ui_1920/adv_menu/DHK-49.png",
+			"ui_1920/adv_menu/DHK-50.png",
+			"ui_1920/adv_menu/DHK-51.png",
+			"ui_1920/adv_menu/DHK-52.png",
+			"ui_1920/adv_menu/DHK-53.png",
+			"ui_1920/adv_menu/DHK-54.png"
+		];
+		var navX = [22, 50, 83, 258, 281, 313];
+		var navY = [19, 20, 19, 19, 20, 19];
+		for(var i=0;i<navFiles.count;i++){
+			_nav[i] = createScaledTwoStateButton(
+				win, navFiles[i],
+				scaled(navX[i]),
+				scaled(navY[i]));
 			addItem(_nav[i]);
 		}
 
 		_pageLabel = new global.Layer(win, this);
 		with(_pageLabel){
-			.setImageSize(124, 36);
-			.setSize(124, 36);
-			.setPos(281, 15);
+			.setImageSize(scaled(94), scaled(32));
+			.setSize(scaled(94), scaled(32));
+			.setPos(
+				scaled(133),
+				scaled(13));
 			.type = ltAlpha;
+			.absolute = 1;
 			.fillRect(0, 0, .width, .height, 0);
 			.font.face = GetShortcutMenuFontFace();
 			.font.bold = true;
-			.font.height = 21;
+			.font.height = scaled(16);
 			.hitThreshold = 256;
 			.visible = true;
 		}
+		invalidate navFiles;
 		invalidate navX;
-		invalidate navLabels;
+		invalidate navY;
 	}
 
 	function createSlots(win){
@@ -3128,17 +3553,19 @@ class LoadShortcutMenu extends SubMenu{
 				.setPos(
 					SLOT_START_X + column * (SLOT_WIDTH + SLOT_GAP_X),
 					SLOT_START_Y + row * (SLOT_HEIGHT + SLOT_GAP_Y));
+				.absolute = 2;
 				.visible = true;
 			}
 
 			_btn[i].thumb = new global.Layer(win, _btn[i].btn);
 			with(_btn[i].thumb){
-				.setImageSize(SLOT_WIDTH, SLOT_HEIGHT);
-				.setSize(SLOT_WIDTH, SLOT_HEIGHT);
-				.setPos(0, 0);
+				.setImageSize(THUMB_WIDTH, THUMB_HEIGHT);
+				.setSize(THUMB_WIDTH, THUMB_HEIGHT);
+				.setPos(THUMB_INSET_X, THUMB_INSET_Y);
 				.type = ltAlpha;
 				.fillRect(0, 0, .width, .height, 0);
-				.font.height = 20;
+				.font.face = GetShortcutMenuFontFace();
+				.font.height = scaled(13);
 				.hitThreshold = 256;
 				.visible = true;
 			}
@@ -3156,16 +3583,18 @@ class LoadShortcutMenu extends SubMenu{
 			paintRounded(
 				_btn[i].hover, 0, 0,
 				SLOT_WIDTH, SLOT_HEIGHT,
-				SLOT_HOVER_OVERLAY_COLOR, 8);
+				SLOT_HOVER_OVERLAY_COLOR, SLOT_RADIUS);
 
 			_btn[i].label = new global.Layer(win, _btn[i].btn);
 			with(_btn[i].label){
-				.setImageSize(50, 24);
-				.setSize(50, 24);
-				.setPos(8, 7);
+				.setImageSize(scaled(46), scaled(13));
+				.setSize(scaled(46), scaled(13));
+				.setPos(scaled(17), scaled(1));
 				.type = ltAlpha;
 				.fillRect(0, 0, .width, .height, 0);
-				.font.height = 18;
+				.font.face = GetShortcutMenuFontFace();
+				.font.bold = true;
+				.font.height = scaled(9);
 				.hitThreshold = 256;
 				.visible = true;
 			}
@@ -3187,7 +3616,7 @@ class LoadShortcutMenu extends SubMenu{
 		paintRounded(
 			mask, 0, 0,
 			target.width, target.height,
-			0xffffffff, 8);
+			0xffffffff, THUMB_RADIUS);
 		var originalFace = target.face;
 		target.face = dfMask;
 		target.copyRect(
@@ -3218,9 +3647,20 @@ class LoadShortcutMenu extends SubMenu{
 
 	function show(target=null){
 		refresh();
+		syncBackgroundOpacity();
 		super.show(target);
 		// 用实际位置偏移留出通行区，通行区不属于浮窗图层。
-		if(target !== null) top -= HOVER_GAP_HEIGHT;
+		if(target !== null){
+			top -= HOVER_GAP_HEIGHT;
+			left -= WINDOW_RIGHT_GAP;
+			if(left < 0) left = 0;
+		}
+	}
+	function syncBackgroundOpacity(){
+		var depth = CONFIG.windowDepth;
+		if(depth < 0) depth = 0;
+		if(depth > 100) depth = 100;
+		_panel.opacity = (255 * depth) \ 100;
 	}
 
 	function onMenuEnter(){
@@ -3252,12 +3692,11 @@ class LoadShortcutMenu extends SubMenu{
 		paintRounded(
 			_pageLabel, 0, 0,
 			_pageLabel.width, _pageLabel.height,
-			PAGE_BACKGROUND_COLOR, 18);
-
-		var text = "%02d / %02d".sprintf(_page + 1, pageCount());
+			PAGE_BACKGROUND_COLOR, scaled(10));
+		var text = "%04d".sprintf(_page + 1);
 		var x = (_pageLabel.width - _pageLabel.font.getTextWidth(text)) \ 2;
 		_pageLabel.drawText(
-			x, 7, text,
+			x, scaled(8), text,
 			PAGE_TEXT_COLOR,
 			255, true, 1024, PAGE_TEXT_SHADOW_COLOR, 1);
 	}
@@ -3332,23 +3771,23 @@ class LoadShortcutMenu extends SubMenu{
 			with(_btn[i].thumb){
 				.fillRect(0, 0, .width, .height, 0);
 			}
-			if(!valid && !_saveMode)
+			if(!valid)
 				paintRounded(
 					_btn[i].thumb, 0, 0,
 					_btn[i].thumb.width, _btn[i].thumb.height,
-					SLOT_EMPTY_DISABLED_COLOR, 8);
+					SLOT_EMPTY_DISABLED_COLOR, THUMB_RADIUS);
 			with(_btn[i].label){
 				.fillRect(0, 0, .width, .height, 0);
 			}
 			paintRounded(
 				_btn[i].label, 0, 0,
 				_btn[i].label.width, _btn[i].label.height,
-				LABEL_COLOR, 12);
+				LABEL_COLOR, scaled(6));
 			with(_btn[i].label){
 				var label = "%03d".sprintf(dataIndex + 1);
 				var labelX = (.width - .font.getTextWidth(label)) \ 2;
 				.drawText(
-					labelX, 3, label,
+					labelX, scaled(3), label,
 					actionable ?
 						ACCENT_COLOR : LABEL_DISABLED_TEXT_COLOR,
 					255, true, 1024,
@@ -3365,7 +3804,7 @@ class LoadShortcutMenu extends SubMenu{
 					var emptyText = _saveMode ? "空" : "—";
 					var emptyX = (.width - .font.getTextWidth(emptyText)) \ 2;
 					.drawText(
-						emptyX, 30, emptyText,
+						emptyX, scaled(12), emptyText,
 						EMPTY_TEXT_COLOR,
 						255, true, 1024, EMPTY_TEXT_SHADOW_COLOR, 1);
 				}
@@ -3373,12 +3812,12 @@ class LoadShortcutMenu extends SubMenu{
 				paintRounded(
 					_btn[i].thumb, 0, 0,
 					_btn[i].thumb.width, _btn[i].thumb.height,
-					0x80311d28, 8);
+					0x80311d28, scaled(8));
 				with(_btn[i].thumb){
 					var lockText = "锁";
 					var lockX = (.width - .font.getTextWidth(lockText)) \ 2;
 					.drawText(
-						lockX, 22, lockText,
+						lockX, scaled(11), lockText,
 						0xf1c3d5, 255, true, 1024, 0x4b2638, 1);
 				}
 			}
@@ -3436,11 +3875,399 @@ class LoadShortcutMenu extends SubMenu{
 	function onButtonDownR(target){}
 }
 
+// 文本设置滑块：轨道、圆点和交互全部由代码绘制。
+class TextSettingsSlider extends SelectItemBase{
+	var _visual;
+	var _range = 100;
+	var _trim = 0;
+	var _trackWidth = 0;
+	var _trackX = 0;
+	var _knobSize = 0;
+	var _maxKnobSize = 0;
+	var _dragging = false;
+	var _hover = false;
+
+	function TextSettingsSlider(win, par){
+		super.SelectItemBase(win, par);
+		hasImage = false;
+		hitThreshold = 0;
+	}
+	function kind(){return "SliderH";}
+	function create(trackWidth, hitHeight, knobSize, range=100){
+		_trackWidth = trackWidth;
+		_knobSize = knobSize;
+		_maxKnobSize = knobSize + 4;
+		_trackX = _maxKnobSize \ 2;
+		_range = range;
+
+		// 右侧多留 2px，避免最大值 hover 时圆点阴影被画布裁切。
+		setSize(_trackWidth + _maxKnobSize + 2, hitHeight);
+		_width = width;
+		_height = height;
+		var visualWidth = width;
+		var visualHeight = height;
+
+		_visual = new global.Layer(window, this);
+		with(_visual){
+			.setImageSize(visualWidth, visualHeight);
+			.setSize(visualWidth, visualHeight);
+			.type = ltAlpha;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		redraw();
+		visible = true;
+	}
+	function finalize(){
+		invalidate _visual;
+		super.finalize();
+	}
+	function clampTrim(value){
+		if(value < 0) return 0;
+		if(value > _range) return _range;
+		return int(value);
+	}
+	function trimFromX(x){
+		if(_trackWidth <= 0) return 0;
+		return clampTrim(
+			((x - _trackX) * _range + (_trackWidth \ 2)) \
+				_trackWidth);
+	}
+	function knobCenterX(){
+		if(_range <= 0) return _trackX;
+		return _trackX + (_trackWidth * _trim) \ _range;
+	}
+	function redraw(){
+		if(!isvalid(_visual)) return;
+		_visual.fillRect(
+			0, 0, _visual.imageWidth, _visual.imageHeight,
+			0x00000000);
+
+		var centerY = height \ 2;
+		PaintMenuRoundedRect(
+			_visual,
+			_trackX + 1, centerY - 3,
+			_trackWidth, 9,
+			0x50204f5d, 5);
+		PaintMenuRoundedRect(
+			_visual,
+			_trackX, centerY - 4,
+			_trackWidth, 9,
+			0xfff4fbfc, 5);
+		PaintMenuRoundedRect(
+			_visual,
+			_trackX + 1, centerY - 3,
+			_trackWidth - 2, 7,
+			0xff5799ab, 4);
+
+		var knobSize = _hover ? _maxKnobSize : _knobSize;
+		var knobX = knobCenterX() - (knobSize \ 2);
+		var knobY = centerY - (knobSize \ 2);
+		PaintMenuRoundedRect(
+			_visual,
+			knobX + 2, knobY + 2,
+			knobSize, knobSize,
+			0x70204f5d, knobSize \ 2);
+		PaintMenuRoundedRect(
+			_visual,
+			knobX, knobY,
+			knobSize, knobSize,
+			0xffffffff, knobSize \ 2);
+		PaintMenuRoundedRect(
+			_visual,
+			knobX + 3, knobY + 3,
+			knobSize - 6, knobSize - 6,
+			_hover ? 0xff84cbd9 : 0xff5ba3b5,
+			(knobSize - 6) \ 2);
+	}
+	function onMouseDown(x, y, button, shift){
+		if(!valid) return;
+		if(button == mbLeft){
+			_dragging = true;
+			trim = trimFromX(x);
+			parent.onSliderMoveStart(this);
+			parent.onSliderMove(this);
+		}else if(button == mbRight &&
+			typeof parent.onButtonDownR != "undefined"){
+			parent.onButtonDownR(this);
+		}
+	}
+	function onMouseUp(x, y, button, shift){
+		if(button != mbLeft) return;
+		var wasDragging = _dragging;
+		_dragging = false;
+		if(valid && wasDragging) parent.onSliderMoveEnd(this);
+	}
+	function onMouseMove(x, y, shift){
+		if(!valid || !_dragging) return;
+		trim = trimFromX(x);
+		parent.onSliderMove(this);
+	}
+	function onMouseEnter(){
+		if(!valid) return;
+		super.onMouseEnter();
+		_hover = true;
+		redraw();
+		parent.onSliderEnter(this);
+		cursor = crSizeWE;
+	}
+	function onMouseLeave(){
+		if(!valid) return;
+		super.onMouseLeave();
+		_hover = false;
+		redraw();
+		parent.onSliderLeave(this);
+		cursor = crDefault;
+	}
+	function onValid(){redraw();}
+	function onInvalid(){redraw();}
+	property trim{
+		setter(v){_trim = clampTrim(v); redraw();}
+		getter(){return _trim;}
+	}
+	property range{
+		setter(v){_range = v; trim = _trim;}
+		getter(){return _range;}
+	}
+}
+
+// 文本设置单选项：圆形状态与 Xiaolai 标签均由代码绘制。
+class TextSettingsRadioButton extends SelectItemBase{
+	var _group;
+	var _visual;
+	var _label = "";
+	var _circleSize = 0;
+	var _fontSize = 0;
+	var _hover = false;
+
+	function TextSettingsRadioButton(win, par){
+		super.SelectItemBase(win, par);
+		hasImage = false;
+		hitThreshold = 0;
+	}
+	function kind(){return "RadioButton";}
+	function create(label, buttonWidth, buttonHeight, circleSize, fontSize){
+		_label = label;
+		_circleSize = circleSize;
+		_fontSize = fontSize;
+		setSize(buttonWidth, buttonHeight);
+
+		_visual = new global.Layer(window, this);
+		with(_visual){
+			.setImageSize(buttonWidth, buttonHeight);
+			.setSize(buttonWidth, buttonHeight);
+			.type = ltAlpha;
+			.hitThreshold = 256;
+			.visible = true;
+			.font.face = GetShortcutMenuFontFace();
+			.font.height = _fontSize;
+			.font.bold = true;
+		}
+		redraw();
+		visible = true;
+	}
+	function finalize(){
+		invalidate _visual;
+		super.finalize();
+	}
+	function redraw(){
+		if(!isvalid(_visual)) return;
+		_visual.fillRect(
+			0, 0, _visual.imageWidth, _visual.imageHeight,
+			0x00000000);
+
+		// Xiaolai 的可见字形略靠上，圆圈同步上移以对齐字面中心。
+		var circleY = (height - _circleSize) \ 2 - 2;
+		PaintMenuRoundedRect(
+			_visual,
+			2, circleY + 2,
+			_circleSize, _circleSize,
+			0x70204f5d, _circleSize \ 2);
+		PaintMenuRoundedRect(
+			_visual,
+			0, circleY,
+			_circleSize, _circleSize,
+			0xffffffff, _circleSize \ 2);
+		var innerSize = _circleSize - 6;
+		var selected = isOn();
+		var innerColor = selected ? 0xff58a7ba :
+			(_hover ? 0xffb9dce3 : 0xffaebbc0);
+		PaintMenuRoundedRect(
+			_visual,
+			3, circleY + 3,
+			innerSize, innerSize,
+			innerColor, innerSize \ 2);
+
+		_visual.drawText(
+			_circleSize + 9,
+			(height - _fontSize) \ 2 - 1,
+			_label,
+			0xfffafa,
+			255, true, 1024, 0x285b63, 2);
+	}
+	function isOn(){return valid == false;}
+	function onMouseDown(x, y, button, shift){
+		releaseCapture();
+		if(button == mbLeft && valid){
+			if(group !== void) group.on(this);
+			parent.onButtonDownL(this);
+		}else if(button == mbRight){
+			parent.onButtonDownR(this);
+		}
+	}
+	function onMouseEnter(){
+		super.onMouseEnter();
+		if(!valid) return;
+		_hover = true;
+		redraw();
+	}
+	function onMouseLeave(){
+		super.onMouseLeave();
+		if(!valid) return;
+		_hover = false;
+		redraw();
+	}
+	function onValid(){_hover = false; redraw();}
+	function onInvalid(){_hover = false; redraw();}
+	property group{
+		setter(v){_group = v;}
+		getter(){return _group;}
+	}
+}
+
 // 文本设置的菜单
 class TextSettingsMenu extends SubMenu{
 	var _adv;
 	var _btn = %[];
 	var _skipGroup;
+	var _panel;
+	var _labels;
+	var PANEL_SCALE = 150;
+	var BASE_PANEL_WIDTH = 431;
+	var BASE_PANEL_HEIGHT = 142;
+	var SHOW_ANIMATION_TIME = 150;
+	var SHOW_ANIMATION_OFFSET_Y = 12;
+	var _restX = 0;
+	var _restY = 0;
+	var _canAnimateHide = false;
+	var _hiding = false;
+
+	function scaled(v){
+		return (v * PANEL_SCALE) \ 100;
+	}
+	function paintGradientRoundedRect(
+		layer, x, y, paintWidth, paintHeight, radius){
+		// 取自 DHK-11.png 的主体像素：颜色逐渐变亮，
+		// Alpha 从顶部约 230 线性降至底部约 52。
+		var topR = 57, topG = 121, topB = 144;
+		var bottomR = 126, bottomG = 186, bottomB = 206;
+		var topAlpha = 230, bottomAlpha = 52;
+		for(var row=0;row<paintHeight;row++){
+			var ratio = paintHeight <= 1 ?
+				0 : (row * 1000) \ (paintHeight - 1);
+			var red = topR + ((bottomR - topR) * ratio) \ 1000;
+			var green = topG + ((bottomG - topG) * ratio) \ 1000;
+			var blue = topB + ((bottomB - topB) * ratio) \ 1000;
+			var alpha =
+				topAlpha +
+				((bottomAlpha - topAlpha) * ratio) \ 1000;
+			// 参考图首尾像素行保留了纵向抗锯齿覆盖率。
+			if(row == 0) alpha = (alpha * 3) \ 4;
+			else if(row == paintHeight - 1) alpha \= 2;
+			var color =
+				(alpha << 24) |
+				(red << 16) |
+				(green << 8) |
+				blue;
+
+			var boundary = 0;
+			if(row < radius){
+				var dy = radius - row - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+			}else if(row >= paintHeight - radius){
+				var edgeRow = paintHeight - 1 - row;
+				var dy = radius - edgeRow - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+			}
+			var inset = int(boundary + 0.999);
+			var span = paintWidth - inset * 2;
+			if(span > 0)
+				layer.fillRect(x + inset, y + row, span, 1, color);
+			if(inset > 0){
+				var coverage = inset - boundary;
+				var edgeAlpha = int(alpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor =
+						(edgeAlpha << 24) |
+						(red << 16) |
+						(green << 8) |
+						blue;
+					layer.fillRect(
+						x + inset - 1, y + row,
+						1, 1, edgeColor);
+					layer.fillRect(
+						x + paintWidth - inset, y + row,
+						1, 1, edgeColor);
+				}
+			}
+		}
+	}
+	function drawPanel(){
+		_panel.fillRect(
+			0, 0, _panel.imageWidth, _panel.imageHeight,
+			0x00000000);
+		paintGradientRoundedRect(
+			_panel, 0, 0, width, height,
+			scaled(10));
+	}
+	function drawLabels(){
+		_labels.fillRect(
+			0, 0, _labels.imageWidth, _labels.imageHeight,
+			0x00000000);
+		var titleY = [
+			scaled(11), scaled(44), scaled(77), scaled(110)
+		];
+		var titles = [
+			"文本显示速度",
+			"自动模式速度",
+			"对话框透明度",
+			"快进文本内容"
+		];
+		with(_labels.font){
+			.face = GetShortcutMenuFontFace();
+			.height = scaled(17);
+			.bold = true;
+		}
+		for(var i=0;i<titles.count;i++){
+			_labels.drawText(
+				scaled(16), titleY[i],
+				titles[i],
+				0xfffafa,
+				255, true, 1024, 0x285b63, 2);
+		}
+
+		with(_labels.font){
+			.height = scaled(11);
+			.bold = true;
+		}
+		var minMaxY = [
+			scaled(14), scaled(48), scaled(82)
+		];
+		for(var i=0;i<3;i++){
+			_labels.drawText(
+				scaled(134), minMaxY[i],
+				"MIN",
+				0xfffafa,
+				255, true, 1024, 0x285b63, 1);
+			_labels.drawText(
+				scaled(379), minMaxY[i],
+				"MAX",
+				0xfffafa,
+				255, true, 1024, 0x285b63, 1);
+		}
+	}
 
 	function TextSettingsMenu(win, par, o=null, adv=null){
 		SubMenu(...);
@@ -3448,44 +4275,80 @@ class TextSettingsMenu extends SubMenu{
 		_adv = adv;
 		join = JOIN_TOP;
 
-		// ui贴图
-		loadImages("ui_1920/adv_menu/DHK-11.png");
-		setSizeToImageSize();
+		hasImage = false;
+		setSize(scaled(BASE_PANEL_WIDTH), scaled(BASE_PANEL_HEIGHT));
 		absolute = 250;
+		var panelWidth = width;
+		var panelHeight = height;
 
-		var sliderW = 220;
-		var trimImg = "ui_1920/adv_menu/DHK-44.png";
-		var radioImg = "ui_1920/adv_menu/DHK-45.png";
+		_panel = new global.Layer(window, this);
+		with(_panel){
+			.setImageSize(panelWidth, panelHeight);
+			.setSize(panelWidth, panelHeight);
+			.type = ltAlpha;
+			.absolute = 0;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		_labels = new global.Layer(window, this);
+		with(_labels){
+			.setImageSize(panelWidth, panelHeight);
+			.setSize(panelWidth, panelHeight);
+			.type = ltAlpha;
+			.absolute = 1;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		drawPanel();
+		drawLabels();
 
-// 这里是写死的，最好不要瞎改
-		_btn.MessageSpeed = new SliderH(window, this);
+		// 两端为圆点额外留白，避免最小/最大值时压住 MIN/MAX。
+		var trackWidth = scaled(199);
+		var hitHeight = scaled(24);
+		var knobSize = scaled(14);
+		var sliderX = scaled(168) - ((knobSize + 4) \ 2);
+		var sliderCenterY = [
+			scaled(21), scaled(55), scaled(89)
+		];
+
+		_btn.MessageSpeed = new TextSettingsSlider(window, this);
 		with(_btn.MessageSpeed){
-			.create(trimImg, sliderW, 14, 1, 100);
-			.setPos(160, 15);
+			.create(trackWidth, hitHeight, knobSize, 100);
+			.setPos(sliderX, sliderCenterY[0] - (hitHeight \ 2));
+			.absolute = 2;
 		}
-		_btn.AutoMessageSpeed = new SliderH(window, this);
+		_btn.AutoMessageSpeed = new TextSettingsSlider(window, this);
 		with(_btn.AutoMessageSpeed){
-			.create(trimImg, sliderW, 14, 1, 100);
-			.setPos(160, 49);
+			.create(trackWidth, hitHeight, knobSize, 100);
+			.setPos(sliderX, sliderCenterY[1] - (hitHeight \ 2));
+			.absolute = 2;
 		}
-		_btn.WindowDepth = new SliderH(window, this);
+		_btn.WindowDepth = new TextSettingsSlider(window, this);
 		with(_btn.WindowDepth){
-			.create(trimImg, sliderW, 14, 1, 100);
-			.setPos(160, 83);
+			.create(trackWidth, hitHeight, knobSize, 100);
+			.setPos(sliderX, sliderCenterY[2] - (hitHeight \ 2));
+			.absolute = 2;
 		}
 
 		_skipGroup = new RadioButtonGroup();
-		_btn.SkipRead = new RadioOnBaseButton(window, this);
+		_btn.SkipRead = new TextSettingsRadioButton(window, this);
 		with(_btn.SkipRead){
-			.create(radioImg, 1, 2, 5, 115, 24);
-			.setPos(137, 110);
+			.create(
+				"快进已读内容",
+				scaled(135), scaled(24),
+				scaled(14), scaled(13));
+			.setPos(scaled(137), scaled(110));
+			.absolute = 2;
 		}
 		_skipGroup.add(_btn.SkipRead);
-		_btn.SkipAll = new RadioOnBaseButton(window, this);
+		_btn.SkipAll = new TextSettingsRadioButton(window, this);
 		with(_btn.SkipAll){
-			.create(radioImg, 1, 2, 5, 115, 24);
-			.setPos(283
-			, 110);
+			.create(
+				"快进全部内容",
+				scaled(135), scaled(24),
+				scaled(14), scaled(13));
+			.setPos(scaled(283), scaled(110));
+			.absolute = 2;
 		}
 		_skipGroup.add(_btn.SkipAll);
 
@@ -3498,11 +4361,83 @@ class TextSettingsMenu extends SubMenu{
 		if(CONFIG.readSkip)	_skipGroup.on(_btn.SkipRead);
 		else				_skipGroup.on(_btn.SkipAll);
 		updateSkipVisual();
+		syncBackgroundOpacity();
 
 		hide();
 	}
+	function show(target=null){
+		// 清掉旧动画回调，避免快速重复操作时触发上一次的隐藏结束逻辑。
+		if(isActivation()){
+			setTransitionCompleteCall();
+			stopActivation();
+		}
+		_hiding = false;
+		opacity = 0;
+		super.show(target);
+		if(target === null){
+			opacity = 255;
+			_canAnimateHide = true;
+			return;
+		}
+
+		// 默认 JOIN_TOP 会以图标中心对齐；文字设置面板改为左边缘对齐。
+		var alignedX = target.left;
+		if(alignedX + width > parent.width)
+			alignedX = parent.width - width;
+		if(alignedX < 0) alignedX = 0;
+		var finalY = top;
+		setPos(alignedX, finalY);
+		_restX = alignedX;
+		_restY = finalY;
+		_canAnimateHide = true;
+
+		// 从下方向上短距离滑入，并由全透明恢复到正常整体不透明度。
+		setTransitionCompleteCall();
+		setMovingEnvelope(
+			alignedX, finalY + SHOW_ANIMATION_OFFSET_Y,
+			alignedX, finalY, 2);
+		setBlendingEnvelope(255);
+		beginActivation(SHOW_ANIMATION_TIME);
+	}
+	function hide(){
+		if(!visible || !_canAnimateHide){
+			if(isActivation()){
+				setTransitionCompleteCall();
+				stopActivation();
+			}
+			_hiding = false;
+			_canAnimateHide = false;
+			opacity = 255;
+			super.hide();
+			return;
+		}
+		if(_hiding) return;
+
+		// 入场尚未结束时从当前状态平滑反向，不先跳到终点。
+		if(isActivation()){
+			setTransitionCompleteCall();
+			stopActivation();
+		}
+		_hiding = true;
+		setTransitionCompleteCall(onHideAnimationEnd);
+		setMovingEnvelope(
+			left, top,
+			_restX, _restY + SHOW_ANIMATION_OFFSET_Y, 2);
+		setBlendingEnvelope(0);
+		beginActivation(SHOW_ANIMATION_TIME);
+	}
+	function onHideAnimationEnd(){
+		setTransitionCompleteCall();
+		_hiding = false;
+		_canAnimateHide = false;
+		super.hide();
+		opacity = 255;
+		setPos(_restX, _restY);
+	}
 	function finalize(){
 		invalidate _skipGroup;
+		invalidate _panel;
+		invalidate _labels;
 		super.finalize();
 	}
 
@@ -3518,33 +4453,368 @@ class TextSettingsMenu extends SubMenu{
 	function onSliderMoveEnd(target){applyToSystem();}
 
 	function loadFromConfig(){
-		_btn.MessageSpeed.trim = _btn.MessageSpeed.range - CONFIG.messageSpeed;
-		_btn.AutoMessageSpeed.trim = (_btn.AutoMessageSpeed.range*100 - CONFIG.autoSpeed) \ 100;
+		_btn.MessageSpeed.trim =
+			_btn.MessageSpeed.range - CONFIG.messageSpeed;
+		_btn.AutoMessageSpeed.trim =
+			(_btn.AutoMessageSpeed.range * 100 -
+				CONFIG.autoSpeed) \ 100;
 		_btn.WindowDepth.trim = CONFIG.windowDepth;
 		if(CONFIG.readSkip)	_skipGroup.on(_btn.SkipRead);
 		else				_skipGroup.on(_btn.SkipAll);
 		updateSkipVisual();
+		syncBackgroundOpacity();
 	}
 
 	function applyToSystem(){
-		CONFIG.messageSpeed = _btn.MessageSpeed.range - _btn.MessageSpeed.trim;
-		CONFIG.autoSpeed = (_btn.AutoMessageSpeed.range - _btn.AutoMessageSpeed.trim) * 100;
+		CONFIG.messageSpeed =
+			_btn.MessageSpeed.range - _btn.MessageSpeed.trim;
+		CONFIG.autoSpeed =
+			(_btn.AutoMessageSpeed.range -
+				_btn.AutoMessageSpeed.trim) * 100;
 		CONFIG.windowDepth = _btn.WindowDepth.trim;
 		CONFIG.readSkip = _btn.SkipRead.isOn() ? 1 : 0;
+		syncBackgroundOpacity();
 
 		if(_adv){
 			_adv._msg._maMess.outputSpeed = CONFIG.messageSpeed;
-			_adv._msg.windowDepth((255 * CONFIG.windowDepth) \ 100);
+			_adv._msg.windowDepth(
+				(255 * CONFIG.windowDepth) \ 100);
 			if(_adv.isAuto() && _adv._autoTimer.enabled)
-				_adv._autoTimer.interval = CONFIG.autoSpeed + 1;
+				_adv._autoTimer.interval =
+					CONFIG.autoSpeed + 1;
 		}
 	}
 
+	function syncBackgroundOpacity(){
+		if(!isvalid(_panel)) return;
+		var depth = CONFIG.windowDepth;
+		if(depth < 0) depth = 0;
+		if(depth > 100) depth = 100;
+		_panel.opacity = (255 * depth) \ 100;
+	}
+
 	function updateSkipVisual(){
-		_btn.SkipRead._check.visible = _btn.SkipRead.isOn();
-		_btn.SkipAll._check.visible = _btn.SkipAll.isOn();
+		_btn.SkipRead.redraw();
+		_btn.SkipAll.redraw();
 	}
 }
+
+// 对话框音量设置：参考 DHK-12，使用与文本设置相同的代码绘制风格。
+class VolumeSettingsMenu extends SubMenu{
+	var _adv;
+	var _btn = %[];
+	var _panel;
+	var _labels;
+	var PANEL_SCALE = 150;
+	var BASE_PANEL_WIDTH = 431;
+	var BASE_PANEL_HEIGHT = 177;
+	var SHOW_ANIMATION_TIME = 150;
+	var SHOW_ANIMATION_OFFSET_Y = 12;
+	var _restX = 0;
+	var _restY = 0;
+	var _canAnimateHide = false;
+	var _hiding = false;
+
+	function scaled(v){
+		return (v * PANEL_SCALE) \ 100;
+	}
+	function paintGradientRoundedRect(
+		layer, x, y, paintWidth, paintHeight, radius){
+		// 与文本设置弹窗共用 DHK-11 测得的渐变和透明度。
+		var topR = 57, topG = 121, topB = 144;
+		var bottomR = 126, bottomG = 186, bottomB = 206;
+		var topAlpha = 230, bottomAlpha = 52;
+		for(var row=0;row<paintHeight;row++){
+			var ratio = paintHeight <= 1 ?
+				0 : (row * 1000) \ (paintHeight - 1);
+			var red = topR + ((bottomR - topR) * ratio) \ 1000;
+			var green = topG + ((bottomG - topG) * ratio) \ 1000;
+			var blue = topB + ((bottomB - topB) * ratio) \ 1000;
+			var alpha =
+				topAlpha +
+				((bottomAlpha - topAlpha) * ratio) \ 1000;
+			if(row == 0) alpha = (alpha * 3) \ 4;
+			else if(row == paintHeight - 1) alpha \= 2;
+			var color =
+				(alpha << 24) |
+				(red << 16) |
+				(green << 8) |
+				blue;
+
+			var boundary = 0;
+			if(row < radius){
+				var dy = radius - row - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+			}else if(row >= paintHeight - radius){
+				var edgeRow = paintHeight - 1 - row;
+				var dy = radius - edgeRow - 0.5;
+				boundary =
+					radius - Math.sqrt(radius * radius - dy * dy);
+			}
+			var inset = int(boundary + 0.999);
+			var span = paintWidth - inset * 2;
+			if(span > 0)
+				layer.fillRect(x + inset, y + row, span, 1, color);
+			if(inset > 0){
+				var coverage = inset - boundary;
+				var edgeAlpha = int(alpha * coverage);
+				if(edgeAlpha > 0){
+					var edgeColor =
+						(edgeAlpha << 24) |
+						(red << 16) |
+						(green << 8) |
+						blue;
+					layer.fillRect(
+						x + inset - 1, y + row,
+						1, 1, edgeColor);
+					layer.fillRect(
+						x + paintWidth - inset, y + row,
+						1, 1, edgeColor);
+				}
+			}
+		}
+	}
+	function drawPanel(){
+		_panel.fillRect(
+			0, 0, _panel.imageWidth, _panel.imageHeight,
+			0x00000000);
+		paintGradientRoundedRect(
+			_panel, 0, 0, width, height,
+			scaled(10));
+	}
+	function drawLabels(){
+		_labels.fillRect(
+			0, 0, _labels.imageWidth, _labels.imageHeight,
+			0x00000000);
+		var titleY = [
+			scaled(11), scaled(44), scaled(77),
+			scaled(110), scaled(143)
+		];
+		var titles = [
+			"主音量", "背景乐", "语音", "音效", "环境音"
+		];
+		with(_labels.font){
+			.face = GetShortcutMenuFontFace();
+			.height = scaled(17);
+			.bold = true;
+		}
+		for(var i=0;i<titles.count;i++){
+			_labels.drawText(
+				scaled(16), titleY[i],
+				titles[i],
+				0xfffafa,
+				255, true, 1024, 0x285b63, 2);
+		}
+
+		with(_labels.font){
+			.height = scaled(11);
+			.bold = true;
+		}
+		var minMaxY = [
+			scaled(14), scaled(47), scaled(80),
+			scaled(113), scaled(146)
+		];
+		for(var i=0;i<5;i++){
+			_labels.drawText(
+				scaled(100), minMaxY[i],
+				"MIN",
+				0xfffafa,
+				255, true, 1024, 0x285b63, 1);
+			_labels.drawText(
+				scaled(385), minMaxY[i],
+				"MAX",
+				0xfffafa,
+				255, true, 1024, 0x285b63, 1);
+		}
+	}
+
+	function createSlider(name, centerY){
+		var trackWidth = scaled(240);
+		var hitHeight = scaled(24);
+		var knobSize = scaled(14);
+		var sliderX =
+			scaled(130) - ((knobSize + 4) \ 2);
+		_btn[name] = new TextSettingsSlider(window, this);
+		with(_btn[name]){
+			.create(trackWidth, hitHeight, knobSize, 100);
+			.setPos(
+				sliderX,
+				scaled(centerY) - (hitHeight \ 2));
+			.absolute = 2;
+		}
+		addItem(_btn[name]);
+	}
+
+	function VolumeSettingsMenu(win, par, o=null, adv=null){
+		SubMenu(...);
+		_name = "VolumeSettingsMenu";
+		_adv = adv;
+		join = JOIN_TOP;
+
+		hasImage = false;
+		setSize(scaled(BASE_PANEL_WIDTH), scaled(BASE_PANEL_HEIGHT));
+		absolute = 250;
+		var panelWidth = width;
+		var panelHeight = height;
+
+		_panel = new global.Layer(window, this);
+		with(_panel){
+			.setImageSize(panelWidth, panelHeight);
+			.setSize(panelWidth, panelHeight);
+			.type = ltAlpha;
+			.absolute = 0;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		_labels = new global.Layer(window, this);
+		with(_labels){
+			.setImageSize(panelWidth, panelHeight);
+			.setSize(panelWidth, panelHeight);
+			.type = ltAlpha;
+			.absolute = 1;
+			.hitThreshold = 256;
+			.visible = true;
+		}
+		drawPanel();
+		drawLabels();
+
+		createSlider("Master", 21);
+		createSlider("Bgm", 54);
+		createSlider("Voice", 87);
+		createSlider("Se", 120);
+		createSlider("EnvSe", 153);
+
+		loadFromConfig();
+		hide();
+	}
+	function show(target=null){
+		if(isActivation()){
+			setTransitionCompleteCall();
+			stopActivation();
+		}
+		_hiding = false;
+		opacity = 0;
+		super.show(target);
+		if(target === null){
+			opacity = 255;
+			_canAnimateHide = true;
+			return;
+		}
+
+		// 与文本设置弹窗一致：左边缘对齐按钮并向上淡入。
+		var alignedX = target.left;
+		if(alignedX + width > parent.width)
+			alignedX = parent.width - width;
+		if(alignedX < 0) alignedX = 0;
+		var finalY = top;
+		setPos(alignedX, finalY);
+		_restX = alignedX;
+		_restY = finalY;
+		_canAnimateHide = true;
+
+		setTransitionCompleteCall();
+		setMovingEnvelope(
+			alignedX, finalY + SHOW_ANIMATION_OFFSET_Y,
+			alignedX, finalY, 2);
+		setBlendingEnvelope(255);
+		beginActivation(SHOW_ANIMATION_TIME);
+	}
+	function hide(){
+		if(!visible || !_canAnimateHide){
+			if(isActivation()){
+				setTransitionCompleteCall();
+				stopActivation();
+			}
+			_hiding = false;
+			_canAnimateHide = false;
+			opacity = 255;
+			super.hide();
+			return;
+		}
+		if(_hiding) return;
+
+		if(isActivation()){
+			setTransitionCompleteCall();
+			stopActivation();
+		}
+		_hiding = true;
+		setTransitionCompleteCall(onHideAnimationEnd);
+		setMovingEnvelope(
+			left, top,
+			_restX, _restY + SHOW_ANIMATION_OFFSET_Y, 2);
+		setBlendingEnvelope(0);
+		beginActivation(SHOW_ANIMATION_TIME);
+	}
+	function onHideAnimationEnd(){
+		setTransitionCompleteCall();
+		_hiding = false;
+		_canAnimateHide = false;
+		super.hide();
+		opacity = 255;
+		setPos(_restX, _restY);
+	}
+	function finalize(){
+		invalidate _panel;
+		invalidate _labels;
+		super.finalize();
+	}
+
+	function onButtonDownL(target){}
+	function onButtonDownR(target){}
+	function onSliderEnter(target){}
+	function onSliderLeave(target){}
+	function onSliderMove(target){applyToSystem();}
+	function onSliderMoveStart(target){}
+	function onSliderMoveEnd(target){
+		applyToSystem();
+		SaveSystemRegister();
+	}
+
+	function loadFromConfig(){
+		_btn.Master.trim = int(100 * CONFIG.volMaster);
+		_btn.Bgm.trim = int(100 * CONFIG.volBgm);
+		_btn.Voice.trim = int(100 * CONFIG.volVoice);
+		_btn.Se.trim = int(100 * CONFIG.volSe);
+		_btn.EnvSe.trim = int(100 * CONFIG.volEnvSe);
+		syncBackgroundOpacity();
+	}
+	function applyMasterVolume(manager){
+		if(manager === null) return;
+		var list = manager.idList(false);
+		for(var i=0;i<list.count;i++){
+			var obj = manager.objectOfId(list[i].id);
+			if(obj != -1)
+				obj.volume2 = 100000 * CONFIG.volMaster;
+		}
+	}
+	function applyToSystem(){
+		CONFIG.volMaster = _btn.Master.trim / 100.0;
+		CONFIG.volBgm = _btn.Bgm.trim / 100.0;
+		CONFIG.volVoice = _btn.Voice.trim / 100.0;
+		CONFIG.volSe = _btn.Se.trim / 100.0;
+		CONFIG.volEnvSe = _btn.EnvSe.trim / 100.0;
+
+		if(BGM !== null) BGM.volume = CONFIG.volBgm;
+		if(VOICE !== null) VOICE.volume = CONFIG.volVoice;
+		if(SE !== null) SE.volume = CONFIG.volSe;
+		if(ENVSE !== null) ENVSE.volume = CONFIG.volEnvSe;
+
+		applyMasterVolume(BGM);
+		applyMasterVolume(SE);
+		applyMasterVolume(ENVSE);
+		applyMasterVolume(VOICE);
+		applyMasterVolume(BGV);
+	}
+	function syncBackgroundOpacity(){
+		if(!isvalid(_panel)) return;
+		var depth = CONFIG.windowDepth;
+		if(depth < 0) depth = 0;
+		if(depth > 100) depth = 100;
+		_panel.opacity = (255 * depth) \ 100;
+	}
+}
+
 class ConfigSubMenu extends SubMenu{
 	var _adv;
 	var _btn = %[];
