@@ -4,14 +4,14 @@
 
 // ADV / backlog 文本全局样式。
 // 预渲染字体只有 12/24/30/36/48 档；50px 正文使用 48px 字形和
-// 50px 行高，40px backlog 使用 36px 字形和 40px 行高。
+// 60px 行高，40px backlog 使用 36px 字形和 48px 行高。
 var ADV_TEXT_STYLE = %[
 	messageFontSize:50,
 	messagePrerenderedSize:48,
 	messageLineHeight:60,
 	backlogFontSize:40,
 	backlogPrerenderedSize:36,
-	backlogLineHeight:40,
+	backlogLineHeight:48,
 	unreadColor:0xFFFFFF,
 	readColor:0xB8DDE7,
 	shadowColor:0x165768,

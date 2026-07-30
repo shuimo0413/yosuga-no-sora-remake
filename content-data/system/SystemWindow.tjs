@@ -2033,6 +2033,7 @@ class HistoryWindow extends SettingWindowBase{
 	var _btnTitle;
 
 	var _imgVoice;
+	var _imgFavoriteVoice;
 	var _imgJump;
 
 	var _hintJump;
@@ -2084,6 +2085,13 @@ class HistoryWindow extends SettingWindowBase{
 		}
 		ScaleHistoryUILayerImage(_imgVoice);
 		_imgVoice.visible = false;
+		_imgFavoriteVoice = new global.Layer(win, _menuRoot);
+		with(_imgFavoriteVoice){
+			.loadImages(HistoryUiFile("WBJL-14.png"));
+			.setSizeToImageSize();
+		}
+		ScaleHistoryUILayerImage(_imgFavoriteVoice);
+		_imgFavoriteVoice.visible = false;
 		_imgJump = new global.Layer(win, _menuRoot);
 		with(_imgJump){
 			.loadImages(HistoryUiFile("button_jump.png"));
@@ -2092,6 +2100,7 @@ class HistoryWindow extends SettingWindowBase{
 		ScaleHistoryUILayerImage(_imgJump);
 		_imgJump.visible = false;
 		_menuRoot._imgVoice = _imgVoice;
+		_menuRoot._imgFavoriteVoice = _imgFavoriteVoice;
 		_menuRoot._imgJump = _imgJump;
 
 		for(var i=0;i<PAGE_MAX;i++) _log[i] = new Log(win, _menuRoot);
@@ -2191,6 +2200,7 @@ class HistoryWindow extends SettingWindowBase{
 		invalidate _btnTitle;
 
 		invalidate _imgVoice;
+		invalidate _imgFavoriteVoice;
 		invalidate _imgJump;
 		invalidate _hintJump;
 		invalidate _hintVoice;
@@ -2246,7 +2256,9 @@ class HistoryWindow extends SettingWindowBase{
 			}
 			var pan = logRef.pan;
 
-			var roleKey = rawName.split("/")[0];
+			var nameParts = rawName.split("/");
+			var roleKey = nameParts[0];
+			var displayName = nameParts.count > 1 ? nameParts[1] : roleKey;
 
 			var font = %[];
 			with(font){
@@ -2257,7 +2269,7 @@ class HistoryWindow extends SettingWindowBase{
 				.bkcolor = Log.FONT_BKCOLOR;
 			}
 			with(_log[i]){
-				.set(roleKey, mess, voice, pan, font, li, test);
+				.set(roleKey, displayName, mess, voice, pan, font, li, test);
 				if(i == 0)	.setPos(MARGIN_LEFT, MARGIN_BOTTOM - .height);
 				else		.setPos(MARGIN_LEFT, _log[i-1].top - .height);
 				.visible = true;
@@ -2425,6 +2437,16 @@ class HistoryWindow extends SettingWindowBase{
 		case _btnBar[1]: jumpToBottom(); break;
 		default :
 			for(var i=0;i<_log.count;i++){
+				if(_log[i].isFavoriteVoiceButton(target)){
+					if(AddFavoriteVoice(
+						_log[i].voice,
+						%[name:_log[i].favoriteName, text:_log[i].favoriteText, face:""]))
+						Information("已收藏语音", 1000);
+					else
+						Information("该语音已收藏", 1000);
+					break;
+				}
+
 				var index = _log[i].getVoiceButtonIndex(target);
 				if(index != -1){
 					var file = _log[i].getVoiceName(index);
@@ -2539,11 +2561,14 @@ class HistoryWindow extends SettingWindowBase{
 		var _slot;
 		var _ma;
 		var _btnVoice;
+		var _btnFavoriteVoice;
 		var _btnVoices = [];
 		var _btnJump;
 		var _voice;
 		var _pan;
 		var _logIndex = -1;
+		var _favoriteName = "";
+		var _favoriteText = "";
 		var _label;
 		var _imgName;
 		var _rectName = new Rect();
@@ -2595,6 +2620,12 @@ class HistoryWindow extends SettingWindowBase{
 				.absolute = 20;
 			}
 
+			_btnFavoriteVoice = new Button(win, this);
+			with(_btnFavoriteVoice){
+				.create(parent._imgFavoriteVoice, 2);
+				.absolute = 20;
+			}
+
 			_btnJump = new JumpButton(win, this);
 			with(_btnJump){
 				.create(parent._imgJump, 2);
@@ -2620,6 +2651,7 @@ class HistoryWindow extends SettingWindowBase{
 			invalidate _slot;
 			invalidate _ma;
 			invalidate _btnVoice;
+			invalidate _btnFavoriteVoice;
 			invalidate _btnJump;
 			invalidate _label;
 			invalidate _imgName;
@@ -2685,10 +2717,11 @@ class HistoryWindow extends SettingWindowBase{
 				_rectName.set(0, 0, 0, 0);
 		}
 
-		function set(roleKey, mess, v, p, font=null, li=0, test=false){
+		function set(roleKey, displayName, mess, v, p, font=null, li=0, test=false){
 			_voice = v;
 			_pan = p;
 			_logIndex = li;
+			_favoriteName = displayName;
 			_btnJump.logIndex = li;
 
 			for(var i=0;i<mess.length;i++){
@@ -2697,6 +2730,7 @@ class HistoryWindow extends SettingWindowBase{
 					break;
 				}
 			}
+			_favoriteText = mess;
 
 			_rectMess.assign(_ma.getUpdateRect(mess, font));
 
@@ -2706,14 +2740,26 @@ class HistoryWindow extends SettingWindowBase{
 			_ma.clear();
 			_ma.output(mess, true, font, , !test);
 
-			var btnY = ENTRY_HEIGHT \ 2 - _btnVoice.height \ 2;
+			var entryCenterY = ENTRY_HEIGHT \ 2;
+			var voiceY = entryCenterY - _btnVoice.height \ 2;
+			var favoriteY = entryCenterY - _btnFavoriteVoice.height \ 2;
+			var jumpY = entryCenterY - _btnJump.height \ 2;
+			var buttonGap = ScaleHistoryUIValue(12);
+			var voiceGap = ScaleHistoryUIValue(4);
 			var btnX = ENTRY_WIDTH - ScaleHistoryUIValue(120);
+			var favoriteX = btnX - buttonGap - _btnFavoriteVoice.width;
+			var jumpX = favoriteX - buttonGap - _btnJump.width;
 			if(v != ""){
-				_btnVoice.setPos(btnX, btnY);
+				_btnVoice.setPos(btnX, voiceY);
 				_btnVoice.visible = true;
-				btnX -= _btnVoice.width + ScaleHistoryUIValue(8);
+
+				_btnFavoriteVoice.setPos(
+					favoriteX,
+					favoriteY);
+				_btnFavoriteVoice.visible = true;
 			}else{
 				_btnVoice.visible = false;
+				_btnFavoriteVoice.visible = false;
 			}
 
 			InvalidateArray(_btnVoices);
@@ -2721,13 +2767,14 @@ class HistoryWindow extends SettingWindowBase{
 
 			var voices = v.split("/");
 			if(voices.count > 1){
+				var nextVoiceRight = jumpX - voiceGap;
 				for(var i=0;i<voices.count;i++){
 					_btnVoices[i] = new VoiceButton(window, this);
 					with(_btnVoices[i]){
 						.create(parent._imgVoice, 2);
 						.absolute = 20;
-						.base_x = btnX - i * (.width + ScaleHistoryUIValue(4));
-						.base_y = btnY;
+						.base_x = nextVoiceRight - .width;
+						.base_y = voiceY;
 						.setPos(.base_x, .base_y);
 
 						var obj = CHAR_DATA[VCID_TO_INDEX[voices[i].substring(0, 2)]];
@@ -2738,20 +2785,24 @@ class HistoryWindow extends SettingWindowBase{
 							.hintLabel = "その他";
 						}
 					}
+					nextVoiceRight = _btnVoices[i].base_x - voiceGap;
 				}
 			}
 
-			_btnJump.setPos(btnX - _btnJump.width - ScaleHistoryUIValue(8), btnY);
+			_btnJump.setPos(jumpX, jumpY);
 		}
 		function resetForReuse(){
 			_logIndex = -1;
 			_btnJump.logIndex = -1;
 			_voice = "";
 			_pan = "";
+			_favoriteName = "";
+			_favoriteText = "";
 			visible = false;
 			_label.visible = false;
 			_imgName.visible = false;
 			_btnVoice.visible = false;
+			_btnFavoriteVoice.visible = false;
 			_btnJump.valid = false;
 			_btnJump.visible = false;
 			opacity = 255;
@@ -2776,6 +2827,9 @@ class HistoryWindow extends SettingWindowBase{
 
 			return "";
 		}
+		function isFavoriteVoiceButton(target){
+			return target == _btnFavoriteVoice;
+		}
 
 		function onButtonEnter(target){
 			switch(target){
@@ -2784,6 +2838,8 @@ class HistoryWindow extends SettingWindowBase{
 				break;
 			case _btnVoice :
 				parent.onVoiceButtonEnter(target);
+				break;
+			case _btnFavoriteVoice :
 				break;
 			default : 
 				var i = 0;
@@ -2823,6 +2879,8 @@ class HistoryWindow extends SettingWindowBase{
 				break;
 			case _btnVoice :
 				parent.onVoiceButtonLeave(target);
+				break;
+			case _btnFavoriteVoice :
 				break;
 			default : 
 				parent.onVoiceButtonLeave(target);
@@ -2864,6 +2922,12 @@ class HistoryWindow extends SettingWindowBase{
 
 		property voice{
 			getter(){return _voice;}
+		}
+		property favoriteName{
+			getter(){return _favoriteName;}
+		}
+		property favoriteText{
+			getter(){return _favoriteText;}
 		}
 		property pan{
 			getter(){return _pan;}
