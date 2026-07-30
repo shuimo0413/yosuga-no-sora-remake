@@ -22,6 +22,7 @@ class ConfigWindowHD2 extends SettingWindowBase
     var _keyPopup;
     var _sampleSound;
     var _activeControl = null;
+    var _rightButtonDownHandled = false;
     var _frameBg;
 
     function ConfigWindowHD2(win, par, adv=null, fShowReturnMenu=0, fShowEnd=0)
@@ -680,12 +681,21 @@ class ConfigWindowHD2 extends SettingWindowBase
         // Handle global right-click navigation only from the Window notification.
         if(!windowNotify) return;
         if(button != mbRight) return;
+        // Some runtimes may dispatch more than one Window mouse-down notification
+        // for a single physical press. Do not let duplicates pop two UI levels.
+        if(_rightButtonDownHandled) return;
+        _rightButtonDownHandled = true;
         if(_keyPopup.visible)
         {
             closeKeyPopup();
             return;
         }
         closeToGame();
+    }
+
+    function onMouseUp(x, y, button, shift)
+    {
+        if(button == mbRight) _rightButtonDownHandled = false;
     }
 
     function onKeyDown(key, shift)
