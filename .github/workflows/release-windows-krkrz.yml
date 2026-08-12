@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-windows-krkrz-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -193,10 +193,11 @@ jobs:
           if ($assets.Count -eq 0) { throw 'No release assets were found' }
 
           $notes = @'
-          Windows KRKRZ package.
+          Yosuga no Sora: HD Remake release packages.
 
-          Download every `.7z.NNN` volume into the same directory, then open
-          `.7z.001` with 7-Zip. Verify the downloads with the SHA-256 file.
+          For each package, download every `.7z.NNN` volume into the same
+          directory, then open `.7z.001` with 7-Zip. Verify the downloads with
+          the matching SHA-256 file.
           '@
 
           $existingReleaseJson = & gh release view $env:RELEASE_TAG `
@@ -204,15 +205,12 @@ jobs:
           $releaseExists = $LASTEXITCODE -eq 0
           if ($releaseExists) {
             $existingRelease = $existingReleaseJson | ConvertFrom-Json
-            if (-not $existingRelease.isDraft) {
-              throw "Release $env:RELEASE_TAG already exists and is published"
-            }
           } else {
             $createArguments = @(
               'release', 'create', $env:RELEASE_TAG,
               '--repo', $env:GH_REPOSITORY,
               '--draft',
-              '--title', "$env:RELEASE_TAG - Windows KRKRZ",
+              '--title', $env:RELEASE_TAG,
               '--notes', $notes,
               '--generate-notes'
             )
@@ -239,5 +237,7 @@ jobs:
           & gh @uploadArguments
           if ($LASTEXITCODE -ne 0) { throw 'GitHub Release asset upload failed' }
 
-          & gh release edit $env:RELEASE_TAG --repo $env:GH_REPOSITORY --draft=false
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed' }
+          if (-not $releaseExists -or $existingRelease.isDraft) {
+            & gh release edit $env:RELEASE_TAG --repo $env:GH_REPOSITORY --draft=false
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed' }
+          }

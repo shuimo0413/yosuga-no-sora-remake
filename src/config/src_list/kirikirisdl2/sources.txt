@@ -473,6 +473,7 @@ src/core/sound/sdl2/OpenALWaveMixer.cpp
 src/core/sound/sdl2/WaveImpl.cpp
 src/core/utils/sdl2/ClipboardImpl.cpp
 src/core/visual/sdl2/BasicDrawDevice.cpp
+src/core/visual/sdl2/BlendFunctionNEON.cpp
 src/core/visual/sdl2/BitmapBitsAlloc.cpp
 src/core/visual/sdl2/BitmapInfomation.cpp
 src/core/visual/sdl2/GraphicsLoaderImpl.cpp

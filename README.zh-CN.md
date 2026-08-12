@@ -34,7 +34,7 @@ git lfs pull
 ## 当前状态
 
 SDL2 桌面端和 Android 工程均从 `data/` 读取游戏内容。Windows KRKRZ
-运行时已独立归档。正式打包和资源分包命令尚未加入。
+运行时已独立归档。目前已经支持自动打包 Windows KRKRZ 和 Android ARM64。
 
 ## 开发启动
 
@@ -76,5 +76,17 @@ macOS 使用 CMake 创建不包含素材副本的 SDL2 开发构建。第一次�
 GitHub 要求每个 Release 附件小于 2 GiB，因此游戏包会发布成分卷 7-Zip 压缩包。请把
 全部 `.7z.NNN` 文件下载到同一目录，然后使用 7-Zip 打开 `.7z.001`。Release 同时提供
 SHA-256 校验文件。
+
+## Android 发布
+
+Android 发布工作流会响应同一批 `v*` 标签，也可以手动启动。它只构建采用原生
+`-O3 -DNDEBUG`
+优化的 ARM64 Release APK，并把超过 GitHub 2 GiB 附件限制的 APK 切成分卷 7-Zip，追加到
+与 Windows 包相同的 GitHub Release。请下载全部 `.apk.7z.NNN` 文件，再打开 `.7z.001`
+解出 APK。
+
+如需稳定的正式签名，请配置 `ANDROID_KEYSTORE_BASE64`、
+`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD` 四个仓库
+Secrets。未配置时工作流会明确回退到 Android 开发签名，并在 `BUILD-INFO.txt` 中注明。
 
 Kirikiri SDL2 源码使用 MIT 许可证，详见 `LICENSE`。第三方组件适用各自目录中的许可证。

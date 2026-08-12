@@ -1,0 +1,340 @@
+name: Release Android SDL2
+
+'on':
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag, for example v0.1.0-test.1'
+        required: true
+        type: string
+      prerelease:
+        description: 'Publish as a prerelease'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build ARM64 release and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository, submodules, and LFS content
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          lfs: false
+
+      - name: Reclaim runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/lib/android/sdk/build-tools \
+            /usr/local/lib/android/sdk/cmake \
+            /usr/local/lib/android/sdk/ndk \
+            /usr/local/lib/android/sdk/platforms \
+            /usr/local/lib/android/sdk/system-images \
+            /usr/local/share/boost \
+            /usr/share/dotnet
+          sudo apt-get clean
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android-project/*.gradle
+            android-project/app/*.gradle
+            android-project/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK and NDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            'platform-tools' \
+            'platforms;android-37' \
+            'build-tools;36.0.0' \
+            'cmake;3.22.1' \
+            'ndk;28.2.13676358'
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y p7zip-full
+
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'push' ]]; then
+            release_tag="$REF_NAME"
+            if [[ "$release_tag" == *-* ]]; then
+              is_prerelease=true
+            else
+              is_prerelease=false
+            fi
+          else
+            release_tag="${INPUT_RELEASE_TAG//[[:space:]]/}"
+            is_prerelease="$INPUT_PRERELEASE"
+          fi
+
+          if [[ ! "$release_tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "Invalid release tag: $release_tag" >&2
+            exit 1
+          fi
+
+          version_name="${release_tag#v}"
+          version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
+          {
+            echo "tag=$release_tag"
+            echo "prerelease=$is_prerelease"
+            echo "version-name=$version_name"
+            echo "version-code=$version_code"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify Git LFS content
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs pull
+          git lfs fsck
+
+      - name: Generate and validate the content manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/generate_content_manifest.py \
+            --root data \
+            --output data/content-manifest.json \
+            --config content-packs.json \
+            --cache "$RUNNER_TEMP/content-manifest-cache.json" \
+            --full
+
+      - name: Configure release signing
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          signing_values=(
+            "$KEYSTORE_BASE64"
+            "$KEYSTORE_PASSWORD"
+            "$KEY_ALIAS"
+            "$KEY_PASSWORD"
+          )
+          configured=0
+          for value in "${signing_values[@]}"; do
+            [[ -n "$value" ]] && configured=$((configured + 1))
+          done
+
+          if [[ "$configured" -eq 0 ]]; then
+            echo 'No release signing secrets found; using the Android debug key.'
+            echo 'mode=development' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$configured" -ne 4 ]]; then
+            echo 'Android signing secrets are only partially configured.' >&2
+            exit 1
+          fi
+
+          keystore="$RUNNER_TEMP/yosuga-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$keystore"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          echo 'mode=release' >> "$GITHUB_OUTPUT"
+
+      - name: Build optimized ARM64 release APK
+        working-directory: android-project
+        shell: bash
+        env:
+          ORG_GRADLE_PROJECT_androidVersionName: ${{ steps.release.outputs.version-name }}
+          ORG_GRADLE_PROJECT_androidVersionCode: ${{ steps.release.outputs.version-code }}
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease -Parm64-v8a
+
+      - name: Verify and package multipart APK
+        id: package
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          source_apk='android-project/app/build/outputs/apk/release/krkrsdl2_arm64-v8a.apk'
+          if [[ ! -f "$source_apk" ]]; then
+            echo "Release APK is missing: $source_apk" >&2
+            exit 1
+          fi
+
+          package_name="Yosuga-no-Sora-HD-Remake-Android-arm64-$RELEASE_TAG.apk"
+          asset_dir="$RUNNER_TEMP/release-assets"
+          package_dir="$RUNNER_TEMP/android-package"
+          mkdir -p "$asset_dir" "$package_dir"
+          mv "$source_apk" "$package_dir/$package_name"
+
+          unzip -t "$package_dir/$package_name"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
+            --verbose --print-certs "$package_dir/$package_name"
+          package_info=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging \
+            "$package_dir/$package_name" | head -n 1)
+          [[ "$package_info" == *"versionCode='${{ steps.release.outputs.version-code }}'"* ]]
+          [[ "$package_info" == *"versionName='${{ steps.release.outputs.version-name }}'"* ]]
+          mapfile -t packaged_abis < <(unzip -Z1 "$package_dir/$package_name" | \
+            sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+          if [[ "${#packaged_abis[@]}" -ne 1 || "${packaged_abis[0]}" != 'arm64-v8a' ]]; then
+            printf 'Unexpected APK ABIs: %s\n' "${packaged_abis[*]}" >&2
+            exit 1
+          fi
+
+          # The APK is safely outside the build tree. Removing intermediates
+          # leaves enough room to split the 3+ GiB package on hosted runners.
+          rm -rf android-project/app/build android-project/app/.cxx build
+
+          archive="$asset_dir/$package_name.7z"
+          (
+            cd "$package_dir"
+            7z a -t7z -mx=0 -mmt=on -v1900m "$archive" "$package_name"
+          )
+
+          mapfile -t volumes < <(find "$asset_dir" -maxdepth 1 \
+            -type f -name "$package_name.7z.*" -print | sort)
+          if [[ "${#volumes[@]}" -eq 0 ]]; then
+            echo 'No multipart APK volumes were generated.' >&2
+            exit 1
+          fi
+          7z t "${volumes[0]}"
+
+          for volume in "${volumes[@]}"; do
+            size=$(stat --printf='%s' "$volume")
+            if ((size >= 2147483648)); then
+              echo "Release asset exceeds GitHub's 2 GiB limit: $volume" >&2
+              exit 1
+            fi
+          done
+
+          checksum_file="$asset_dir/$package_name-SHA256SUMS.txt"
+          (
+            cd "$asset_dir"
+            sha256sum "$(basename "$package_name.7z")".* > \
+              "$(basename "$checksum_file")"
+          )
+
+          cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
+          Yosuga no Sora: HD Remake
+          Runtime: Android Kirikiri SDL2 (ARM64)
+          Release: $RELEASE_TAG
+          Commit: $GITHUB_SHA
+          Signing: $SIGNING_MODE
+          Native optimization: RelWithDebInfo -O3, NDEBUG, ARM64 NEON with fallback
+          EOF
+
+          echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
+          ls -lh "$asset_dir"
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          ASSET_DIRECTORY: ${{ steps.package.outputs.asset-directory }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=("$ASSET_DIRECTORY"/*)
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo 'No release assets were found.' >&2
+            exit 1
+          fi
+
+          notes=$(cat <<EOF
+          Yosuga no Sora: HD Remake release packages.
+
+          For each package, download every \`.7z.NNN\` volume into the same
+          directory, then open \`.7z.001\` with 7-Zip. Verify the downloads
+          with the matching SHA-256 file.
+
+          Android signing mode: **$SIGNING_MODE**.
+          EOF
+          )
+
+          release_exists=false
+          release_is_draft=false
+          if release_json=$(gh release view "$RELEASE_TAG" \
+            --repo "$GH_REPOSITORY" --json isDraft 2>/dev/null); then
+            release_exists=true
+            release_is_draft=$(python3 -c \
+              'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' \
+              <<<"$release_json")
+          else
+            create_args=(
+              release create "$RELEASE_TAG"
+              --repo "$GH_REPOSITORY"
+              --draft
+              --title "$RELEASE_TAG"
+              --notes "$notes"
+              --generate-notes
+            )
+            if [[ "$EVENT_NAME" == 'push' ]]; then
+              create_args+=(--verify-tag)
+            else
+              create_args+=(--target "$COMMIT_SHA")
+            fi
+            if [[ "$IS_PRERELEASE" == 'true' ]]; then
+              create_args+=(--prerelease)
+            fi
+            gh "${create_args[@]}"
+          fi
+
+          gh release upload "$RELEASE_TAG" "${assets[@]}" \
+            --repo "$GH_REPOSITORY" --clobber
+
+          if [[ "$release_exists" == 'false' || "$release_is_draft" == 'true' ]]; then
+            gh release edit "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft=false
+          fi

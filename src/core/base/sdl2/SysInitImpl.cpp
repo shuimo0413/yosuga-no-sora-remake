@@ -1451,6 +1451,7 @@ void TVPBeforeSystemInit()
 static void TVPDumpOptions();
 //---------------------------------------------------------------------------
 extern void TVPGL_SSE2_Init();
+extern void TVPGL_NEON_Init();
 extern void TVPAddGlobalHeapCompactCallback();
 static bool TVPHighTimerPeriod = false;
 static uint32_t TVPTimeBeginPeriodRes = 0;
@@ -1574,6 +1575,7 @@ void TVPAfterSystemInit()
 #endif
 #endif
 	TVPGL_SSE2_Init();
+	TVPGL_NEON_Init();
 
 	// timer precision
 	uint32_t prectick = 1;
@@ -2210,7 +2212,6 @@ bool TVPExecuteUserConfig()
 	return true;
 }
 //---------------------------------------------------------------------------
-
 
 
 

@@ -37,6 +37,18 @@ def get_cmake_arguments() {
     return in_cmake_arguments
 }
 
+def releaseKeystorePath = providers.environmentVariable('ANDROID_KEYSTORE_PATH')
+def releaseKeystorePassword = providers.environmentVariable('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = providers.environmentVariable('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = providers.environmentVariable('ANDROID_KEY_PASSWORD')
+def hasReleaseSigning = releaseKeystorePath.isPresent() &&
+    releaseKeystorePassword.isPresent() && releaseKeyAlias.isPresent() &&
+    releaseKeyPassword.isPresent()
+def androidVersionCode = providers.gradleProperty('androidVersionCode')
+    .getOrElse('1').toInteger()
+def androidVersionName = providers.gradleProperty('androidVersionName')
+    .getOrElse('1.0')
+
 android {
     namespace = "pw.uyjulian.krkrsdl2"
     compileSdk = 37
@@ -48,8 +60,8 @@ android {
         }
         minSdk = 23
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = androidVersionCode
+        versionName = androidVersionName
         externalNativeBuild {
             cmake {
                 abiFilters = []
@@ -60,10 +72,37 @@ android {
             }
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile = file(releaseKeystorePath.get())
+                storePassword = releaseKeystorePassword.get()
+                keyAlias = releaseKeyAlias.get()
+                keyPassword = releaseKeyPassword.get()
+            }
+        }
+    }
     buildTypes {
         release {
+            // Keep the Java shell small and make the native engine use the
+            // fastest production optimization level. NEON code paths still
+            // retain their runtime verification and fallback behavior.
+            debuggable = false
             minifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.release
+            } else {
+                signingConfig = signingConfigs.debug
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            externalNativeBuild {
+                cmake {
+                    // AGP maps the Android release variant to CMake's
+                    // RelWithDebInfo configuration rather than Release.
+                    arguments '-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O3 -DNDEBUG',
+                        '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O3 -DNDEBUG'
+                }
+            }
         }
         profile {
             // Keep the debug signature/logging workflow, but optimize the

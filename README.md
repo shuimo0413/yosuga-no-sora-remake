@@ -43,8 +43,7 @@ git lfs pull
 
 The SDL2 desktop targets and Android project both read game content from
 `data/`. The Windows KRKRZ runtime is stored separately under `platform/`.
-Commands for production packaging and content-pack distribution have not been
-added yet.
+Automated release packaging currently covers Windows KRKRZ and Android ARM64.
 
 ## Development Launchers
 
@@ -99,6 +98,20 @@ GitHub limits each release asset to 2 GiB, so the package is published as a
 multipart 7-Zip archive. Download every `.7z.NNN` file into the same directory
 and open `.7z.001` with 7-Zip. A SHA-256 checksum file is included with the
 release assets.
+
+## Android Releases
+
+The Android release workflow runs for the same `v*` tags and can also be
+started manually. It builds only the production ARM64 target with native
+`-O3 -DNDEBUG` optimizations, packages the APK as multipart 7-Zip volumes below
+GitHub's 2 GiB asset limit, and adds them to the same GitHub Release as the
+Windows package. Download every `.apk.7z.NNN` file, then open `.7z.001` to
+extract the APK.
+
+For a stable release signature, configure all four repository secrets:
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+and `ANDROID_KEY_PASSWORD`. Without them, the workflow deliberately uses the
+standard Android development key and records that fact in `BUILD-INFO.txt`.
 
 The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
 Third-party components remain subject to the licenses in their respective
