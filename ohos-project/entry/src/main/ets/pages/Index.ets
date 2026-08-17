@@ -37,7 +37,7 @@ struct Index {
   @State progressValue: number = 0;
   @State baseUrl: string = '';
   @State message: string = '';
-  @State gameKey: string = '0';
+  @State uiEpoch: number = 0;
   private sandboxFiles: string = '';
   private baseDir: string = '';
   private saveDir: string = '';
@@ -78,56 +78,25 @@ struct Index {
     hilog.info(0x0000, 'YosugaOHOS', '%{public}s', msg);
   }
 
-  async prepareInternal(): Promise<void> {
-    this.log('prepareInternal begin, app=' + (getContext(this) as common.UIAbilityContext).applicationInfo.name);
-    const context = getContext(this) as common.UIAbilityContext;
-    const atManager = abilityAccessCtrl.createAtManager();
-    const permissions: Array<Permissions> = [
-      'ohos.permission.READ_MEDIA',
-      'ohos.permission.WRITE_MEDIA'
-    ];
-
-    // Only ask for what is still missing; requesting already-granted
-    // permissions again is unnecessary and can crash some system versions.
-    const missing: Array<Permissions> = [];
-    for (const perm of permissions) {
-      try {
-        const state: number = await atManager.checkAccessToken(context.applicationInfo.accessTokenId, perm);
-        this.log('checkAccessToken ' + perm + ' -> ' + state);
-        if (state !== 0) {
-          missing.push(perm);
-        }
-      } catch (e) {
-        this.log('checkAccessToken failed ' + perm + ': ' + JSON.stringify(e));
-        missing.push(perm);
-      }
-    }
-    let publicOk = missing.length === 0;
-    if (missing.length > 0) {
-      this.log('requesting permissions: ' + JSON.stringify(missing));
-      try {
-        const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
-        this.log('permission result: ' + JSON.stringify(result));
-        publicOk = result.authResults.every((code: number) => code === 0);
-      } catch (e) {
-        this.log('requestPermissionsFromUser failed: ' + JSON.stringify(e));
-        publicOk = false;
-      }
-    }
+  prepareInternal(): void {
+    this.log('prepareInternal begin');
+    // NOTE: no permission dialog here. On HarmonyOS 7 (API 26) the system
+    // permission dialog is a UIExtension whose close can wipe the host page
+    // content (black screen). Permissions are requested on demand when the
+    // user taps download/import instead.
 
     // The game data and savedata should live in the public Download folder;
     // when the platform refuses (denied permission or a changed path model),
     // fall back to the sandbox so the app always boots.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    if (publicOk) {
-      try {
-        fs.mkdirSync(this.appDir, true);
-        this.log('mkdir appDir ok: ' + this.appDir);
-        await fs.access(this.appDir);
-      } catch (e) {
-        this.log('public appDir unusable: ' + JSON.stringify(e));
-        publicOk = false;
-      }
+    let publicOk = false;
+    try {
+      fs.mkdirSync(this.appDir, true);
+      fs.accessSync(this.appDir);
+      publicOk = true;
+      this.log('public appDir ok: ' + this.appDir);
+    } catch (e) {
+      this.log('public appDir unusable: ' + JSON.stringify(e));
     }
     if (publicOk) {
       this.baseDir = this.appDir;
@@ -162,22 +131,26 @@ struct Index {
       this.log('sandbox fallback: ' + this.baseDir);
     }
 
-    const ready = await this.dataReady();
+    const ready = this.dataReady();
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
     if (ready) {
       this.startGame();
       return;
     }
-    await this.loadManifest();
+    this.loadManifest();
     this.log('manifest loaded, assets=' + this.assets.length);
     this.bootState = 2;
     this.progressText = '需要下载或导入游戏数据';
+    this.uiEpoch++;
+    this.log('bootstrap page shown');
   }
 
-  async loadManifest(): Promise<void> {
+  loadManifest(): void {
     try {
+      // Synchronous: an async rawfile read that never settles would leave the
+      // UI thread stuck on some system versions (black screen).
       const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
-      const bytes = await manager.getRawFileContent('data-assets.json');
+      const bytes = manager.getRawFileContentSync('data-assets.json');
       const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
       const parsed = JSON.parse(text) as DataManifest;
       this.manifest = parsed;
@@ -188,6 +161,62 @@ struct Index {
     }
   }
 
+  /** Request media permissions on demand and switch to the public
+   *  Download app folder when granted. Returns true when usable. */
+  async ensurePublic(): Promise<boolean> {
+    const context = getContext(this) as common.UIAbilityContext;
+    const atManager = abilityAccessCtrl.createAtManager();
+    const missing: Array<Permissions> = [];
+    const perms: Array<Permissions> = ['ohos.permission.READ_MEDIA', 'ohos.permission.WRITE_MEDIA'];
+    for (const perm of perms) {
+      try {
+        const state: number = await atManager.checkAccessToken(context.applicationInfo.accessTokenId, perm);
+        if (state !== 0) {
+          missing.push(perm);
+        }
+      } catch (e) {
+        missing.push(perm);
+      }
+    }
+    if (missing.length > 0) {
+      try {
+        const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
+        if (!result.authResults.every((code: number) => code === 0)) {
+          this.log('permission denied');
+          return false;
+        }
+      } catch (e) {
+        this.log('permission request failed: ' + JSON.stringify(e));
+        return false;
+      }
+    }
+    try {
+      fs.mkdirSync(this.appDir, true);
+      fs.accessSync(this.appDir);
+    } catch (e) {
+      this.log('public dir still unusable: ' + JSON.stringify(e));
+      return false;
+    }
+    if (this.baseDir !== this.appDir) {
+      this.baseDir = this.appDir;
+      this.saveDir = this.appDir + '/savedata';
+      this.dataDir = this.appDir + '/data';
+      try {
+        fs.mkdirSync(this.saveDir, true);
+      } catch (e) {
+        // already exists
+      }
+      try {
+        fs.mkdirSync(this.dataDir, true);
+      } catch (e) {
+        // already exists
+      }
+      this.message = '';
+      this.log('switched to public dir: ' + this.baseDir);
+    }
+    return true;
+  }
+
   async downloadAll(): Promise<void> {
     if (this.assets.length === 0) {
       this.message = '下载清单为空，请检查网络或稍后重试';
@@ -195,6 +224,8 @@ struct Index {
     }
     this.bootState = 3;
     this.message = '';
+    await this.ensurePublic();
+    this.uiEpoch++; // force a rebuild after the permission dialog closes
     const cacheDir = this.sandboxFiles + '/cache';
     try {
       fs.mkdirSync(cacheDir, true);
@@ -278,22 +309,24 @@ struct Index {
   }
 
   /** True when the data folder holds a complete data tree or a data.xp3. */
-  async dataReady(): Promise<boolean> {
+  dataReady(): boolean {
+    // Fully synchronous: async probes that never settle on some system
+    // versions would freeze the UI thread (black screen).
     // A complete tree has startup.tjs plus the system scripts; a bare
     // startup.tjs (e.g. leftover from an old mini test build) is not enough.
     try {
-      await fs.access(this.dataDir + '/startup.tjs');
-      try {
-        await fs.access(this.dataDir + '/system');
+      const entries = fs.listFileSync(this.dataDir);
+      this.log('dataDir entries: ' + JSON.stringify(entries).slice(0, 300));
+      const hasStartup = entries.indexOf('startup.tjs') >= 0;
+      const hasSystem = entries.indexOf('system') >= 0;
+      if (hasStartup && hasSystem) {
         return true;
-      } catch (e) {
-        return false;
       }
     } catch (e) {
-      // fall through
+      this.log('dataDir list failed: ' + JSON.stringify(e));
     }
     try {
-      await fs.access(this.dataDir + '/data.xp3');
+      fs.accessSync(this.dataDir + '/data.xp3');
       return true;
     } catch (e) {
       return false;
@@ -336,6 +369,8 @@ struct Index {
   async importLocal(): Promise<void> {
     this.bootState = 4;
     this.message = '';
+    await this.ensurePublic();
+    this.uiEpoch++; // force a rebuild after the permission dialog closes
     const documentPicker = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
     let uris: string[] = [];
     try {
@@ -390,10 +425,11 @@ struct Index {
       await this.delay(50);
     }
     await this.finishData();
+    this.uiEpoch++;
   }
 
-  async finishData(): Promise<void> {
-    if (await this.dataReady()) {
+  finishData(): void {
+    if (this.dataReady()) {
       // Data verified: jump straight into the game. Next launch skips this
       // screen because onPageShow finds the data ready.
       this.startGame();
@@ -402,7 +438,7 @@ struct Index {
     this.bootState = 2;
     this.progressValue = 0;
     this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
-    await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+    this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
   }
 
   delay(ms: number): Promise<void> {
@@ -427,9 +463,18 @@ struct Index {
           type: XComponentType.SURFACE,
           libraryname: 'entry'
         })
-          .onLoad((context) => {
-            entryNapi.onLoad(context);
-            entryNapi.startEngine();
+          .onLoad((context: object) => {
+            try {
+              const ok: boolean = entryNapi.onLoad(context) as boolean;
+              if (ok) {
+                entryNapi.startEngine();
+              } else {
+                this.log('onLoad failed to attach the XComponent');
+              }
+            } catch (e) {
+              // never let an exception kill the app
+              this.log('onLoad exception: ' + JSON.stringify(e));
+            }
           })
           .width('100%')
           .height('100%')
@@ -470,6 +515,7 @@ struct Index {
         }
       }
     }
+    .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')
     .height('100%')
     .backgroundColor(Color.Black)

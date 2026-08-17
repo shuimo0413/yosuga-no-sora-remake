@@ -43,20 +43,33 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 	if (argc < 1)
 	{
-		napi_throw_error(env, nullptr, "onLoad expects the XComponent onLoad context");
 		return nullptr;
 	}
 
-	// The XComponent onLoad context carries the OH_NativeXComponent pointer.
+	// The onLoad context carries the OH_NativeXComponent. Older systems wrap
+	// it with napi_wrap (unwrap path); newer systems may hand it out as a
+	// napi external instead. Try both. NEVER throw from here: on HarmonyOS 7
+	// a JS exception escapes and kills the app.
 	OH_NativeXComponent *component = nullptr;
 	napi_status status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
 	if (status != napi_ok || component == nullptr)
 	{
-		napi_throw_error(env, nullptr, "onLoad: cannot unwrap the XComponent context");
-		return nullptr;
+		void *external = nullptr;
+		if (napi_get_value_external(env, args[0], &external) == napi_ok && external != nullptr)
+		{
+			component = static_cast<OH_NativeXComponent *>(external);
+		}
+	}
+	if (component == nullptr)
+	{
+		napi_value result = nullptr;
+		napi_get_boolean(env, false, &result);
+		return result;
 	}
 	OHOS_Entry_AttachXComponent(component);
-	return nullptr;
+	napi_value ok = nullptr;
+	napi_get_boolean(env, true, &ok);
+	return ok;
 }
 
 static napi_value StartEngine(napi_env env, napi_callback_info info)
