@@ -83,6 +83,12 @@ jobs:
             --full
           if ($LASTEXITCODE -ne 0) { throw 'Content manifest generation failed' }
 
+      - name: Pack data directory into data.xp3
+        shell: pwsh
+        run: |
+          python tools/pack_data_xp3.py --root data --output data.xp3
+          if ($LASTEXITCODE -ne 0) { throw 'data.xp3 packing failed' }
+
       - name: Build multipart Windows KRKRZ archive
         id: package
         shell: pwsh
@@ -102,7 +108,6 @@ jobs:
           $requiredFiles = @(
             (Join-Path $runtimeDirectory 'tvpwin32.exe'),
             (Join-Path $runtimeDirectory 'tvpwin32.cf'),
-            (Join-Path $runtimeDirectory 'startup.tjs'),
             (Join-Path $dataDirectory 'startup.tjs'),
             (Join-Path $dataDirectory 'content-manifest.json')
           )
@@ -118,10 +123,11 @@ jobs:
           Copy-Item -Path (Join-Path $runtimeDirectory '*') `
             -Destination $packageDirectory -Recurse -Force
 
-          # The checkout is disposable and both paths are on the runner's work
-          # drive. Moving data avoids creating a second 3.6 GB asset tree.
-          Move-Item -LiteralPath $dataDirectory `
-            -Destination (Join-Path $packageDirectory 'data')
+          # Ship only the prebuilt data.xp3 next to the executable so
+          # Kirikiroid2 and other archive-first runtimes can load the game
+          # directly; the raw data directory stays out of the package.
+          Move-Item -LiteralPath (Join-Path $projectRoot 'data.xp3') `
+            -Destination (Join-Path $packageDirectory 'data.xp3')
 
           @"
           Yosuga no Sora: HD Remake

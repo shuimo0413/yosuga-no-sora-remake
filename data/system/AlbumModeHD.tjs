@@ -14,6 +14,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	var _nav;
 	var _btnPagePrev;
 	var _btnPageNext;
+	var _btnViewBack;
 
 	var _previewSrc;
 	var _thumbSrc;
@@ -267,6 +268,25 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 
 		_nav = new AppreciationBottomNav(win, _base, this, SCENE_ALBUM);
 
+		// iOS は二本指タップの右ボタン合成がないため、CG 閲覧中に
+		// 一覧へ戻るための画面上ボタンを用意する。
+		if(IsIOSPlatform())
+		{
+			_btnViewBack = new Button(win, this);
+			if(Storages.isExistentStorage(UI_ROOT + "backtotitle.png"))
+				_btnViewBack.create(UI_ROOT + "backtotitle.png", 2);
+			else
+			{
+				_btnViewBack.setImageSize(120, 48);
+				_btnViewBack.setSize(120, 48);
+				_btnViewBack.fillRect(0, 0, 120, 48, 0xAA406080);
+				_btnViewBack.visible = true;
+			}
+			_btnViewBack.setPos(56, 40);
+			_btnViewBack.hitThreshold = 0;
+			_btnViewBack.visible = false;
+		}
+
 		setPage(0, 0);
 		setInput(false);
 
@@ -291,6 +311,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		invalidate _grid;
 		invalidate _btnPagePrev;
 		invalidate _btnPageNext;
+		invalidate _btnViewBack;
 		if(_nav !== void) _nav.finalize();
 		invalidate _nav;
 		invalidate _previewSrc;
@@ -563,6 +584,11 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			if(_selPage < _pageCount[_selChar] - 1) beginPageSlide(_selPage + 1);
 			return;
 		}
+		if(_btnViewBack !== void && target == _btnViewBack)
+		{
+			if(_viewEnter) viewLeave();
+			return;
+		}
 		if(_nav !== void && _nav.onButtonDownL(target)) return;
 	}
 
@@ -581,6 +607,11 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		_prevCg = "";
 		hide();
 		setInput(true);
+		if(_btnViewBack !== void)
+		{
+			_btnViewBack.visible = true;
+			addChainItem(_btnViewBack);
+		}
 		_adv.visible = true;
 		presetView(0);
 	}
@@ -588,6 +619,7 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	function viewLeave()
 	{
 		_viewEnter = false;
+		if(_btnViewBack !== void) _btnViewBack.visible = false;
 		_adv.visible = false;
 		show();
 		setInput(false);

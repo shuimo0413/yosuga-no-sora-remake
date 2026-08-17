@@ -2,6 +2,11 @@
 	ロゴ・タイトル
 */
 
+// SDL_GetPlatform() returns the literal "iOS" on iPhone and iPad.
+function IsIOSPlatform(){
+	return System.platformName == "iOS";
+}
+
 class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	var _state = 0;
 	var _fCancel = false;
@@ -9,9 +14,14 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	var _spr = %[];
 
 	var _movie;
+	var _movieWaitCount = 0;
+	var _movieTimer;
+	var _logoWindow;
 
 	var _te;
 	var _finalizeDone = false;
+	var _fStep02 = false;
+	var _inputGuardStartedAt = 0;
 
 	var SPR_LIST = [
 		%[id:"ATTENTION_MARK", file:"ui_1920/FRM_0502.png", center:[179,  34], pos:[960, 235]], 
@@ -59,20 +69,28 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		visible = true;
 
+		_logoWindow = win;
 		_movie = new MovieLayer(win, this, true);
 		_movie.hitThreshold = 256;
 		_state = stLogo;
-		if(!_movie.start("sphere", this)){
-			var failedMovie = _movie;
-			_movie = null;
-			if(failedMovie !== void && failedMovie !== null && isvalid failedMovie)
-				invalidate failedMovie;
-			OnceCall(step02, 1);
-		}
+		_inputGuardStartedAt = System.getTickCount();
+		// [BUGFIX: Kirikiroid2 1.3.9]
+		// 起動直後はウィンドウがまだ全画面化されていないことがあるため、
+		// 全画面化の完了を待ってからムービーを開く(最大 20×100ms 待機)。
+		// ムービーを先に開くとネイティブ動画オーバーレイの表示領域が
+		// 小さなまま固定され、画面全体に広がらない。
+		_movieWaitCount = 0;
+		_movieTimer = new Timer(movieStartCallback, "");
+		_movieTimer.interval = 100;
+		_movieTimer.enabled = true;
 
 		_te = new TimerEvent();
 
 		OnceCall(step01, 1500);
+
+		// ムービー停止通知やトランジション完了通知が届かない場合の
+		// セーフティネット(正常時は何もしない)。
+		OnceCall(flowWatchdog1, 9000, "logo-watchdog1");
 
 		window.addInputNotify(this);
 	}
@@ -112,6 +130,12 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 			try{ invalidate timer; }catch(eTimer){}
 		}
 
+		var mTimer = _movieTimer;
+		_movieTimer = void;
+		if(mTimer !== void && mTimer !== null && isvalid mTimer){
+			try{ invalidate mTimer; }catch(eMTimer){}
+		}
+
 		try{ global.Sprite.finalize(); }
 		catch(eFinalize){ Debug.message("Logo finalize failed: " + eFinalize); }
 	}
@@ -122,9 +146,18 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	}
 	//ロゴ→警告文フェード
 	function step02(){
+		if(_fStep02) return;
+		_fStep02 = true;
 		_state = stAttentionPlay;
 		if(CONFIG.muteSystem || CONFIG.muteMaster)
 			keyframe(stAttentionEnd);
+
+		// ムービー再生中、背面を隠していた白幕をフェードアウトさせる。
+		// ここでフェードアウトしないとムービー終了後に白画面のままになる。
+		with(SPR_COVER){
+			.setBlendingEnvelope(0);
+			.beginActivation(500);
+		}
 
 		with(_spr.BASE){
 			.setTransitionCompleteCall(step03);
@@ -170,6 +203,8 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		OnceCallCancel(step03);
 		OnceCallCancel(step04);
 		OnceCallCancel(step05);
+		OnceCallCancel("logo-watchdog1");
+		OnceCallCancel("logo-watchdog2");
 		with(_spr.BASE){
 			.setTransitionCompleteCall();
 			.flushActivation();
@@ -228,13 +263,23 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	function onAnyInput(){
 		if(!valid) return;
 
+		// Some iOS containers emit a synthetic tap as the view is attached.
+		// Ignore only that short startup window; real taps must still be able to
+		// skip the intro after the application has settled.
+		if(IsIOSPlatform()) {
+			var inputGuardElapsed = System.getTickCount() - _inputGuardStartedAt;
+			if(inputGuardElapsed >= 0 && inputGuardElapsed < 1000) return;
+		}
+
 		cancel();
 
 		_te.stop();
 
 		switch(_state){
 		case stLogo :
-			if(_movie !== null) _movie.stop();
+			if(_movie !== null){
+				try{ _movie.stop(); }catch(eStop){}
+			}
 			gotoTitle();
 			break;
 		case stAttentionPlay : 
@@ -257,9 +302,53 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		game.changeScene(SCENE_ADV, false, %[debug:str, label:label]);
 	}
 
+	//ムービー開始用タイマーコールバック(全画面化の完了を待つ)
+	function movieStartCallback(){
+		_movieWaitCount++;
+		if((_logoWindow !== void && _logoWindow.fullScreen) ||
+			(_logoWindow !== void && (_logoWindow.innerWidth != WINDOW_WIDTH || _logoWindow.innerHeight != WINDOW_HEIGHT)) ||
+			_movieWaitCount >= 20){
+			if(_movieTimer !== void && isvalid _movieTimer) invalidate _movieTimer;
+			_movieTimer = void;
+			if(_movie === null) return;
+			if(!_movie.start("sphere", this)){
+				var failedMovie = _movie;
+				_movie = null;
+				if(failedMovie !== void && failedMovie !== null && isvalid failedMovie)
+					invalidate failedMovie;
+				OnceCall(step02, 1);
+			}
+		}
+	}
+
+	// ムービー停止通知が届かない場合の強制進行(通常は何もしない)
+	function flowWatchdog1(){
+		if(!valid || _fGoTitle) return;
+		if(_state == stLogo){
+			if(_movie !== null){
+				try{ _movie.stop(); }catch(eStop){}
+			}
+			step02();
+		}
+		OnceCall(flowWatchdog2, 12000, "logo-watchdog2");
+	}
+	function flowWatchdog2(){
+		if(!valid || _fGoTitle) return;
+		if(_state == stAttentionPlay || _state == stAttentionEnd){
+			step05();
+		}
+	}
+
 	function action(ev){
 		if(ev.type == "Movie.onStatusChanged" && ev.status == "stop"){
-			if(_movie !== null) _movie.visible = false;
+			// ネイティブ動画レイヤーは停止後も最後のフレームを残すことがあり、
+			// 白画面のまま残るため、即座に破棄して白残りを防ぐ。
+			var m = _movie;
+			_movie = null;
+			if(m !== void && m !== null && isvalid m){
+				try{ m.visible = false; }catch(eVis){}
+				try{ invalidate m; }catch(eInv){}
+			}
 			step02();
 		}
 	}
@@ -315,7 +404,8 @@ class MovieScene extends Layer, SceneBase{
 		if(key == VK_ESCAPE) returnToTitle();
 	}
 	function onMouseDown(x, y, button, shift){
-		if(button == mbRight) returnToTitle();
+		if(button == mbRight || (IsIOSPlatform() && button == mbLeft))
+			returnToTitle();
 	}
 }
 
@@ -349,6 +439,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	var _sprASaveInfo;
 
 	var _enterBonus = false;
+	var _btnBonusBack;
 
 	var BTN_LIST = [
 		
@@ -466,6 +557,17 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		layout.add(btnVoice);
 		setLayout(layout, 55, interval);
 
+		// iOS has no synthesized right mouse button. Provide the same explicit
+		// return control used by the appreciation screens so the bonus menu is
+		// never a one-way navigation path on touch-only devices.
+		if(IsIOSPlatform()){
+			_btnBonusBack = new Button(win, this);
+			_btnBonusBack.create("ui_1920/appreciation/backtotitle.png", 2);
+			_btnBonusBack.setPos(56, 1005);
+			_btnBonusBack.hitThreshold = 0;
+			_btnBonusBack.visible = false;
+		}
+
 		@if(__TRIAL__ == 0)
 			if(!ChkGlobalFlag(1))	btnBonus.visible = false;
 		@endif
@@ -557,6 +659,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		invalidate _btnBase;
 		invalidate _grpBtn;
 		invalidate _grpBtnBonus;
+		invalidate _btnBonusBack;
 		InvalidateArray(_ptGrp);
 
 		InvalidateArray(_separate);
@@ -572,6 +675,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	}
 
 	function close(){
+		if(_btnBonusBack !== void) _btnBonusBack.visible = false;
 		visible = false;
 		valid = false;
 		// P1-2: detach input immediately. finalize may call remove again; safe twice.
@@ -615,6 +719,10 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	}
 
 	function onButtonDownL(target){
+		if(_btnBonusBack !== void && target == _btnBonusBack){
+			leaveBonus();
+			return;
+		}
 		switch(target){
 		case btnStart :
 			hitThresholdSelectItems(256);
@@ -798,6 +906,10 @@ case btnContinue :
 		addChainItem(btnMusic);
 		addChainItem(btnMemories);
 		addChainItem(btnVoice);
+		if(_btnBonusBack !== void){
+			_btnBonusBack.visible = true;
+			addChainItem(_btnBonusBack);
+		}
 
 		_grpBtn.flushActivation();
 		_grpBtnBonus.flushActivation();
@@ -812,6 +924,7 @@ case btnContinue :
 	}
 	function leaveBonus(){
 		_enterBonus = false;
+		if(_btnBonusBack !== void) _btnBonusBack.visible = false;
 
 		btnStart.hitThreshold = 0;
 		btnContinue.hitThreshold = 0;

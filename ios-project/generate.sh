@@ -71,6 +71,19 @@ if [[ ! -f "$PROJECT_ROOT/data/startup.tjs" ]]; then
 	exit 1
 fi
 
+if [[ ! "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+	echo "IOS_VERSION_NAME must contain three numeric components (for example 1.2.3)." >&2
+	exit 1
+fi
+if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+	echo "IOS_BUILD_NUMBER must be a positive integer." >&2
+	exit 1
+fi
+if [[ ! "$BUNDLE_IDENTIFIER" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]]; then
+	echo "IOS_BUNDLE_IDENTIFIER is invalid: $BUNDLE_IDENTIFIER" >&2
+	exit 1
+fi
+
 echo "Using Xcode: $SELECTED_DEVELOPER_DIR"
 echo "Using CMake: $CMAKE_BIN"
 if [[ -n "$DEVELOPMENT_TEAM" ]]; then

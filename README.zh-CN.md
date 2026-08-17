@@ -13,6 +13,8 @@
 - `external/`：SDL、Kirikiri Z 等固定版本的第三方依赖。
 - `android-project/`：Android Gradle 工程，构建时直接使用根目录的 `data/`。
 - `ios-project/`：通过根目录 CMake 工程生成 iOS Xcode 项目。
+- `ohos-project/`：面向 OpenHarmony 5.0（API 12）的 DevEco Studio/Hvigor 工程，
+  包含 OpenHarmony SDL2 视频后端与 NAPI 入口模块，详见 `ohos-project/README.md`。
 - `platform/windows-krkrz/`：原生 Kirikiri Z Windows 运行时、插件和启动配置。
 - `tools/`：内容清单及后续发布工具。
 
@@ -36,7 +38,7 @@ git lfs pull
 
 SDL2 桌面端和 Android 工程均从 `data/` 读取游戏内容。Windows KRKRZ
 运行时已独立归档。目前已经支持自动打包 Windows KRKRZ、Android ARM64、
-Apple Silicon macOS 和 iOS ARM64。
+Apple Silicon macOS、iOS ARM64 和 OpenHarmony 5.0 ARM64。
 
 ## 开发启动
 
@@ -109,5 +111,23 @@ Secrets：
 iOS 默认 bundle identifier 为 `com.lightwinder.yosuganosora.hdremake`。如果
 provisioning profile 使用其他标识，请在构建前设置仓库变量 `IOS_BUNDLE_IDENTIFIER`。
 本地生成 Xcode 项目的说明见 `ios-project/README.md`。
+
+## OpenHarmony 发布
+
+OpenHarmony 工作流响应同一批 `v*` 标签，也可以手动启动。它在 Linux runner 上为
+OpenHarmony 5.0（API 12）构建 ARM64 HAP：下载官方 OpenHarmony 5.0.0 SDK 与命令行
+工具，把自带 OpenHarmony 视频后端（XComponent + EGL）的 SDL2 打补丁后编译，用
+Hvigor 组装 HAP，并按 GitHub 单个附件小于 2 GiB 的限制发布成 7-Zip 分卷。
+
+游戏内容以 rawfile 打包，首次启动时解压到应用沙箱目录。工作流默认发布**未签名**
+HAP（sign_mode `none`），安装前必须先用你自己的材料签名：
+
+- **OpenHarmony 设备**：以 sign_mode `community` 重新触发工作流，使用 OpenHarmony
+  社区调试证书签名。
+- **HarmonyOS 5.0 及以上（NEXT）**：只接受 AppGallery Connect（AGC）颁发的证书与
+  Profile。以 sign_mode `agc` 配合六个 `OHOS_*` Secrets 重新触发工作流，或用
+  `tools/sign_hap_agc.ps1` 在本地签名下载到的 HAP。完整说明（包括在 AGC 注册
+  bundleName 一致的应用）见 `ohos-project/README.md`。已知限制（暂无 SDL 音频后端，
+  游戏暂以静音运行）也记录在该文档中。
 
 Kirikiri SDL2 源码使用 MIT 许可证，详见 `LICENSE`。第三方组件适用各自目录中的许可证。

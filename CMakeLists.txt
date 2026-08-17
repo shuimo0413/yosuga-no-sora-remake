@@ -20,12 +20,12 @@ project(krkrsdl2)
 # Disable install for subprojects
 if(NOT DEFINED _DISABLE_INSTALLATION)
 set(_DISABLE_INSTALLATION FALSE)
+endif()
 macro(install)
 if (NOT _DISABLE_INSTALLATION)
 _install(${ARGN})
 endif()
 endmacro()
-endif()
 
 if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13")
 cmake_policy(SET CMP0077 NEW)
@@ -586,6 +586,38 @@ list(APPEND KRKRSDL2_LIBS
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
 )
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS" OR ${CMAKE_SYSTEM_NAME} STREQUAL "OpenHarmony" OR OHOS)
+# SDL2 for OpenHarmony is built by the ohos-project entry module (see
+# ohos-project/entry/src/main/cpp/CMakeLists.txt) and must already be
+# available as the SDL2 or SDL2-static target when this file is included.
+# The OHOS variable is set by the entry CMakeLists before adding this
+# project, so the branch works regardless of the toolchain's
+# CMAKE_SYSTEM_NAME spelling.
+if(TARGET SDL2)
+list(APPEND KRKRSDL2_LIBS
+	SDL2
+)
+elseif(TARGET SDL2-static)
+list(APPEND KRKRSDL2_LIBS
+	SDL2-static
+)
+else()
+message(FATAL_ERROR "SDL2 for OpenHarmony was not built before krkrsdl2; see ohos-project/entry/src/main/cpp/CMakeLists.txt")
+endif()
+list(APPEND KRKRSDL2_DEFINITIONS
+	USE_SDL_MAIN
+)
+# musl libc has no pthread_setaffinity_np; the engine calls it as a
+# performance hint and ignores the result, so map it onto sched_setaffinity
+# (an invalid thread id simply yields ESRCH which the caller discards).
+list(APPEND KRKRSDL2_CXXFLAGS
+	-Dpthread_setaffinity_np=sched_setaffinity
+)
+# The OpenHarmony musl declares pthread_setcanceltype but does not export
+# it; the shim below provides the missing implementation.
+list(APPEND KRKRSDL2_SRC
+	${KRKRSDL2_REPO_DIR}/ohos-project/entry/src/main/cpp/ohos_compat.c
+)
 elseif(WIN32)
 set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
 set(SDL_SHARED OFF)
@@ -699,6 +731,10 @@ set(KRKRSDL2_NAME krkrsdl2)
 if(ANDROID)
 add_library(${KRKRSDL2_NAME} SHARED)
 set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "main")
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS" OR ${CMAKE_SYSTEM_NAME} STREQUAL "OpenHarmony" OR OHOS)
+# On OpenHarmony the engine ships as a native library that the NAPI entry
+# module (ohos-project/entry) links and starts from its own thread.
+add_library(${KRKRSDL2_NAME} SHARED)
 else()
 add_executable(${KRKRSDL2_NAME})
 if(WIN32)

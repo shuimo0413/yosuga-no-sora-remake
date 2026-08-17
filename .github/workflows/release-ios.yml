@@ -83,13 +83,20 @@ jobs:
             echo "Invalid release tag: $release_tag" >&2
             exit 1
           fi
+          version_source="${release_tag#v}"
+          if [[ "$version_source" =~ ^([0-9]+)(\.([0-9]+))?(\.([0-9]+))?($|[^0-9.]) ]]; then
+            version_name="${BASH_REMATCH[1]}.${BASH_REMATCH[3]:-0}.${BASH_REMATCH[5]:-0}"
+          else
+            echo "The release tag must start with a numeric iOS version: $release_tag" >&2
+            exit 1
+          fi
           if [[ ! "$bundle_identifier" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]]; then
             echo "Invalid iOS bundle identifier: $bundle_identifier" >&2
             exit 1
           fi
           {
             echo "tag=$release_tag"
-            echo "version-name=${release_tag#v}"
+            echo "version-name=$version_name"
             echo "version-code=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
             echo "bundle-identifier=$bundle_identifier"
             echo "prerelease=$is_prerelease"
@@ -161,8 +168,18 @@ jobs:
           application_identifier=$(/usr/libexec/PlistBuddy \
             -c 'Print :Entitlements:application-identifier' "$profile_plist")
           profile_bundle_identifier="${application_identifier#*.}"
-          if [[ "$profile_bundle_identifier" != '*' && \
-            "$profile_bundle_identifier" != "$BUNDLE_IDENTIFIER" ]]; then
+          profile_matches=false
+          if [[ "$profile_bundle_identifier" == "$BUNDLE_IDENTIFIER" || \
+            "$profile_bundle_identifier" == '*' ]]; then
+            profile_matches=true
+          elif [[ "$profile_bundle_identifier" == *\* ]]; then
+            profile_prefix="${profile_bundle_identifier%\*}"
+            if [[ "$BUNDLE_IDENTIFIER" == "$profile_prefix"* && \
+              "$BUNDLE_IDENTIFIER" != "$profile_prefix" ]]; then
+              profile_matches=true
+            fi
+          fi
+          if [[ "$profile_matches" != 'true' ]]; then
             echo "Provisioning profile does not match $BUNDLE_IDENTIFIER." >&2
             exit 1
           fi
@@ -338,6 +355,14 @@ jobs:
             [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
             [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
             if ! gh "${args[@]}"; then
+              # gh cannot attach a release to an already existing tag; the
+              # REST API can. Fall back to it before giving up.
+              echo "gh release create failed; trying REST API fallback."
+              api_args=(api "repos/$GH_REPOSITORY/releases" \
+                -f "tag_name=$RELEASE_TAG" -f "target_commitish=$COMMIT_SHA" \
+                -f draft=true -f "name=$RELEASE_TAG" -f generate_release_notes=true)
+              [[ "$IS_PRERELEASE" == 'true' ]] && api_args+=(-f prerelease=true)
+              gh "${api_args[@]}" || echo "REST API release creation also failed."
               for ((attempt = 1; attempt <= 12; attempt++)); do
                 if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
                   --json isDraft 2>/dev/null); then
@@ -353,11 +378,31 @@ jobs:
               [[ "$exists" == 'true' ]] || exit 1
             fi
           fi
-          gh release upload "$RELEASE_TAG" "${assets[@]}" \
-            --repo "$GH_REPOSITORY" --clobber
+          # Uploading the large IPA can fail transiently; retry a few times.
+          uploaded=false
+          for ((attempt = 1; attempt <= 5; attempt++)); do
+            if gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GH_REPOSITORY" --clobber; then
+              uploaded=true
+              break
+            fi
+            echo "Release asset upload failed (attempt $attempt/5); retrying in 20s..."
+            sleep 20
+          done
+          [[ "$uploaded" == 'true' ]] || exit 1
           if [[ "$exists" == 'false' || "$is_draft" == 'true' ]]; then
             gh release edit "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft=false
           fi
+
+      - name: Upload non-release IPA artifact
+        if: steps.release.outputs.publish != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Yosuga-no-Sora-HD-Remake-iOS-arm64-${{ steps.release.outputs.tag }}
+          path: ${{ steps.package.outputs.asset-directory }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
 
       - name: Remove temporary signing keychain
         if: always() && steps.signing.outputs.keychain != ''

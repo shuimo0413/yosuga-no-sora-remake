@@ -602,7 +602,7 @@ void tTVPApplication::CheckConsole() {
 	is_attach_console_ = attachedConsole;
 #endif
 #endif
-#ifndef __ANDROID__
+#if !defined(__ANDROID__) && !defined(__OHOS__)
 #ifdef _WIN32
 	{
 		HANDLE hStdOutput = ::GetStdHandle(STD_OUTPUT_HANDLE);
@@ -663,7 +663,7 @@ void tTVPApplication::PrintConsole( const tjs_char* mes, unsigned long len, bool
 	}
 	tjs_int u8len = TVPWideCharToUtf8String( mes, &(console_cache_[0]) );
 	console_cache_[u8len] = '\0';
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(__OHOS__)
 	if (iserror)
 	{
 		SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "%s", &(console_cache_[0]) );

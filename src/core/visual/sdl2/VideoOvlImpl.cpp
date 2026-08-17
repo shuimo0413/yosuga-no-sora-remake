@@ -330,6 +330,8 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 		Close();
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
 	}
+	TVPMacVideoSetScreenGeometry(MacVideoOverlay,
+		Window->GetWidth(), Window->GetHeight());
 	SetRectangleToVideoOverlay();
 	TVPMacVideoSetVisible(MacVideoOverlay, Visible ? 1 : 0);
 	SetStatus(tTVPVideoOverlayStatus::Stop);
@@ -637,6 +639,8 @@ void tTJSNI_VideoOverlay::SetRectangleToVideoOverlay()
 		tjs_int r = Rect.right;
 		tjs_int b = Rect.bottom;
 		Window->ZoomRectangle(l, t, r, b);
+		TVPMacVideoSetScreenGeometry(MacVideoOverlay,
+			Window->GetWidth(), Window->GetHeight());
 		TVPMacVideoSetBounds(MacVideoOverlay, l, t, r - l, b - t);
 	}
 #endif

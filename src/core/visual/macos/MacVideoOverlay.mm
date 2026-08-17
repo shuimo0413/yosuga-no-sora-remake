@@ -396,6 +396,14 @@ void TVPMacVideoSetBounds(void *handle, int left, int top, int width, int height
 {
     [TVPMacController(handle) setMovieBoundsLeft:left top:top width:width height:height];
 }
+void TVPMacVideoSetScreenGeometry(void *handle, int windowWidth, int windowHeight)
+{
+    (void)handle;
+    (void)windowWidth;
+    (void)windowHeight;
+    /* macOS maps overlay bounds through the content view's backing store;
+       the engine's logical window size is not needed there. */
+}
 void TVPMacVideoSetVisible(void *handle, int visible)
 {
     [TVPMacController(handle) setMovieVisible:visible != 0];

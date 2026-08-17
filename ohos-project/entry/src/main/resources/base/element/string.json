@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "缘之空：高清重制"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "缘之空：高清重制"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "缘之空：高清重制"
+    },
+    {
+      "name": "media_reason",
+      "value": "用于在下载目录中存取游戏数据与存档，方便您备份与修改"
+    }
+  ]
+}

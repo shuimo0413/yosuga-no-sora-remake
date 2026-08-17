@@ -35,7 +35,7 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(__OHOS__)
 #include <dirent.h>
 #endif
 #include <math.h>
@@ -58,7 +58,7 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 #define KRKRSDL2_MACOS_NATIVE_PIXELS
 #endif
 
-#if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__EMSCRIPTEN__) || defined(__vita__) || defined(__SWITCH__)
+#if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__OHOS__) || defined(__EMSCRIPTEN__) || defined(__vita__) || defined(__SWITCH__)
 #define KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE
 #endif
 
@@ -196,7 +196,7 @@ static int sdl_event_watch(void *userdata, SDL_Event *in_event);
 
 static void refresh_controllers()
 {
-#if defined(__IPHONEOS__) || defined(__ANDROID__)
+#if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__OHOS__)
 	// TODO: check why invalid pointers get set in SDL's controller subsystem which causes segfault
 	{
 		return;
@@ -3295,6 +3295,15 @@ bool krkrsdl2_init_platform(void)
 #endif
 #ifdef SDL_HINT_IME_SHOW_UI
 	SDL_SetHintWithPriority(SDL_HINT_IME_SHOW_UI, "1", SDL_HINT_DEFAULT);
+#endif
+#endif
+
+#if defined(__OHOS__)
+#ifdef SDL_HINT_AUDIODRIVER
+	// OpenHarmony does not have an SDL2 audio backend yet. Keep the audio
+	// subsystem alive with the dummy driver so the game runs without sound
+	// instead of failing on the audio device.
+	SDL_SetHintWithPriority(SDL_HINT_AUDIODRIVER, "dummy", SDL_HINT_OVERRIDE);
 #endif
 #endif
 

@@ -20,3 +20,17 @@ android-project/app/.cxx/
 android-project/local.properties
 android-project/.idea/
 android-project/gradle/gradle-daemon-jvm.properties
+
+# OpenHarmony (ohos-project) build outputs and vendored dependencies
+/ohos-project/.hvigor/
+/ohos-project/.idea/
+/ohos-project/build/
+/ohos-project/oh_modules/
+/ohos-project/local.properties
+/ohos-project/entry/build/
+/ohos-project/entry/oh_modules/
+/ohos-project/entry/.preview/
+/ohos-project/entry/src/main/cpp/third_party/
+/ohos-project/entry/src/main/resources/rawfile/data/
+/ohos-project/oh-package-lock.json5
+/ohos-project/entry/oh-package-lock.json5

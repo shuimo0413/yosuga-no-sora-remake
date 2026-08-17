@@ -705,7 +705,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	{
 		if(_openingMovie)
 		{
-			if(button == mbRight)
+			if(button == mbRight || (IsIOSPlatform() && button == mbLeft))
 				finishOpeningMovie();
 			return;
 		}

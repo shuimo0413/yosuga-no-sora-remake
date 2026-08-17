@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "yosuga-no-sora-ohos",
+  "version": "1.0.0",
+  "description": "Yosuga no Sora: HD Remake OpenHarmony application project",
+  "main": "",
+  "author": "LightWinder",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

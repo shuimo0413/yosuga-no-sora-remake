@@ -1290,8 +1290,10 @@ void TVPBeforeSystemInit()
 		base_path_utf8 = base_path;
 		SDL_free(base_path);
 	}
-#ifdef __ANDROID__
-	// Special case for Android when SDL_GetBasePath returns NULL.
+#if defined(__ANDROID__) || defined(__OHOS__)
+	// Special case for Android and OpenHarmony when SDL_GetBasePath returns NULL.
+	// On OpenHarmony SDL_GetBasePath normally returns the application sandbox
+	// files directory, which already contains the extracted game data.
 	if (base_path_utf8.length() == 0)
 	{
 		base_path_utf8 = "/";

@@ -663,7 +663,7 @@ void TVPDetectCPU()
 	TVPCPUType |= TVP_CPU_HAS_AES;
 #endif
 
-#if !defined(__EMSCRIPTEN__) && !defined(__IPHONEOS__) && !defined(__ANDROID__)
+#if !defined(__EMSCRIPTEN__) && !defined(__IPHONEOS__) && !defined(__ANDROID__) && !defined(__OHOS__)
 #ifndef DISABLE_USE_VECTOR_CODEPATHS
 	TVPCPUType |= TVP_CPU_HAS_MMX;
 	TVPCPUType |= TVP_CPU_HAS_3DN;
