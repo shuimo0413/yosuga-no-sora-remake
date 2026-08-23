@@ -738,7 +738,7 @@ class VoiceModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 			VOICE = null;
 			_voiceOwned = false;
 		}
-		else if(VOICE !== null)
+		else if(VOICE !== null && isvalid VOICE)
 			VOICE.volume = _tempVoiceVol;
 
 		InvalidateArray(_btnSlot);

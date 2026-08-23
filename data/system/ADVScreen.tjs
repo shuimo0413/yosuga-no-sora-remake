@@ -428,9 +428,12 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		invalidate _previewTag;
 
 		if(!_fPreviewMode){
-			invalidate VOICE;
+			// VOICE/BGV 是全局共享对象，可能已被 VoiceModeScene 等其他场景
+			// 销毁置 null，或 finalize 被重复调用；invalidate null 会抛"对象已无效"
+			// 并中断 finalize（残留半销毁对象引发后续崩溃）。判空保护。
+			if(VOICE !== null && isvalid VOICE) invalidate VOICE;
 			VOICE = null;
-			invalidate BGV;
+			if(BGV !== null && isvalid BGV) invalidate BGV;
 			BGV = null;
 		}
 
