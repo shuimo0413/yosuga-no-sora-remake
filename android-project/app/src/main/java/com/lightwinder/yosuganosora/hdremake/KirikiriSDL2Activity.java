@@ -130,14 +130,21 @@ public class KirikiriSDL2Activity extends SDLActivity {
     // App-external save folder: Android/data/<pkg>/savedata (DIRECTLY under the
     // package dir, NOT under getExternalFilesDir's .../files second-level dir).
     private File getAppExternalSaveDir() {
-        // Savedata lives DIRECTLY under Android/data/<pkg>/savedata (not the
-        // getExternalFilesDir "files" second-level dir).  Derive the app-
-        // external package dir from external storage and mkdir the savedata
-        // folder; this creates Android/data/<pkg> + savedata without leaving a
-        // spurious empty <pkg>/files folder.
-        File external = Environment.getExternalStorageDirectory();
-        if (external == null) return null;
-        File pkgDir = new File(external, "Android/data/" + getPackageName());
+        // getExternalFilesDir() is the RELIABLE way to locate the app-external
+        // directory on every Android version (incl. scoped storage on 11+), but
+        // it inherently creates Android/data/<pkg>/files. Take the parent <pkg>
+        // dir so saves land in Android/data/<pkg>/savedata, then delete the
+        // just-created empty <pkg>/files folder so no spurious files directory
+        // is left behind.
+        File ext = getExternalFilesDir(null);
+        if (ext == null) return null;
+        File pkgDir = ext.getParentFile();
+        try {
+            if (ext.exists() && ext.isDirectory()) {
+                String[] children = ext.list();
+                if (children != null && children.length == 0) ext.delete();
+            }
+        } catch (SecurityException e) { /* ignore */ }
         return pkgDir != null ? new File(pkgDir, "savedata") : null;
     }
 
