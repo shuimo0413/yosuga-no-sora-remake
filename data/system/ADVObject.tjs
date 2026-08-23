@@ -676,11 +676,24 @@ function LoadAdvObjInfo(file){
 }
 
 function LoadAdvObjCsv(csvFile){
-	if(!Storages.isExistentStorage(csvFile + ".csv")) return;
+	// 资产文件名大小写不一致：磁盘上立绘 CSV 全小写(cax_l.csv 等)，
+	// 而调用方传入大写(CAx_L.csv)。Windows 文件系统大小写不敏感所以
+	// 两种写法都能命中；Android APK 资产严格区分大小写，大写预检查
+	// 会失败并跳过 CSV，导致立绘排序/基准点信息缺失、立绘被排到
+	// 全屏背景之后而完全不可见。与 csvParserSDL2.tjs 一样按候选查找。
+	var candidates = [csvFile + ".csv", csvFile.toLowerCase() + ".csv"];
+	var found = "";
+	for(var i = 0; i < candidates.count; i++){
+		if(Storages.isExistentStorage(candidates[i])){
+			found = candidates[i];
+			break;
+		}
+	}
+	if(found == "") return;
 
 	var csv = new CSVParser();
 	try{
-		csv.initStorage(csvFile + ".csv");
+		csv.initStorage(found);
 	}catch{
 		dm("csv not found - " + csvFile + ".csv");
 		invalidate csv;
