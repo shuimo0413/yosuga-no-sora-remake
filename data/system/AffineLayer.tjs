@@ -135,8 +135,8 @@ class AffineLayer extends Layer {
         if (System.platformName == "Android" && _image.imageWidth != imageWidth) {
             // Android: _image (affine source) is stale/wrong; MainImage holds the correct image
             // (loaded via super.loadImages), so keep it instead of copying a wrong _image over it.
-            super.setSize(imageWidth, imageHeight);
-            super.setImagePos(0, 0);
+
+
             return;
         }
         if (_doAffine || _doOffset) {
