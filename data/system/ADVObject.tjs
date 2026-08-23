@@ -113,7 +113,7 @@ class ADVObject extends Sprite{
 		}
 //		type = _base.type = ltBinder;
 
-		_spr = (System.platformName == "Android") ? new global.Layer(win, _base) : new global.Sprite(win, _base);
+		_spr = new global.Sprite(win, _base);
 		with(_spr){
 			_spr.hitThreshold = 256;
 			_spr.visible = true;
