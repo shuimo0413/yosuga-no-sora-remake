@@ -131,9 +131,14 @@ public class KirikiriSDL2Activity extends SDLActivity {
     // <pkg>/files/DownloadSavedata, which was a wrong concatenation that made
     // saves unreadable across launches on Android 10.
     private File getAppExternalSaveDir() {
-        File ext = getExternalFilesDir(null);   // .../Android/data/<pkg>/files
-        if (ext == null) return null;
-        File pkgDir = ext.getParentFile();      // .../Android/data/<pkg>
+        // Do NOT call getExternalFilesDir(null): Android implicitly creates the
+        // Android/data/<pkg>/files directory whenever getExternalFilesDir() is
+        // invoked, leaving an empty <pkg>/files folder on every launch.  Derive
+        // the app-external package dir from external storage instead so saves
+        // live at Android/data/<pkg>/savedata without the spurious files folder.
+        File external = Environment.getExternalStorageDirectory();
+        if (external == null) return null;
+        File pkgDir = new File(external, "Android/data/" + getPackageName());
         return pkgDir != null ? new File(pkgDir, "savedata") : null;
     }
 
