@@ -130,7 +130,7 @@ class AffineLayer extends Layer {
      * ペイント前処理
      */
     function onPaint() {
-    if (System.platformName == "Android") { if (_onpaintCount === void) _onpaintCount = 0; _onpaintCount++; if (_onpaintCount <= 5) Debug.message("AFF_ONPAINT #"+_onpaintCount+" doAffine="+_doAffine+" doOffset="+_doOffset+" w="+width+" h="+height); }
+    if (System.platformName == "Android") { if (_onpaintCount === void) _onpaintCount = 0; _onpaintCount++; if (_onpaintCount <= 5) Debug.message("AFF_ONPAINT #"+_onpaintCount+" doAffine="+_doAffine+" doOffset="+_doOffset+" w="+width+" h="+height+" imgW="+_image.imageWidth+" imgH="+_image.imageHeight); }
         super.onPaint(...);
         if (_doAffine || _doOffset) {
             if (_doAffine) {
