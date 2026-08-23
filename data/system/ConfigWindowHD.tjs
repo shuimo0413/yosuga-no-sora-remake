@@ -476,12 +476,14 @@ class ConfigWindowHD2 extends SettingWindowBase
         if(page !== null && page.handleButton(target))
         {
             syncFromConfig();
+                        SaveSystemRegister();
         }
     }
 
     function applyToConfig()
     {
         syncFromConfig();
+        SaveSystemRegister();
     }
 
     function resetSettings()
