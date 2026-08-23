@@ -127,19 +127,15 @@ public class KirikiriSDL2Activity extends SDLActivity {
         }
     }
 
-    // App-external save folder: Android/data/<pkg>/savedata.  NOT the default
-    // <pkg>/files/DownloadSavedata, which was a wrong concatenation that made
-    // saves unreadable across launches on Android 10.
+    // App-external save folder: Android/data/<pkg>/files/savedata (created by
+    // getExternalFilesDir("savedata") reliably on every Android version).
     private File getAppExternalSaveDir() {
-        // Do NOT call getExternalFilesDir(null): Android implicitly creates the
-        // Android/data/<pkg>/files directory whenever getExternalFilesDir() is
-        // invoked, leaving an empty <pkg>/files folder on every launch.  Derive
-        // the app-external package dir from external storage instead so saves
-        // live at Android/data/<pkg>/savedata without the spurious files folder.
-        File external = Environment.getExternalStorageDirectory();
-        if (external == null) return null;
-        File pkgDir = new File(external, "Android/data/" + getPackageName());
-        return pkgDir != null ? new File(pkgDir, "savedata") : null;
+        // getExternalFilesDir ALWAYS creates the folder it returns, so instead
+        // of calling getExternalFilesDir(null) (which leaves a spurious empty
+        // Android/data/<pkg>/files), pass "savedata" so the SAVEDATA folder is
+        // created directly on every Android version (incl. scoped storage on
+        // Android 11+). Saves live at .../Android/data/<pkg>/files/savedata.
+        return getExternalFilesDir("savedata");
     }
 
     private boolean hasPublicStorageAccess() {
