@@ -13,7 +13,7 @@
 #include "../SDL_egl_c.h"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <cstdarg>
+#include <stdarg.h>
 #include <dlfcn.h>
 #include <native_window/external_window.h>
 
@@ -171,7 +171,7 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		return NULL;
 	}
 
-	data->egl_surface = eglCreateWindowSurface(g_ohos_egl_display, config, native_window, NULL);
+	data->egl_surface = eglCreateWindowSurface(g_ohos_egl_display, config, (EGLNativeWindowType)(uintptr_t)native_window, NULL);
 	if (data->egl_surface == EGL_NO_SURFACE)
 	{
 		OHOS_EglLog("eglCreateWindowSurface failed err=%#x", (unsigned)eglGetError());

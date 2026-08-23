@@ -17,6 +17,7 @@
 #include "SDL_ohosevents.h"
 #include "SDL_ohosgl.h"
 #include "sdl_ohos_bridge.h"
+#include <native_window/external_window.h>
 #include <string.h>
 #include <hilog/log.h>
 
@@ -32,6 +33,7 @@ static void OHOS_GetDisplayModes(_THIS, SDL_VideoDisplay *display);
 static int OHOS_SetDisplayMode(_THIS, SDL_VideoDisplay *display, SDL_DisplayMode *mode);
 static int OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect);
 static int OHOS_CreateSDLWindow(_THIS, SDL_Window *window);
+static void OHOS_GetSurfaceSize(int *width, int *height);
 
 /* --- Software framebuffer support --------------------------------------- */
 /* Paints an SDL_Surface into an OH_NativeWindow buffer. Kept simple: one
@@ -79,9 +81,9 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	BufferHandle *handle = NULL;
 	int fence_fd = -1;
 	int32_t dummy = 0;
+	static int fb_count = 0;
 	/* Mirror progress into the sandbox engine.log (hdc-readable). */
 	{
-		static int fb_count = 0;
 		if (++fb_count % 100 == 1 || fb_count <= 5)
 		{
 			const char *dd = SDL_OHOS_GetFilesDir();

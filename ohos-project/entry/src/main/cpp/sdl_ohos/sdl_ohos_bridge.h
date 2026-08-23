@@ -37,49 +37,49 @@ extern "C" {
 #endif
 
 /* Store the application sandbox files directory. */
-OHOS_EXPORT void SDL_OHOS_SetFilesDir(const char *files_dir);
+OHOS_EXPORT void SDL_OHOS_SetFilesDir(const char *files_dir) __attribute__((weak));
 
 /* Return the sandbox files directory, or NULL when not set yet. */
-OHOS_EXPORT const char *SDL_OHOS_GetFilesDir(void);
+OHOS_EXPORT const char *SDL_OHOS_GetFilesDir(void) __attribute__((weak));
 
 /* Store the external game-data directory (may live outside the sandbox,
  * e.g. the public Download folder). SDL_GetBasePath prefers it. */
-OHOS_EXPORT void SDL_OHOS_SetDataDir(const char *data_dir);
+OHOS_EXPORT void SDL_OHOS_SetDataDir(const char *data_dir) __attribute__((weak));
 
 /* Return the external game-data directory, or NULL when not set. */
-OHOS_EXPORT const char *SDL_OHOS_GetDataDir(void);
+OHOS_EXPORT const char *SDL_OHOS_GetDataDir(void) __attribute__((weak));
 
 /* Store the external savedata directory. SDL_GetPrefPath prefers it so the
  * save files stay user-accessible. */
-OHOS_EXPORT void SDL_OHOS_SetSaveDir(const char *save_dir);
+OHOS_EXPORT void SDL_OHOS_SetSaveDir(const char *save_dir) __attribute__((weak));
 
 /* Return the external savedata directory, or NULL when not set. */
-OHOS_EXPORT const char *SDL_OHOS_GetSaveDir(void);
+OHOS_EXPORT const char *SDL_OHOS_GetSaveDir(void) __attribute__((weak));
 
 /* Block until the XComponent surface provides a native window. Returns 1 when
  * the window is ready, 0 on timeout. */
-OHOS_EXPORT int SDL_OHOS_WaitForNativeWindow(int timeout_ms);
+OHOS_EXPORT int SDL_OHOS_WaitForNativeWindow(int timeout_ms) __attribute__((weak));
 
 /* Return the OHNativeWindow, or NULL when the surface is not ready. */
-OHOS_EXPORT void *SDL_OHOS_GetNativeWindow(void);
+OHOS_EXPORT void *SDL_OHOS_GetNativeWindow(void) __attribute__((weak));
 
 /* Return the current surface size in pixels. Returns 1 when valid. */
-OHOS_EXPORT int SDL_OHOS_GetSurfaceSize(int *width, int *height);
+OHOS_EXPORT int SDL_OHOS_GetSurfaceSize(int *width, int *height) __attribute__((weak));
 
 /* Return the physical XComponent pixel size (ArkTS onAreaChange). Used to
  * scale touch coordinates into the game's logical window space. */
-OHOS_EXPORT int SDL_OHOS_GetPhysicalSize(int *width, int *height);
+OHOS_EXPORT int SDL_OHOS_GetPhysicalSize(int *width, int *height) __attribute__((weak));
 
 /* Return 1 while the OHOS AVPlayer is actively rendering video into
  * the XComponent surface (the SDL renderer must pause output so the video
  * is not covered by the engine framebuffer). */
-OHOS_EXPORT int SDL_OHOS_IsVideoPlaying(void);
+OHOS_EXPORT int SDL_OHOS_IsVideoPlaying(void) __attribute__((weak));
 
 /* Deliver an XComponent touch event. Called from the ACE UI thread. */
-OHOS_EXPORT void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y);
+OHOS_EXPORT void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y) __attribute__((weak));
 
 /* Notify the SDL video driver that the surface size changed. */
-OHOS_EXPORT void SDL_OHOS_OnSurfaceChanged(int width, int height);
+OHOS_EXPORT void SDL_OHOS_OnSurfaceChanged(int width, int height) __attribute__((weak));
 
 #ifdef __cplusplus
 }

@@ -56,11 +56,22 @@ if(OHOS)
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos")
   # Replace every platform filesystem implementation with the OpenHarmony one.
   list(FILTER SOURCE_FILES EXCLUDE REGEX "src/filesystem/(unix|android|windows|winrt|cocoa|psp|dummy|vita|n3ds|riscos|haiku|emscripten|os2)/SDL_sysfilesystem")
+  # SDL_JOYSTICK_DISABLED / SDL_HAPTIC_DISABLED / SDL_POWER_DISABLED make
+  # SDL_joystick.c / SDL_haptic.c / SDL_power.c reference the DUMMY driver
+  # symbols, but OHOS matches no platform branch in SDL's CMake source
+  # collection, so the dummy .c files never enter SOURCE_FILES and the link
+  # fails with undefined SDL_DUMMY_*Driver. Add them explicitly.
+  file(GLOB OHOS_JOYSTICK_DUMMY_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/joystick/dummy/*.c)
+  file(GLOB OHOS_HAPTIC_DUMMY_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/haptic/dummy/*.c)
+  file(GLOB OHOS_POWER_DUMMY_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/power/dummy/*.c)
   list(APPEND SOURCE_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosvideo.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosevents.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosgl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/filesystem/ohos/SDL_sysfilesystem.c
+    ${OHOS_JOYSTICK_DUMMY_SOURCES}
+    ${OHOS_HAPTIC_DUMMY_SOURCES}
+    ${OHOS_POWER_DUMMY_SOURCES}
   )
   add_definitions(
     -DSDL_VIDEO_DRIVER_OHOS=1
@@ -177,13 +188,25 @@ def patch_sdl():
     text = video_c.read_text(encoding="utf-8", errors="replace")
     if "&OHOS_bootstrap," not in text:
         lines = text.splitlines(keepends=True)
-        insert_after(
-            lines,
-            "    &Android_bootstrap,",
-            ["#if SDL_VIDEO_DRIVER_OHOS\n", "    &OHOS_bootstrap,\n", "#endif\n"],
-            "bootstrap entry",
-            video_c,
-        )
+        # The OHOS entry MUST be a standalone #if block AFTER the Android
+        # block's #endif. Inserting right after "&Android_bootstrap," nests it
+        # INSIDE "#ifdef SDL_VIDEO_DRIVER_ANDROID", which the OpenHarmony build
+        # skips (Android macro unset) - OHOS_bootstrap never enters the bootstrap
+        # table and SDL falls back to offscreen. (Seen as a HAP shipping with
+        # only dummy/offscreen video drivers.)
+        inserted = False
+        for index, line in enumerate(lines):
+            if line.strip() == "&Android_bootstrap,":
+                for j in range(index, min(index + 12, len(lines))):
+                    if lines[j].strip() == "#endif":
+                        block = ["#if SDL_VIDEO_DRIVER_OHOS\n", "    &OHOS_bootstrap,\n", "#endif\n"]
+                        lines[j+1:j+1] = block
+                        inserted = True
+                        break
+                break
+        if not inserted:
+            fail("could not find '&Android_bootstrap,' + '#endif' in the vendored "
+                 "SDL video bootstrap table")
         video_c.write_text("".join(lines), encoding="utf-8")
     else:
         print("SDL_video.c already patched; skipping.")
