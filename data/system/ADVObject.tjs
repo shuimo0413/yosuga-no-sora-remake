@@ -166,7 +166,7 @@ class ADVObject extends Sprite{
 		 * traced as off-screen / unregistered / hidden. */
 		try{
 			var dbg = "ADVIMG file=" + file
-				+ " img=" + (void _spr.imageWidth ? "-" : _spr.imageWidth) + "x" + (void _spr.imageHeight ? "-" : _spr.imageHeight)
+				+ " img=" + _spr.imageWidth + "x" + _spr.imageHeight
 				+ " spr=" + _spr.width + "x" + _spr.height
 				+ " vis=" + _spr.visible
 				+ " pos=" + _spr.left + "," + _spr.top
