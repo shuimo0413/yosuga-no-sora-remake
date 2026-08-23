@@ -57,10 +57,10 @@ if(OHOS)
   # Replace every platform filesystem implementation with the OpenHarmony one.
   list(FILTER SOURCE_FILES EXCLUDE REGEX "src/filesystem/(unix|android|windows|winrt|cocoa|psp|dummy|vita|n3ds|riscos|haiku|emscripten|os2)/SDL_sysfilesystem")
   list(APPEND SOURCE_FILES
-    ${SDL2_SOURCE_DIR}/src/video/ohos/SDL_ohosvideo.c
-    ${SDL2_SOURCE_DIR}/src/video/ohos/SDL_ohosevents.c
-    ${SDL2_SOURCE_DIR}/src/video/ohos/SDL_ohosgl.c
-    ${SDL2_SOURCE_DIR}/src/filesystem/ohos/SDL_sysfilesystem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosvideo.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosevents.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosgl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/filesystem/ohos/SDL_sysfilesystem.c
   )
   add_definitions(
     -DSDL_VIDEO_DRIVER_OHOS=1
@@ -195,17 +195,34 @@ def patch_sdl():
     else:
         lines = text.splitlines(keepends=True)
         inserted = False
-        for anchor in ("add_library(SDL2 SHARED", "sdl_add_library(", "add_library(SDL2 STATIC"):
-            for index, line in enumerate(lines):
-                if line.lstrip().startswith(anchor):
-                    block = SDL_CMAKE_OHOS_BLOCK.splitlines(keepends=True)
-                    lines[index:index] = block
-                    cmake_file.write_text("".join(lines), encoding="utf-8")
-                    print("Patched CMakeLists.txt (OpenHarmony block before %r)" % anchor)
-                    inserted = True
-                    break
-            if inserted:
+        # The OHOS block MUST live at the top level, outside if(SDL_SHARED)/
+        # if(SDL_STATIC). The OpenHarmony build forces SDL_SHARED=OFF and
+        # SDL_STATIC=ON; a block inserted before "add_library(SDL2 SHARED"
+        # lands INSIDE if(SDL_SHARED) and is skipped entirely, so
+        # SDL_ohosvideo.c is never added to SOURCE_FILES and
+        # SDL_VIDEO_DRIVER_OHOS stays undefined - the HAP then ships with
+        # only dummy/offscreen video drivers and SDL_CreateWindow fails with
+        # "eglQueryDevicesEXT is missing". Insert before if(SDL_SHARED) instead.
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("if(SDL_SHARED)"):
+                block = SDL_CMAKE_OHOS_BLOCK.splitlines(keepends=True)
+                lines[index:index] = block
+                cmake_file.write_text("".join(lines), encoding="utf-8")
+                print("Patched CMakeLists.txt (OpenHarmony block before if(SDL_SHARED))")
+                inserted = True
                 break
+        if not inserted:
+            for anchor in ("add_library(SDL2 SHARED", "sdl_add_library(", "add_library(SDL2 STATIC"):
+                for index, line in enumerate(lines):
+                    if line.lstrip().startswith(anchor):
+                        block = SDL_CMAKE_OHOS_BLOCK.splitlines(keepends=True)
+                        lines[index:index] = block
+                        cmake_file.write_text("".join(lines), encoding="utf-8")
+                        print("Patched CMakeLists.txt (OpenHarmony block before %r)" % anchor)
+                        inserted = True
+                        break
+                if inserted:
+                    break
         if not inserted:
             fail("could not find an SDL library creation anchor in the vendored "
                  "SDL CMakeLists.txt")
