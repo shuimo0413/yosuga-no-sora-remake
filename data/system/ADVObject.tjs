@@ -161,21 +161,6 @@ class ADVObject extends Sprite{
 	function loadImages(file){
 		_spr.loadImages(file);
 		setSizeToImageSize();
-		/* DIAGNOSTIC: log ADV/bustup image setup (image size, layer size,
-		 * visibility, position, zoom) so an Android-only 立绘-not-shown can be
-		 * traced as off-screen / unregistered / hidden. */
-		try{
-			var dbg = "ADVIMG file=" + file
-				+ " img=" + _spr.imageWidth + "x" + _spr.imageHeight
-				+ " spr=" + _spr.width + "x" + _spr.height
-				+ " vis=" + _spr.visible
-				+ " pos=" + _spr.left + "," + _spr.top
-				+ " zoom=" + _spr.zoomx
-				+ " affine=" + ("setAffineOffset" in _spr)
-				+ " plat=" + System.platformName;
-			Storages.saveFile("savedata0:/adv_debug.txt", dbg);
-			Debug.message(dbg);
-		}catch(e){}
 	}
 
 	function setSizeToImageSize(){
@@ -255,7 +240,6 @@ class ADVObject extends Sprite{
 		if(elm.fliplr !== void)	flipLR();
 		if(elm.flipud !== void)	flipUD();
 
-		if (System.platformName == "Android") { try{ Debug.message("ADVOBJ_SETUP left="+this.left+" top="+this.top+" w="+this.width+" order="+this.order+" nchild="+(this.parent? this.parent.children.count : -1)+" kind="+String((this.kind >= 0 ? this.kind : 0))+" file="+String(_info.file)); }catch(eD){} }
 		return true;
 	}
 
@@ -265,7 +249,6 @@ class ADVObject extends Sprite{
 		_spr.setAffineOffset(x, y);
 
 		_spr.setPos(_base.width\2, _base.height\2);
-		if (System.platformName == "Android") Debug.message("ADVOBJ_CENTER x="+x+" y="+y+" sprL="+_spr.left+" sprT="+_spr.top+" sprW="+_spr.width+" sprH="+_spr.height+" baseW="+_base.width+" baseH="+_base.height);
 
 		@if(__DEBUGMODE__)
 		//基準点

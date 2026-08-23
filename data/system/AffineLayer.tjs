@@ -56,7 +56,6 @@ class AffineLayer extends Layer {
 
     var _act_x;    ///< アクション系モジュール用座標補正
     var _act_y;    ///< アクション系モジュール用座標補正
-    var _onpaintCount;
 
     function AffineLayer(win,par=null) {
         super.Layer(win,par);
@@ -130,15 +129,7 @@ class AffineLayer extends Layer {
      * ペイント前処理
      */
     function onPaint() {
-    if (System.platformName == "Android") { if (_onpaintCount === void) _onpaintCount = 0; _onpaintCount++; if (_onpaintCount <= 5) Debug.message("AFF_ONPAINT #"+_onpaintCount+" doAffine="+_doAffine+" doOffset="+_doOffset+" w="+width+" h="+height+" imgW="+_image.imageWidth+" imgH="+_image.imageHeight); }
         super.onPaint(...);
-        if (System.platformName == "Android" && _image.imageWidth != imageWidth) {
-            // Android: _image (affine source) is stale/wrong; MainImage holds the correct image
-            // (loaded via super.loadImages), so keep it instead of copying a wrong _image over it.
-
-
-            return;
-        }
         if (_doAffine || _doOffset) {
             if (_doAffine) {
                 
@@ -453,10 +444,7 @@ class AffineLayer extends Layer {
      * @return タグ情報の辞書配列
      */
     function loadImages(image,colorKey=clNone) {
-        var ret = _image.loadImages(image, colorKey);
-        // Android: also load directly onto this layer MainImage so it
-        // composites even if onPaint never fires (MainImage empty).
-		if (System.platformName == "Android") { try{ var sret = super.loadImages(image, colorKey); Debug.message("AFF_LOAD_SUPER ok="+(sret!==void)); }catch(eS){ Debug.message("AFF_LOAD_SUPER ERR="+eS); } }
+        var ret = _image.loadImages(...);
         if (ret != null) {
             _initType = ret.mode !== void ? global.imageTagLayerType[ret.mode].type : ltAlpha;
             _initOpacity = ret.opacity !== void ? ret.opacity : 255;
