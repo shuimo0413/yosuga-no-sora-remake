@@ -43,6 +43,7 @@ function PlaySystemVoice(type, fPlay=true, fConfig=true, fCheckFlag=true){
 
 	if(fConfig) fPlay &= !CONFIG.muteSystem;
 
+	if(System.platformName == "Android") Debug.message("PVOICE type="+type+" list="+list.count+" file="+file+" muteSys="+CONFIG.muteSystem+" muteMaster="+CONFIG.muteMaster+" muteSe="+CONFIG.muteSe+" exist="+Storages.isExistentStorage(file+".ogg")+" fPlay="+fPlay);
 	if(fPlay){
 		StopSystemSound();
 		PlaySystemSound(file, vol, fConfig);
