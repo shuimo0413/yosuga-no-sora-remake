@@ -127,15 +127,18 @@ public class KirikiriSDL2Activity extends SDLActivity {
         }
     }
 
-    // App-external save folder: Android/data/<pkg>/files/savedata (created by
-    // getExternalFilesDir("savedata") reliably on every Android version).
+    // App-external save folder: Android/data/<pkg>/savedata (DIRECTLY under the
+    // package dir, NOT under getExternalFilesDir's .../files second-level dir).
     private File getAppExternalSaveDir() {
-        // getExternalFilesDir ALWAYS creates the folder it returns, so instead
-        // of calling getExternalFilesDir(null) (which leaves a spurious empty
-        // Android/data/<pkg>/files), pass "savedata" so the SAVEDATA folder is
-        // created directly on every Android version (incl. scoped storage on
-        // Android 11+). Saves live at .../Android/data/<pkg>/files/savedata.
-        return getExternalFilesDir("savedata");
+        // Savedata lives DIRECTLY under Android/data/<pkg>/savedata (not the
+        // getExternalFilesDir "files" second-level dir).  Derive the app-
+        // external package dir from external storage and mkdir the savedata
+        // folder; this creates Android/data/<pkg> + savedata without leaving a
+        // spurious empty <pkg>/files folder.
+        File external = Environment.getExternalStorageDirectory();
+        if (external == null) return null;
+        File pkgDir = new File(external, "Android/data/" + getPackageName());
+        return pkgDir != null ? new File(pkgDir, "savedata") : null;
     }
 
     private boolean hasPublicStorageAccess() {
