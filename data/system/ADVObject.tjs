@@ -255,6 +255,7 @@ class ADVObject extends Sprite{
 		if(elm.fliplr !== void)	flipLR();
 		if(elm.flipud !== void)	flipUD();
 
+		if (System.platformName == "Android") { try{ Debug.message("ADVOBJ_SETUP left="+this.left+" top="+this.top+" w="+this.width+" order="+this.order+" nchild="+(this.parent? this.parent.children.count : -1)+" kind="+String((this.kind >= 0 ? this.kind : 0))+" file="+String(_info.file)); }catch(eD){} }
 		return true;
 	}
 
