@@ -171,7 +171,8 @@ class ADVObject extends Sprite{
 				+ " vis=" + _spr.visible
 				+ " pos=" + _spr.left + "," + _spr.top
 				+ " zoom=" + _spr.zoomx;
-			Storages.saveFile("data/adv_debug.txt", dbg);
+			Storages.saveFile("savedata0:/adv_debug.txt", dbg);
+			Debug.message(dbg);
 		}catch(e){}
 	}
 
