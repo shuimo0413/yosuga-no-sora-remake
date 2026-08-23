@@ -1241,7 +1241,8 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	function isExistentVoiceFile(voice){
 		var voices = voice.split(",/");
 		for(var i=0;i<voices.count;i++){
-			if(Storages.isExistentStorage(voices[i] + ".ogg")) return true;
+			// audio_ogg/ 不在 AutoPath，裸文件名检查会失败导致语音收藏按钮被禁用。
+			if(Storages.isExistentStorage(ResolveOggStorage(voices[i] + ".ogg"))) return true;
 		}
 		return false;
 	}
@@ -4982,7 +4983,7 @@ class ConfigSubMenu extends SubMenu{
 				//浴缸回声ON
 				//如果当前正在播放浴缸回声OFF，则进行切换
 					var pos = obj.position;
-					if(Storages.isExistentStorage(obj.file+"_ECH.ogg")){
+					if(Storages.isExistentStorage(ResolveOggStorage(obj.file+"_ECH.ogg"))){
 						_adv.playBgv(%[file:obj.file+"_ECH", fade:0]);
 						obj = BGV.objectOfId(id);
 						if(obj.isPlay()) obj.position = pos;

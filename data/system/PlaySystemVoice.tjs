@@ -39,7 +39,10 @@ function PlaySystemVoice(type, fPlay=true, fConfig=true, fCheckFlag=true){
 	var id = VCID_TO_INDEX[file.substring(0, 2)];
 	var vol = CONFIG.volSystem;
 
-	if(!Storages.isExistentStorage(file + ".ogg")) return;
+	// audio_ogg/ 目录不在 AutoPath 里（曾为 OHOS 枚举性能从 startup.tjs 移除），
+	// 裸文件名检查必然失败导致系统语音（品牌语音等）静默不播。
+	// 与 Sound.tjs 的 SoundBuffer.open 一致，用 ResolveOggStorage 加前缀。
+	if(!Storages.isExistentStorage(ResolveOggStorage(file + ".ogg"))) return;
 
 	if(fConfig) fPlay &= !CONFIG.muteSystem;
 
@@ -61,7 +64,10 @@ function PlaySystemVoiceIndex(type, index, fPlay=true, fConfig=true){
 	var id = VCID_TO_INDEX[file.substring(0, 2)];
 	var vol = CONFIG.volSystem;
 
-	if(!Storages.isExistentStorage(file + ".ogg")) return;
+	// audio_ogg/ 目录不在 AutoPath 里（曾为 OHOS 枚举性能从 startup.tjs 移除），
+	// 裸文件名检查必然失败导致系统语音（品牌语音等）静默不播。
+	// 与 Sound.tjs 的 SoundBuffer.open 一致，用 ResolveOggStorage 加前缀。
+	if(!Storages.isExistentStorage(ResolveOggStorage(file + ".ogg"))) return;
 
 	if(fConfig) fPlay &= !CONFIG.muteSystem;
 
