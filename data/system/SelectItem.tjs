@@ -1886,7 +1886,7 @@ class VoiceProgressBar extends Layer{
 		var sample = [];
 		var buf = new WaveSoundBuffer(null);
 		try{
-			buf.open(file);
+			buf.open(ResolveOggStorage(file));
 		}catch{
 			return;
 		}

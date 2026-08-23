@@ -67,7 +67,7 @@ class EyeCatchBase extends Sprite, InputNotifyBase{
 		_jingle = new WaveSoundBuffer(win);
 		if(!CONFIG.muteBgm && JINGLE != ""){
 			with(_jingle){
-				.open(JINGLE + ".ogg");
+				.open(ResolveOggStorage(JINGLE + ".ogg"));
 				.volume = 100000 * CONFIG.volMaster;
 				.volume2 = 100000 * CONFIG.volBgm;
 				.paused = true;

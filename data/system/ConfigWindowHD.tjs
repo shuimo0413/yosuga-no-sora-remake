@@ -563,7 +563,7 @@ class ConfigWindowHD2 extends SettingWindowBase
         _sampleSound.stop();
         with(_sampleSound)
         {
-            .open(file + ".ogg");
+            .open(ResolveOggStorage(file + ".ogg"));
             .looping = false;
             .volume = 100000 * CONFIG.volMaster * CONFIG.volVoice * CONFIG.voiceDetails[item.detailIndex].volume;
             .play();

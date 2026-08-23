@@ -1524,7 +1524,7 @@ class ConfigWindow extends SettingWindowBase{
 		}
 
 		with(_sampleSound){
-			.open(file + ".ogg");
+			.open(ResolveOggStorage(file + ".ogg"));
 			.looping = loop;
 			applyToSampleSound();
 			.play();

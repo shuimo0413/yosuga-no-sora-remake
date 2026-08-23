@@ -128,7 +128,7 @@ class StaffRoll extends Sprite, InputNotifyBase{
 
 		var bgmFile= "BGM02.ogg";
 		_bgm = new WaveSoundBuffer(this);
-		_bgm.open(bgmFile);
+		_bgm.open(ResolveOggStorage(bgmFile));
 		_volumeBgm = CONFIG.muteBgm?0:100000*CONFIG.volBgm;
 		_volumeBgm *= 1.5;
 		if(_volumeBgm > 100000) _volumeBgm = 100000;
