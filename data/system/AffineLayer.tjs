@@ -56,6 +56,7 @@ class AffineLayer extends Layer {
 
     var _act_x;    ///< アクション系モジュール用座標補正
     var _act_y;    ///< アクション系モジュール用座標補正
+    var _onpaintCount;
 
     function AffineLayer(win,par=null) {
         super.Layer(win,par);
