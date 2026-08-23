@@ -2098,14 +2098,6 @@ void TVPWindowWindow::TickBeat()
 			rect.y = this->bitmapCompletion->update_rect.top;
 			rect.w = this->bitmapCompletion->update_rect.get_width();
 			rect.h = this->bitmapCompletion->update_rect.get_height();
-			/* DIAGNOSTIC: log only "large" per-frame dirty regions. A frame that
-			 * redraws the 立绘 (~911x1006) or the background (1920x1080) shows up
-			 * here; a session full of tiny text strips means those layers are never
-			 * composited into the surface. */
-			if (rect.h > 16 || rect.w > 300) {
-				SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "FRAME update_rect=%dx%d at(%d,%d)",
-					rect.w, rect.h, rect.x, rect.y);
-			}
 			if (this->renderer)
 			{
 #if defined(KRKRSDL2_ENABLE_ZOOM) || defined(KRKRSDL2_RENDERER_FULL_UPDATES)

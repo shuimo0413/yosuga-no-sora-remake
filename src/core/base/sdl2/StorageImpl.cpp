@@ -304,14 +304,6 @@ bool TJS_INTF_METHOD tTVPFileMedia::CheckExistentStorage(const ttstr &name)
 //---------------------------------------------------------------------------
 tTJSBinaryStream * TJS_INTF_METHOD tTVPFileMedia::Open(const ttstr & name, tjs_uint32 flags)
 {
-	/* DIAGNOSTIC: Android actually reads files through tTVPFileMedia::Open,
-	 * not TVPOpenStream, so the {{OPEN}} line there never fires. This records
-	 * every media open to distinguish "立绘 png never opened" vs "not composited". */
-	{
-		std::string name8;
-		TVPUtf16ToUtf8(name8, name.AsStdString());
-		TVPAddLog(("{{OPEN}} " + name8).c_str());
-	}
 	// open storage named "name".
 	// currently only local/network(by OS) storage systems are supported.
 	if(name.IsEmpty())
@@ -931,15 +923,6 @@ tTJSBinaryStream * TVPOpenStream(const ttstr & _name, tjs_uint32 flags)
 	if(_name.IsEmpty())
 		TVPThrowExceptionMessage(TVPCannotOpenStorage, TJS_W("\"\""));
 
-	/* DIAGNOSTIC: log every storage open (incl. Android assets) so we can see
-	 * whether the character (立绘) .png is actually being read. Background /
-	 * text show but the character layer is blank, so this distinguishes
-	 * "character png never opened" from "opened but not composited". */
-	{
-		std::string name8;
-		TVPUtf16ToUtf8(name8, _name.AsStdString());
-		TVPAddLog(("{{OPEN}} " + name8).c_str());
-	}
 
 	ttstr origname = _name;
 	ttstr name(_name);
