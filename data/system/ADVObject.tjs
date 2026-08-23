@@ -108,7 +108,7 @@ class ADVObject extends Sprite{
 		with(_base){
 			.hasImage = false;
 
-			.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);		//大きいサイズを確保
+			.setSize(10000, 10000);		//大きいサイズを確保
 			.visible = true;
 		}
 //		type = _base.type = ltBinder;

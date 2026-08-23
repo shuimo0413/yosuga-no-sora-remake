@@ -23,16 +23,28 @@ void TVPSDLBitmapCompletion::NotifyBitmapCompleted(iTVPLayerManager * manager,
 	 * Background(CG) show but the character doesn't, so we need to know if
 	 * the character layer is submitted at all and, if so, what region/order. */
 	{
-		char dbg[256];
+		char dbg[300];
 		tjs_int pw = 0, ph = 0;
 		if (manager) manager->GetPrimaryLayerSize(pw, ph);
-			const TVPBITMAPINFO *_bi = bmpinfo ? bmpinfo->GetBITMAPINFO() : nullptr;
-			tjs_int sw = _bi ? (tjs_int)_bi->bmiHeader.biWidth : 0;
-			tjs_int sh = _bi ? (tjs_int)_bi->bmiHeader.biHeight : 0;
-			snprintf(dbg, sizeof(dbg), "BMPC type=%d x=%d y=%d cw=%d ch=%d clipL=%d clipT=%d clipW=%d clipH=%d op=%d prim=%dx%d src=%dx%d",
-			(int)type, (int)x, (int)y,
+		const TVPBITMAPINFO *_bi = bmpinfo ? bmpinfo->GetBITMAPINFO() : nullptr;
+		tjs_int sw = _bi ? (tjs_int)_bi->bmiHeader.biWidth : 0;
+		tjs_int sh = _bi ? (tjs_int)_bi->bmiHeader.biHeight : 0;
+		static tjs_int sBmpSeq = 0;
+		/* PROC = within primary bounds (will be drawn); CLIP = outside bounds (skipped).
+		 * The 立绘 layer never shows up here at all, so this tells us whether a layer
+		 * composite is ATTEMPTED but clipped, or never submitted by the layer manager. */
+		bool _proc = false;
+		if (manager && _bi)
+		{
+			tjs_int pw2 = 0, ph2 = 0;
+			if (manager->GetPrimaryLayerSize(pw2, ph2))
+				_proc = !(x < 0 || y < 0 || x + cliprect.get_width() > pw2 || y + cliprect.get_height() > ph2)
+					&& !(cliprect.left < 0 || cliprect.top < 0 || cliprect.right > _bi->bmiHeader.biWidth || cliprect.bottom > _bi->bmiHeader.biHeight);
+		}
+		snprintf(dbg, sizeof(dbg), "BMPC #%d %s type=%d x=%d y=%d cw=%d ch=%d clipW=%d clipH=%d op=%d prim=%dx%d src=%dx%d",
+			(int)++sBmpSeq, _proc ? "PROC" : "CLIP", (int)type, (int)x, (int)y,
 			(int)(cliprect.get_width()), (int)(cliprect.get_height()),
-			(int)cliprect.left, (int)cliprect.top, (int)cliprect.get_width(), (int)cliprect.get_height(),
+			(int)cliprect.get_width(), (int)cliprect.get_height(),
 			(int)opacity, (int)pw, (int)ph, (int)sw, (int)sh);
 		TVPAddLog(dbg);
 	}
