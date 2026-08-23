@@ -113,7 +113,7 @@ class ADVObject extends Sprite{
 		}
 //		type = _base.type = ltBinder;
 
-		_spr = new global.Sprite(win, _base);
+		_spr = (System.platformName == "Android") ? new global.Layer(win, _base) : new global.Sprite(win, _base);
 		with(_spr){
 			_spr.hitThreshold = 256;
 			_spr.visible = true;
@@ -170,7 +170,9 @@ class ADVObject extends Sprite{
 				+ " spr=" + _spr.width + "x" + _spr.height
 				+ " vis=" + _spr.visible
 				+ " pos=" + _spr.left + "," + _spr.top
-				+ " zoom=" + _spr.zoomx;
+				+ " zoom=" + _spr.zoomx
+				+ " affine=" + ("setAffineOffset" in _spr)
+				+ " plat=" + System.platformName;
 			Storages.saveFile("savedata0:/adv_debug.txt", dbg);
 			Debug.message(dbg);
 		}catch(e){}
@@ -259,7 +261,7 @@ class ADVObject extends Sprite{
 	function setCenter(x, y){
 		_info.center.set(x, y);
 		_spr.setCenter(x, y);
-		_spr.setAffineOffset(x, y);
+		if(System.platformName != "Android") _spr.setAffineOffset(x, y);
 
 		_spr.setPos(_base.width\2, _base.height\2);
 
@@ -267,9 +269,9 @@ class ADVObject extends Sprite{
 		//基準点
 			if(debug.tglBuCenter.state){
 				if(info.kind & ADVOBJ_BUSTUP){
-					_spr.colorRect(x-32, y,  64,  1, 0x0000ff, 32);
-					_spr.colorRect(x, y-32,   1, 64, 0x0000ff, 32);
-					_spr.colorRect(x-4, y-4,  9,  9, 0xff0000, 32);
+					if(System.platformName != "Android") _spr.colorRect(x-32, y,  64,  1, 0x0000ff, 32);
+					if(System.platformName != "Android") _spr.colorRect(x, y-32,   1, 64, 0x0000ff, 32);
+					if(System.platformName != "Android") _spr.colorRect(x-4, y-4,  9,  9, 0xff0000, 32);
 				}
 			}
 		@endif
@@ -381,7 +383,7 @@ class ADVObject extends Sprite{
 		setup(%[file:_info.file, zoom:_zoomBase]);
 
 		//保存しておいたアフィン値を再設定する
-		_spr.setAffineOffset(afx, afy);
+		if(System.platformName != "Android") _spr.setAffineOffset(afx, afy);
 	}
 
 	function emotion(sequence, param){
@@ -547,12 +549,12 @@ class ADVObject extends Sprite{
 		setter(v){_zoomBase = v;}
 	}
 	property afx {
-		setter(v){_spr.afx = v;}
-		getter(){return _spr.afx;}
+		setter(v){ if(System.platformName != "Android") _spr.afx = v; }
+		getter(){ return (System.platformName == "Android") ? 0 : _spr.afx; }
 	}
 	property afy {
-		setter(v){_spr.afy = v;}
-		getter(){return _spr.afy;}
+		setter(v){ if(System.platformName != "Android") _spr.afy = v; }
+		getter(){ return (System.platformName == "Android") ? 0 : _spr.afy; }
 	}
 	function setZoom(zx, zy=void) {
 		_spr.setZoom(...);
