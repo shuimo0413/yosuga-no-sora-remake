@@ -132,6 +132,13 @@ class AffineLayer extends Layer {
     function onPaint() {
     if (System.platformName == "Android") { if (_onpaintCount === void) _onpaintCount = 0; _onpaintCount++; if (_onpaintCount <= 5) Debug.message("AFF_ONPAINT #"+_onpaintCount+" doAffine="+_doAffine+" doOffset="+_doOffset+" w="+width+" h="+height+" imgW="+_image.imageWidth+" imgH="+_image.imageHeight); }
         super.onPaint(...);
+        if (System.platformName == "Android" && _image.imageWidth != imageWidth) {
+            // Android: _image (affine source) is stale/wrong; MainImage holds the correct image
+            // (loaded via super.loadImages), so keep it instead of copying a wrong _image over it.
+            super.setSize(imageWidth, imageHeight);
+            super.setImagePos(0, 0);
+            return;
+        }
         if (_doAffine || _doOffset) {
             if (_doAffine) {
                 
@@ -446,7 +453,7 @@ class AffineLayer extends Layer {
      * @return タグ情報の辞書配列
      */
     function loadImages(image,colorKey=clNone) {
-        var ret = _image.loadImages(...);
+        var ret = _image.loadImages(image, colorKey);
         // Android: also load directly onto this layer MainImage so it
         // composites even if onPaint never fires (MainImage empty).
 		if (System.platformName == "Android") { try{ var sret = super.loadImages(image, colorKey); Debug.message("AFF_LOAD_SUPER ok="+(sret!==void)); }catch(eS){ Debug.message("AFF_LOAD_SUPER ERR="+eS); } }
