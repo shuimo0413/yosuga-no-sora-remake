@@ -129,6 +129,7 @@ class AffineLayer extends Layer {
      * ペイント前処理
      */
     function onPaint() {
+    if (System.platformName == "Android") { if (_onpaintCount === void) _onpaintCount = 0; _onpaintCount++; if (_onpaintCount <= 5) Debug.message("AFF_ONPAINT #"+_onpaintCount+" doAffine="+_doAffine+" doOffset="+_doOffset+" w="+width+" h="+height); }
         super.onPaint(...);
         if (_doAffine || _doOffset) {
             if (_doAffine) {
@@ -447,7 +448,7 @@ class AffineLayer extends Layer {
         var ret = _image.loadImages(...);
         // Android: also load directly onto this layer MainImage so it
         // composites even if onPaint never fires (MainImage empty).
-        if (System.platformName == "Android") { try{ super.loadImages(image, colorKey); }catch(e){} }
+		if (System.platformName == "Android") { try{ var sret = super.loadImages(image, colorKey); Debug.message("AFF_LOAD_SUPER ok="+(sret!==void)); }catch(eS){ Debug.message("AFF_LOAD_SUPER ERR="+eS); } }
         if (ret != null) {
             _initType = ret.mode !== void ? global.imageTagLayerType[ret.mode].type : ltAlpha;
             _initOpacity = ret.opacity !== void ? ret.opacity : 255;

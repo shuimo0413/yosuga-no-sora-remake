@@ -264,6 +264,7 @@ class ADVObject extends Sprite{
 		_spr.setAffineOffset(x, y);
 
 		_spr.setPos(_base.width\2, _base.height\2);
+		if (System.platformName == "Android") Debug.message("ADVOBJ_CENTER x="+x+" y="+y+" sprL="+_spr.left+" sprT="+_spr.top+" sprW="+_spr.width+" sprH="+_spr.height+" baseW="+_base.width+" baseH="+_base.height);
 
 		@if(__DEBUGMODE__)
 		//基準点
