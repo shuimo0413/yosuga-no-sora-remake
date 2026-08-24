@@ -19,10 +19,30 @@
 #include "sdl_ohos_bridge.h"
 #include <native_window/external_window.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <dlfcn.h>
 #include <hilog/log.h>
 
 #define OHOS_FALLBACK_WIDTH 1920
 #define OHOS_FALLBACK_HEIGHT 1080
+
+/* OH_NativeWindow_LockBuffer / OH_NativeWindow_UnlockAndFlushBuffer are API
+ * 23+; the CI builds against the API 12 sysroot, so reference them through
+ * dlsym at run time instead of the headers (guarded availability). */
+typedef int32_t (*OHNW_LockBufferFn)(OHNativeWindow *, Region, OHNativeWindowBuffer **);
+typedef int32_t (*OHNW_UnlockFlushFn)(OHNativeWindow *);
+static OHNW_LockBufferFn OHOS_NW_LockBuffer = NULL;
+static OHNW_UnlockFlushFn OHOS_NW_UnlockAndFlushBuffer = NULL;
+static void OHOS_ResolveNativeWindowCpuApi(void)
+{
+	static int resolved = 0;
+	if (resolved) return;
+	resolved = 1;
+	void *handle = dlopen("libnative_window.so", RTLD_NOW);
+	if (handle == NULL) return;
+	OHOS_NW_LockBuffer = (OHNW_LockBufferFn)dlsym(handle, "OH_NativeWindow_LockBuffer");
+	OHOS_NW_UnlockAndFlushBuffer = (OHNW_UnlockFlushFn)dlsym(handle, "OH_NativeWindow_UnlockAndFlushBuffer");
+}
 
 static SDL_VideoDevice *OHOS_CreateDevice(void);
 static void OHOS_DestroyDevice(SDL_VideoDevice *device);
@@ -167,25 +187,56 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
 	}
 
-	if (OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd) != 0 || buffer == NULL)
+	/* API 23+ (HarmonyOS NEXT): OH_NativeWindow_LockBuffer makes the buffer
+	 * CPU-writable and must be paired with OH_NativeWindow_UnlockAndFlushBuffer.
+	 * The legacy RequestBuffer path leaves handle->virAddr NULL for XComponent
+	 * surfaces, so every software frame failed with "no virAddr" and the game
+	 * picture (and the opening movie around it) froze. */
+	Region lock_region = { NULL, 0 };
+	int locked = 0;
+	buffer = NULL;
+	OHOS_ResolveNativeWindowCpuApi();
+	if (OHOS_NW_LockBuffer != NULL && OHOS_NW_UnlockAndFlushBuffer != NULL &&
+		OHOS_NW_LockBuffer(native_window, lock_region, &buffer) == 0 && buffer != NULL)
+	{
+		locked = 1;
+	}
+	else if (OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd) != 0 || buffer == NULL)
 	{
 		if (fb) { fprintf(fb, "  RequestBuffer failed\n"); fclose(fb); }
 		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
 	}
 
+	void *mapped = NULL;
+	Uint8 *fb_dst = NULL;
 	handle = OH_NativeWindow_GetBufferHandleFromNative(buffer);
-	if (handle == NULL || handle->virAddr == NULL)
+	if (handle != NULL && handle->virAddr != NULL)
 	{
-		OH_NativeWindow_NativeWindowAbortBuffer(native_window, buffer);
-		if (fb) { fprintf(fb, "  no virAddr\n"); fclose(fb); }
-		return SDL_SetError("OHOS: buffer has no virtual address");
+		fb_dst = (Uint8 *)handle->virAddr;
+	}
+	else if (handle != NULL && handle->fd >= 0)
+	{
+		mapped = mmap(NULL, (size_t)handle->size, PROT_READ | PROT_WRITE, MAP_SHARED, handle->fd, 0);
+		if (mapped != MAP_FAILED)
+			fb_dst = (Uint8 *)mapped;
+		else
+			mapped = NULL;
+	}
+	if (fb_dst == NULL)
+	{
+		if (locked)
+			OHOS_NW_UnlockAndFlushBuffer(native_window);
+		else
+			OH_NativeWindow_NativeWindowAbortBuffer(native_window, buffer);
+		if (fb) { fprintf(fb, "  no writable address\n"); fclose(fb); }
+		return SDL_SetError("OHOS: buffer has no writable address");
 	}
 
 	/* Copy the SDL surface (ARGB8888) into the native buffer, scaling from
 	 * the logical framebuffer (1920x1080) to the physical buffer size. The
 	 * buffer stride may differ from bw*4 (alignment) - always use it. */
 	{
-		Uint8 *dst = (Uint8 *)handle->virAddr;
+		Uint8 *dst = fb_dst;
 		const Uint8 *src = (const Uint8 *)data->framebuffer->pixels;
 		int src_pitch = data->framebuffer->pitch;
 		int dst_stride = handle->stride;
@@ -239,14 +290,27 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		}
 	}
 
-	Region region;
-	region.rects = NULL;
-	region.rectNumber = 0;
-	if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
+	if (mapped != NULL)
+		munmap(mapped, (size_t)handle->size);
+	if (locked)
 	{
-		if (fb) { fprintf(fb, "  FlushBuffer failed\n"); fclose(fb); }
-		if (fb_pub) { fprintf(fb_pub, "  FlushBuffer failed\n"); fclose(fb_pub); }
-		return SDL_SetError("OHOS: FlushBuffer failed");
+		if (OHOS_NW_UnlockAndFlushBuffer(native_window) != 0)
+		{
+			if (fb) { fprintf(fb, "  UnlockAndFlushBuffer failed\n"); fclose(fb); }
+			return SDL_SetError("OHOS: UnlockAndFlushBuffer failed");
+		}
+	}
+	else
+	{
+		Region region;
+		region.rects = NULL;
+		region.rectNumber = 0;
+		if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
+		{
+			if (fb) { fprintf(fb, "  FlushBuffer failed\n"); fclose(fb); }
+			if (fb_pub) { fprintf(fb_pub, "  FlushBuffer failed\n"); fclose(fb_pub); }
+			return SDL_SetError("OHOS: FlushBuffer failed");
+		}
 	}
 	if (fb) { fprintf(fb, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb); }
 	if (fb_pub) { fprintf(fb_pub, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb_pub); }
