@@ -960,9 +960,6 @@ bool TVPCheckExistentLocalFile(const ttstr &name)
 	std::string filename;
 	if( TVPUtf16ToUtf8( filename, name.AsStdString() ) ) {
 
-
-#endif
-
 #if defined(__vita__)
 		SceIoStat st;
 		if( sceIoGetstat( filename.c_str(), &st) >= 0)
