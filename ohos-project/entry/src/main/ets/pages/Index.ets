@@ -124,11 +124,18 @@ struct Index {
         // entryNapi not ready yet - keep the current value
       }
     }, 100);
-    // Show the bootstrap screen immediately with ZERO filesystem or
-    // permission work, so no platform call can stall the UI thread before
-    // the user sees it. Data checks run on demand below.
-    this.bootState = 2;
-    this.progressText = '需要下载或导入游戏数据';
+    // Resolve the data location synchronously so an app whose game data is
+    // already present goes STRAIGHT into the game: no bootstrap background,
+    // no setup buttons, no flicker of the setup page on launch.
+    this.probeData();
+    if (this.dataReady()) {
+      this.readyForGame = true;
+      this.startGame();
+    } else {
+      this.bootState = 2;
+      this.progressText = '需要下载或导入游戏数据';
+      this.prepare();
+    }
   }
 
   // Capture ArkTS page errors so UI-thread crashes do not wedge the page.
@@ -296,8 +303,12 @@ struct Index {
     }
   }
 
-  prepareInternal(): void {
-    this.log('prepareInternal begin');
+  /**
+   * Synchronously resolve baseDir/saveDir/dataDir from the app-owned public
+   * Download folder (marker-present) or the sandbox, so a data-ready app can
+   * skip the bootstrap UI entirely on launch. Idempotent.
+   */
+  probeData(): void {
     // NOTE: no permission dialog here. On HarmonyOS 7 (API 26) the system
     // permission dialog is a UIExtension whose close can wipe the host page
     // content (black screen). Permissions are requested on demand when the
@@ -312,12 +323,12 @@ struct Index {
     // then creates it and grants persistent access. We self-check by looking
     // for a marker file we write there; do NOT blindly mkdir the public path
     // (that can appear to succeed yet be unwritable). Until granted, use the
-    // sandbox so downloads/imports always work, and surface the init button.
+    // sandbox so downloads/imports always work.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
     // Only treat the public folder as usable when the marker we wrote after
     // initPublicDir() is actually listed there. listFileSync on a missing
     // folder throws, so an un-granted platform reliably falls into the
-    // sandbox branch and shows the init button.
+    // sandbox branch.
     let publicOk = false;
     try {
       const entries = fs.listFileSync(this.appDir);
@@ -344,7 +355,7 @@ struct Index {
       this.saveDir = this.sandboxFiles + '/savedata';
       this.dataDir = this.sandboxFiles + '/data';
       this.needInit = false;
-      this.message = '数据暂存于应用私有目录，可点击「初始化下载目录」改为系统下载目录';
+      this.message = '数据暂存于应用私有目录';
       if (!this.autoInitTried) {
         this.autoInitTried = true;
         this.log('data dir: sandbox (public not granted), auto-initing once');
@@ -356,20 +367,21 @@ struct Index {
     } catch (e) {
       // already exists
     }
+  }
+
+  prepareInternal(): void {
+    this.log('prepareInternal begin');
+    this.probeData();
     const ready = this.dataReady();
     this.readyForGame = ready;
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
-    // Do NOT auto-start (avoids landscape black screen); show a start
-    // button when ready. Only fetch the download manifest when data is
-    // missing and the user actually wants to download/import.
     if (ready) {
-      this.readyForGame = true;
       this.bootState = 2;
       this.progressText = '游戏数据已就绪';
       this.message = '';
       this.assets = [];
-      // No explicit start button: launch the game as soon as the data is
-      // verified, once the bootstrap page has had a moment to render.
+      // Launch as soon as the data is verified, once the page has had a
+      // moment to render (no explicit start button).
       setTimeout(() => {
         if (this.bootState === 2 && this.readyForGame) {
           this.startGame();
@@ -940,11 +952,14 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      // Title background image shipped inside the HAP (rawfile).
-      Image($rawfile('Background.png'))
-        .width('100%')
-        .height('100%')
-        .objectFit(ImageFit.Cover)
+      // Title background image shipped inside the HAP (rawfile); only on
+      // the bootstrap page - the running game sits on plain black.
+      if (this.bootState !== 6) {
+        Image($rawfile('Background.png'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+      }
       Column() {
       if (this.bootState === 0) {
         Text(this.progressText).fontSize(16).fontColor(Color.Gray)
@@ -1093,7 +1108,8 @@ struct Index {
           Column({ space: 12 }) {
           Text('').height(24)
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
-          Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Gray)
+            .textShadow({ radius: 3, color: '#000000', offsetX: 0, offsetY: 0 })
+          Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Black)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })
             .width('86%')
             .fontSize(12)
@@ -1125,16 +1141,15 @@ struct Index {
               this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
             })
           }
-          Text('下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
-          Button('下载游戏数据').width(220).height(52).onClick(() => {
-            this.downloadAll();
-          })
-          Button('从本地压缩包导入').width(220).height(52).backgroundColor('#3A5BA0').onClick(() => {
-            this.importLocal();
-          })
-          Button('重新检查').width(220).height(44).backgroundColor('#555555').onClick(() => {
-            this.prepare();
-          })
+          Text('下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Black).maxLines(2)
+          Row({ space: 12 }) {
+            Button('下载游戏数据').width(150).height(52).onClick(() => {
+              this.downloadAll();
+            })
+            Button('从本地压缩包导入').width(150).height(52).backgroundColor('#3A5BA0').onClick(() => {
+              this.importLocal();
+            })
+          }
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(4)
           }
         }
