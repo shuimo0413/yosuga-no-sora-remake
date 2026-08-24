@@ -119,6 +119,13 @@ void *OHOS_GL_GetProcAddress(_THIS, const char *proc)
 		 * functions come from the linked libGLESv3 via dlsym(RTLD_DEFAULT). */
 		addr = (void *)dlsym(RTLD_DEFAULT, proc);
 	}
+	if (addr == NULL)
+	{
+		/* Only log failures: the GLES2 renderer probe requests many entry
+		 * points and a missing one aborts its initialisation. */
+		OHOS_EglLog("GetProcAddress(%s) FAILED (egl=%p dlsym=%p)",
+			proc, (void *)eglGetProcAddress(proc), (void *)dlsym(RTLD_DEFAULT, proc));
+	}
 	return addr;
 }
 
@@ -216,16 +223,24 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 int OHOS_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext context)
 {
 	(void)_this;
+	EGLBoolean ok;
 	if (window && context)
 	{
 		SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
 		if (data == NULL)
 		{
+			OHOS_EglLog("MakeCurrent: no window driver data");
 			return SDL_SetError("Window has no driver data");
 		}
-		return eglMakeCurrent(g_ohos_egl_display, data->egl_surface, data->egl_surface, g_ohos_egl_context) ? 0 : SDL_SetError("OHOS: eglMakeCurrent failed");
+		ok = eglMakeCurrent(g_ohos_egl_display, data->egl_surface, data->egl_surface, g_ohos_egl_context);
+		OHOS_EglLog("MakeCurrent surface=%p ctx=%p (req ctx=%p) -> %d err=%#x",
+			(void *)data->egl_surface, (void *)g_ohos_egl_context, (void *)context,
+			(int)ok, ok ? 0 : (unsigned)eglGetError());
+		return ok ? 0 : SDL_SetError("OHOS: eglMakeCurrent failed");
 	}
-	return eglMakeCurrent(g_ohos_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) ? 0 : SDL_SetError("OHOS: eglMakeCurrent(NULL) failed");
+	ok = eglMakeCurrent(g_ohos_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	OHOS_EglLog("MakeCurrent(NULL) -> %d", (int)ok);
+	return ok ? 0 : SDL_SetError("OHOS: eglMakeCurrent(NULL) failed");
 }
 
 int OHOS_GL_SetSwapInterval(_THIS, int interval)
