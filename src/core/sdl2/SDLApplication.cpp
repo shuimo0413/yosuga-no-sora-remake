@@ -3208,7 +3208,14 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_MOUSEBUTTONUP:
 				{
 					{
-						OHOS_LogToFile("engine: WINDOW mouse type=%d x=%d y=%d btn=%d", (int)event.type, event.button.x, event.button.y, (int)event.button.button);
+						static int mm = 0;
+						if (++mm <= 5 || mm % 120 == 1)
+						{
+							OHOS_LogToFile("engine: WINDOW mouse type=%d x=%d y=%d btn=%d flags=%#x active=%d",
+								(int)event.type, event.button.x, event.button.y, (int)event.button.button,
+								(unsigned)(this->window ? SDL_GetWindowFlags(this->window) : 0),
+								(this->window ? ((SDL_GetWindowFlags(this->window) & SDL_WINDOW_INPUT_FOCUS) ? 1 : 0) : -1));
+						}
 					}
 					if (SDL_IsTextInputActive() && this->imeCompositionStr)
 					{
