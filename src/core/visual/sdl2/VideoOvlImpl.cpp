@@ -35,6 +35,9 @@
 #include <sys/stat.h>
 #include <SDL_system.h>
 #endif
+#ifdef __OHOS__
+#include <sys/stat.h>
+#endif
 #ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
 #include "MacVideoOverlay.h"
 #endif
