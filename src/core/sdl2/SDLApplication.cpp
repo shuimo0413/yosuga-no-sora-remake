@@ -90,6 +90,8 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 #if defined(__OHOS__)
 #include <cstdarg>
 #include <cstdio>
+#include <sys/stat.h>
+#include "StorageIntf.h" /* TVPAddAutoPath for archive-scoped auto paths */
 /* OHOS: route SDL-side diagnostics into the SAME <sandbox files>/engine.log
  * that the NAPI entry side (OHOS_Entry_LogNative) writes. The envar
  * KRKR_OHOS_DATA_DIR points at the PUBLIC Download folder (hdc cannot read
@@ -3555,6 +3557,39 @@ void krkrsdl2_pre_init_platform(void)
 	TVPTerminateCode = 0;
 #ifdef _WIN32
 	_set_error_mode(_OUT_TO_STDERR);
+#endif
+#if defined(__OHOS__)
+	/* data.xp3 mode: the startup script registers plain directory auto
+	 * paths whose filesystem enumeration finds nothing when the data ships
+	 * as an archive, so GetPlacedPath cannot resolve archive members
+	 * (prerendered fonts, root-level mp4 movies). Register the
+	 * archive-scoped forms natively, before any script runs, so the fix
+	 * does not depend on the repacked xp3 carrying an updated startup.tjs. */
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			std::string xp3 = std::string(dd) + "/data.xp3";
+			struct stat st;
+			if (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode))
+			{
+				OHOS_LogToFile("engine: registering archive auto paths for data.xp3");
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>system/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>scenario/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>bg_1920/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>event_1920/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>character_1920/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>char/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>font/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>frame/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>frame_m2/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>rule/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>thumb/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>ui_1920/")));
+				TVPAddAutoPath(ttstr(TJS_W("data.xp3>"))); // archive root (movies)
+			}
+		}
+	}
 #endif
 }
 
