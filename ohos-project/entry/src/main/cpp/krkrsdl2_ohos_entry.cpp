@@ -599,6 +599,27 @@ static void EngineMain()
 			has_system ? "yes" : "no", has_xp3 ? "yes" : "no",
 			data_ok ? 1 : 0);
 		OHOS_Entry_LogNative(diag);
+		/* Diagnose which Title.tjs is actually in use: the logo cover colour
+		 * fix lives in the game DATA (not the HAP), and hdc cannot read the
+		 * public Download dir. Logging mtime/size tells us whether the user's
+		 * replaced file is the one the engine loads. */
+		{
+			std::string tjs = base_dir + "/data/system/Title.tjs";
+			struct stat tst;
+			if (stat(tjs.c_str(), &tst) == 0)
+			{
+				char tdiag[256];
+				snprintf(tdiag, sizeof(tdiag),
+					"engine: Title.tjs size=%lld mtime=%lld",
+					(long long)tst.st_size, (long long)tst.st_mtime);
+				OHOS_Entry_LogNative(tdiag);
+			}
+			else
+			{
+				OHOS_Entry_LogNative("engine: Title.tjs stat FAILED");
+			}
+		}
+	}
 	}
 	else
 	{

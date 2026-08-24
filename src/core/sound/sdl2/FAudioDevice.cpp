@@ -15,8 +15,28 @@
 #include <FAudio.h>
 
 #ifdef __OHOS__
+#include <dlfcn.h>
 /* hilog is not readable from hdc on the target device; mirror audio init
- * progress into engine.log so device-side diagnosis is possible. */
+ * progress into engine.log. Write BOTH the sandbox files dir (the only
+ * hdc-readable location) and the public Download dir (what the user can
+ * pull via logs.zip). */
+static const char *OHOSFASandboxDir(void)
+{
+	static const char *(*fn)(void) = nullptr;
+	static const char *cached = nullptr;
+	if (cached)
+		return cached;
+	if (fn == nullptr)
+	{
+		void *handle = dlopen("libentry.so", RTLD_NOW);
+		if (!handle)
+			handle = RTLD_DEFAULT;
+		fn = (const char *(*)(void))dlsym(handle, "SDL_OHOS_GetFilesDir");
+	}
+	if (fn)
+		cached = fn();
+	return cached;
+}
 static void OHOSFAudioLog(const char *fmt, ...)
 {
 	char line[512];
@@ -24,12 +44,23 @@ static void OHOSFAudioLog(const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(line, sizeof(line), fmt, ap);
 	va_end(ap);
+	const char *dirs[2];
+	int ndirs = 0;
+	const char *sandbox = OHOSFASandboxDir();
 	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+	if (sandbox && sandbox[0])
+		dirs[ndirs++] = sandbox;
 	if (pub && pub[0])
+		dirs[ndirs++] = pub;
+	for (int i = 0; i < ndirs; ++i)
 	{
-		std::string lpath = std::string(pub) + "/engine.log";
+		std::string lpath = std::string(dirs[i]) + "/engine.log";
 		FILE *lf = fopen(lpath.c_str(), "a");
-		if (lf) { fprintf(lf, "audio: %s\n", line); fclose(lf); }
+		if (lf)
+		{
+			fprintf(lf, "audio: %s\n", line);
+			fclose(lf);
+		}
 	}
 }
 #endif
