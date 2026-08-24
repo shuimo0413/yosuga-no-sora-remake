@@ -48,11 +48,14 @@
 #include "../SDL_audio_c.h"
 #include "SDL_ohosaudio.h"
 
+/* The API 12 OHAudio headers use 'bool' without including <stdbool.h>
+ * themselves; include it BEFORE them or the SDK 12 sysroot fails to compile. */
+#include <stdbool.h>
+#include <stdarg.h>
 #include <ohaudio/native_audiostreambuilder.h>
 #include <ohaudio/native_audiorenderer.h>
 #include <ohaudio/native_audiostream_base.h>
 #include <hilog/log.h>
-#include <stdarg.h>
 
 /* The ring holds this many SDL mixing periods. Enough headroom for the
  * callback burst pattern of the audio service while keeping latency low. */
@@ -105,16 +108,19 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
         return AUDIOSTREAM_SUCCESS;
     }
 
-    SDL_LockMutex(hidden->lock);
     int copied = 0;
+    int used;
+    int chunk;
+
+    SDL_LockMutex(hidden->lock);
     while (copied < length)
     {
-        int used = OHOSAUDIO_RingUsed(hidden);
+        used = OHOSAUDIO_RingUsed(hidden);
         if (used <= 0)
         {
             break; /* underrun: fill the rest with silence */
         }
-        int chunk = SDL_min(length - copied, SDL_min(used, hidden->ring_size - hidden->ring_read));
+        chunk = SDL_min(length - copied, SDL_min(used, hidden->ring_size - hidden->ring_read));
         SDL_memcpy((Uint8 *)buffer + copied, hidden->ring + hidden->ring_read, chunk);
         hidden->ring_read = (hidden->ring_read + chunk) % hidden->ring_size;
         copied += chunk;

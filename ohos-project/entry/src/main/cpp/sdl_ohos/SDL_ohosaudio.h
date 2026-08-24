@@ -21,6 +21,11 @@
 
 #include "../SDL_sysaudio.h"
 
+/* SDL_sysaudio.h only defines _THIS for its own struct declarations and
+ * #undefs it at the end; every driver header redefines it for its own
+ * implementation files (see SDL_dummyaudio.h etc.). */
+#define _THIS SDL_AudioDevice *_this
+
 /* Hidden structure used by the OHOS audio driver */
 struct SDL_PrivateAudioData;
 
