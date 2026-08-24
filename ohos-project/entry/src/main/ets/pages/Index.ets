@@ -4,7 +4,7 @@ import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
-import { util } from '@kit.ArkTS';
+import { taskpool, util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -39,6 +39,21 @@ interface DataManifest {
   releaseTag: string;
   baseUrl: string;
   assets: DataAsset[];
+}
+
+/**
+ * TaskPool worker: decompress a zip on a background thread. The UI thread
+ * must not run zlib.decompressFile on a multi-GB archive: the long
+ * synchronous call triggers ANR and the app gets killed mid-import.
+ */
+@Concurrent
+function unzipTask(srcZip: string, outDir: string): string {
+  try {
+    zlib.decompressFile(srcZip, outDir);
+    return 'ok';
+  } catch (e) {
+    return 'err:' + JSON.stringify(e);
+  }
 }
 
 // The app-owned public Download folder: Download/<bundleName>. On HarmonyOS
@@ -225,6 +240,62 @@ struct Index {
     }
   }
 
+  /** Recursively delete a directory tree (fs has no single-call variant). */
+  private removeTree(path: string): void {
+    let entries: string[] = [];
+    try {
+      entries = fs.listFileSync(path);
+    } catch (e) {
+      return;
+    }
+    for (const name of entries) {
+      const child = path + '/' + name;
+      try {
+        fs.unlinkSync(child);
+      } catch (e) {
+        try {
+          this.removeTree(child);
+          fs.rmdirSync(child);
+        } catch (e2) {
+          // ignore
+        }
+      }
+    }
+    try {
+      fs.rmdirSync(path);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  /** Remove leftover krkr_* video temp dirs from previous runs. */
+  private cleanKrkrTmp(): void {
+    const tmpDir = this.baseDir + '/tmp';
+    let entries: string[] = [];
+    try {
+      entries = fs.listFileSync(tmpDir);
+    } catch (e) {
+      return;
+    }
+    for (const name of entries) {
+      if (name.startsWith('krkr_')) {
+        this.removeTree(tmpDir + '/' + name);
+      }
+    }
+  }
+
+  /** Write .nomedia into a directory so the media library skips scanning it. */
+  private writeNomedia(dir: string): void {
+    try {
+      const f = fs.openSync(dir + '/.nomedia',
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(f.fd, '');
+      fs.closeSync(f);
+    } catch (e) {
+      // best effort
+    }
+  }
+
   prepareInternal(): void {
     this.log('prepareInternal begin');
     // NOTE: no permission dialog here. On HarmonyOS 7 (API 26) the system
@@ -253,6 +324,7 @@ struct Index {
       publicOk = entries.indexOf('.granted') >= 0;
       if (publicOk) {
         fs.mkdirSync(this.appDir + '/savedata', true);
+        this.writeNomedia(this.appDir);
       }
     } catch (e) {
       this.log('public app dir not granted: ' + JSON.stringify(e));
@@ -291,10 +363,18 @@ struct Index {
     // button when ready. Only fetch the download manifest when data is
     // missing and the user actually wants to download/import.
     if (ready) {
+      this.readyForGame = true;
       this.bootState = 2;
       this.progressText = '游戏数据已就绪';
       this.message = '';
       this.assets = [];
+      // No explicit start button: launch the game as soon as the data is
+      // verified, once the bootstrap page has had a moment to render.
+      setTimeout(() => {
+        if (this.bootState === 2 && this.readyForGame) {
+          this.startGame();
+        }
+      }, 400);
     } else {
       this.bootState = 2;
       this.progressText = '需要下载或导入游戏数据';
@@ -392,6 +472,7 @@ struct Index {
       } catch (e) {
         // may already exist
       }
+      this.writeNomedia(this.appDir);
       // Write a marker that proves we have write access; prepare() relies on
       // it to decide whether to use the public folder on later launches.
       try {
@@ -444,6 +525,7 @@ struct Index {
       } catch (e) {
         // already exists
       }
+      this.writeNomedia(this.appDir);
       this.message = '';
       this.log('switched to public dir: ' + this.baseDir);
     }
@@ -587,7 +669,13 @@ struct Index {
   }
 
   async unzipTo(srcZip: string, outDir: string): Promise<void> {
-    await zlib.decompressFile(srcZip, outDir);
+    // Run the decompression on a TaskPool worker: zlib.decompressFile on a
+    // multi-GB archive blocks the UI thread long enough to trigger ANR and
+    // the system kills the app mid-import.
+    const result = await taskpool.execute(unzipTask, srcZip, outDir) as string;
+    if (result !== 'ok') {
+      throw new Error(result);
+    }
   }
 
   /** True only when the Windows krkrz-style root contains data.xp3, or
@@ -655,7 +743,7 @@ struct Index {
   /** Copy from a document picker uri (file:// or datashare://) to a path.
    * Plain copyFileSync fails on picker uris with error 13900002, and a
    * pre-existing destination triggers 13900015, so remove it first. */
-  copyFromUri(uri: string, dest: string): void {
+  async copyFromUri(uri: string, dest: string): Promise<void> {
     try {
       fs.unlinkSync(dest);
     } catch (e) {
@@ -672,6 +760,7 @@ struct Index {
     }
     const dst = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     const buf = new ArrayBuffer(1024 * 1024);
+    let bytes = 0;
     try {
       while (true) {
         const n = fs.readSync(src.fd, buf);
@@ -680,6 +769,14 @@ struct Index {
         }
         const chunk = buf.slice(0, n);
         fs.writeSync(dst.fd, chunk);
+        bytes += n;
+        // Yield to the UI thread periodically: copying a multi-GB zip in
+        // one synchronous loop stalls rendering and the system may kill
+        // the app (the import crashed after a small part was copied).
+        if (bytes >= 32 * 1024 * 1024) {
+          bytes = 0;
+          await this.delay(0);
+        }
       }
     } finally {
       fs.closeSync(src);
@@ -704,6 +801,8 @@ struct Index {
   async importLocal(): Promise<void> {
     this.bootState = 4;
     this.message = '';
+    this.progressText = '正在导入，请稍等';
+    this.progressValue = 0;
     await this.ensurePublic();
     this.uiEpoch++; // force a rebuild after the permission dialog closes
     const documentPicker = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
@@ -743,10 +842,10 @@ struct Index {
         if (lower.endsWith('.xp3')) {
           // A bare data.xp3 goes straight onto the app root, beside savedata
           // (mirrors Windows krkrz: data.xp3 lives next to the executable).
-          this.copyFromUri(uri, this.baseDir + '/data.xp3');
+          await this.copyFromUri(uri, this.baseDir + '/data.xp3');
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
-          this.copyFromUri(uri, tmp);
+          await this.copyFromUri(uri, tmp);
           // Clear a stale data.xp3 so decompress won't hit a conflict
           // (error 900002), then extract to the app root.
           try {
@@ -786,14 +885,17 @@ struct Index {
 
   finishData(): void {
     if (this.dataReady()) {
-      // Do not launch automatically: keep the verified state visible and let
-      // the user start the native renderer explicitly.
       this.readyForGame = true;
       this.bootState = 2;
       this.progressText = '游戏数据已就绪';
       this.message = '';
       this.uiEpoch++;
-      this.log('import/download complete; waiting for explicit game start');
+      this.log('import/download complete; auto-starting the game');
+      setTimeout(() => {
+        if (this.bootState === 2 && this.readyForGame) {
+          this.startGame();
+        }
+      }, 400);
       return;
     }
     this.bootState = 2;
@@ -810,6 +912,7 @@ struct Index {
     if (this.bootState === 6) {
       return; // already running
     }
+    this.cleanKrkrTmp();
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
     this.bootState = 6;
     // NOTE: window rotation is deferred until the engine has started
@@ -985,7 +1088,7 @@ struct Index {
           Text('').height(24)
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Gray)
-          TextInput({ text: this.baseUrl, placeholder: '下载地址（GitHub Release 页面）' })
+          TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })
             .width('86%')
             .fontSize(12)
             .fontColor(Color.White)
@@ -1012,31 +1115,20 @@ struct Index {
             Button('gh-proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
               this.proxyUrl = 'https://gh-proxy.cn/';
             })
-            Button('我的代理').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
+            Button('Craft-Hello Proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
               this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
             })
           }
-          if (this.readyForGame) {
-            Button('开始游戏（竖屏切换为横屏）').width(240).height(56).fontSize(18).onClick(() => {
-              this.startGame();
-            })
-            Text('数据已就绪，点击开始。若黑屏请截图 debug 日志').fontSize(12).fontColor(Color.Gray).maxLines(2)
-          } else {
-            Text('留空=直连 GitHub；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
-            Button(this.needInit ? '初始化下载目录（在系统下载目录建专属文件夹）' : '已初始化下载目录（可重新确认）')
-              .width('88%').height(48).backgroundColor('#2E5A88').onClick(() => {
-                this.initPublicDir();
-              })
-            Button('下载游戏数据').width(220).height(52).onClick(() => {
-              this.downloadAll();
-            })
-            Button('从本地压缩包导入').width(220).height(52).backgroundColor('#3A5BA0').onClick(() => {
-              this.importLocal();
-            })
-            Button('重新检查').width(220).height(44).backgroundColor('#555555').onClick(() => {
-              this.prepare();
-            })
-          }
+          Text('下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
+          Button('下载游戏数据').width(220).height(52).onClick(() => {
+            this.downloadAll();
+          })
+          Button('从本地压缩包导入').width(220).height(52).backgroundColor('#3A5BA0').onClick(() => {
+            this.importLocal();
+          })
+          Button('重新检查').width(220).height(44).backgroundColor('#555555').onClick(() => {
+            this.prepare();
+          })
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(4)
           }
         }
