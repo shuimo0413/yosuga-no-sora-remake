@@ -50,10 +50,16 @@ VIDEO_DRIVER_FILES = [
     "sdl_ohos_bridge.h",
 ]
 
+AUDIO_DRIVER_FILES = [
+    "SDL_ohosaudio.c",
+    "SDL_ohosaudio.h",
+]
+
 SDL_CMAKE_OHOS_BLOCK = """
 # --- OpenHarmony backend (added by tools/setup_ohos_project.py) ---
 if(OHOS)
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos")
+  include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/audio/ohos")
   # Replace every platform filesystem implementation with the OpenHarmony one.
   list(FILTER SOURCE_FILES EXCLUDE REGEX "src/filesystem/(unix|android|windows|winrt|cocoa|psp|dummy|vita|n3ds|riscos|haiku|emscripten|os2)/SDL_sysfilesystem")
   # SDL_JOYSTICK_DISABLED / SDL_HAPTIC_DISABLED / SDL_POWER_DISABLED make
@@ -68,6 +74,7 @@ if(OHOS)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosvideo.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosevents.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video/ohos/SDL_ohosgl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio/ohos/SDL_ohosaudio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/filesystem/ohos/SDL_sysfilesystem.c
     ${OHOS_JOYSTICK_DUMMY_SOURCES}
     ${OHOS_HAPTIC_DUMMY_SOURCES}
@@ -82,6 +89,7 @@ if(OHOS)
   # corresponding SDL_config.h cmakedefine into a comment.
   add_definitions(
     -DSDL_VIDEO_DRIVER_OHOS=1
+    -DSDL_AUDIO_DRIVER_OHOS=1
     -DSDL_JOYSTICK_DISABLED=1
     -DSDL_HAPTIC_DISABLED=1
     -DSDL_SENSOR_DISABLED=1
@@ -144,6 +152,14 @@ def vendor_sdl():
             fail("missing driver source: %s" % source)
         shutil.copy2(source, video_dir / name)
         shutil.copy2(source, filesystem_dir / name)
+
+    audio_dir = SDL_DEST / "src" / "audio" / "ohos"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    for name in AUDIO_DRIVER_FILES:
+        source = DRIVER_SOURCE / name
+        if not source.is_file():
+            fail("missing driver source: %s" % source)
+        shutil.copy2(source, audio_dir / name)
 
     filesystem_source = DRIVER_SOURCE / "SDL_sysfilesystem.c"
     if not filesystem_source.is_file():
@@ -217,6 +233,38 @@ def patch_sdl():
         video_c.write_text("".join(lines), encoding="utf-8")
     else:
         print("SDL_video.c already patched; skipping.")
+
+    # Register the audio driver declaration in SDL_sysaudio.h.
+    sysaudio = SDL_DEST / "src" / "audio" / "SDL_sysaudio.h"
+    text = sysaudio.read_text(encoding="utf-8", errors="replace")
+    if "OHOSAUDIO_bootstrap" in text:
+        print("SDL_sysaudio.h already patched; skipping.")
+    else:
+        lines = text.splitlines(keepends=True)
+        insert_after(
+            lines,
+            "extern AudioBootStrap OS2AUDIO_bootstrap;",
+            ["#ifdef SDL_AUDIO_DRIVER_OHOS\n", "extern AudioBootStrap OHOSAUDIO_bootstrap;\n", "#endif\n"],
+            "audio bootstrap extern",
+            sysaudio,
+        )
+        sysaudio.write_text("".join(lines), encoding="utf-8")
+
+    # Add the audio driver to the bootstrap table in SDL_audio.c.
+    audio_c = SDL_DEST / "src" / "audio" / "SDL_audio.c"
+    text = audio_c.read_text(encoding="utf-8", errors="replace")
+    if "&OHOSAUDIO_bootstrap," not in text:
+        lines = text.splitlines(keepends=True)
+        insert_after(
+            lines,
+            "&ANDROIDAUDIO_bootstrap,",
+            ["#endif\n", "#ifdef SDL_AUDIO_DRIVER_OHOS\n", "    &OHOSAUDIO_bootstrap,\n"],
+            "audio bootstrap table",
+            audio_c,
+        )
+        audio_c.write_text("".join(lines), encoding="utf-8")
+    else:
+        print("SDL_audio.c already patched; skipping.")
 
     cmake_file = SDL_DEST / "CMakeLists.txt"
     text = cmake_file.read_text(encoding="utf-8", errors="replace")
