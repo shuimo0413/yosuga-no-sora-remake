@@ -796,7 +796,56 @@ struct Index {
             })
             // Full-screen height with 16:9 aspect: the video fills the
             // screen top-to-bottom and letterboxes on the sides only.
-            .width(this.videoOnTop ? '100%' : 1)
+            .height('100%')
+            .aspectRatio(16 / 9)
+            // Report the real component size to the engine: the native
+            // OnSurfaceChanged callback never fires on this system, so
+            // without this the SDL window size stays at the fallback and
+            // touch coordinates are scaled wrong.
+            .onAreaChange((oldValue: Area, newValue: Area) => {
+              try {
+                const w = newValue.width as number;
+                const h = newValue.height as number;
+                if (w > 0 && h > 0) {
+                  // Record the real component pixel size. This is used ONLY to
+                  // scale touch coordinates from the physical XComponent space
+                  // into the game's logical window space (1920x1080). The SDL
+                  // window size itself must stay at the game resolution -
+                  // resizing it to the physical size made the game crash
+                  // ("Scan line 0 is range over (0 to -1)") because layers are
+                  // laid out in the 1920x1080 coordinate system.
+                  entryNapi.setSurfaceSize(vp2px(w), vp2px(h));
+                  this.log('XComponent size: ' + vp2px(w).toFixed(0) + 'x' + vp2px(h).toFixed(0) + ' px');
+                }
+              } catch (e) {
+                this.log('onAreaChange exception: ' + JSON.stringify(e));
+              }
+            })
+            // Video XComponent: the AVPlayer renders the OP/logo movies into
+            // THIS surface. It sits below the game XComponent normally and is
+            // raised above it (zIndex) while the video plays, so the engine
+            // framebuffer and the video never share a buffer queue.
+            XComponent({
+              id: 'videoview',
+              type: XComponentType.SURFACE,
+              libraryname: 'entry',
+              controller: this.xcVideoController
+            })
+              .onLoad(() => {
+                try {
+                  let vsid = '';
+                  try {
+                    vsid = this.xcVideoController.getXComponentSurfaceId();
+                  } catch (e3) {
+                    this.log('getVideoXComponentSurfaceId failed: ' + JSON.stringify(e3));
+                  }
+                  this.log('video onLoad surfaceId=' + vsid);
+                  entryNapi.setVideoSurfaceId(vsid);
+                } catch (e) {
+                  this.log('video onLoad exception: ' + JSON.stringify(e));
+                }
+              })
+              .width(this.videoOnTop ? '100%' : 1)
               .height(this.videoOnTop ? '100%' : 1)
               .aspectRatio(this.videoOnTop ? 16 / 9 : 1)
               .zIndex(this.videoOnTop ? 3 : -1)
