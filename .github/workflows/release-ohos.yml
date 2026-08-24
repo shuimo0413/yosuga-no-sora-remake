@@ -144,6 +144,11 @@ jobs:
         with:
           submodules: recursive
           lfs: false
+      - name: Patch krkrz for OHOS xp3 auto paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_krkrz_ohos.py
       - name: Reclaim runner disk space
         shell: bash
         run: |

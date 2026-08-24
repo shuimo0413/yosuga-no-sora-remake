@@ -499,6 +499,18 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	if (streamName.IsEmpty())
 		streamName = _name;
 	ttstr localName = TVPGetLocallyAccessibleName(streamName);
+	/* Diagnose where the movie resolves: inside data.xp3 the placed name
+	 * carries the 'archive>' form and the local name is empty, which is
+	 * expected (the copy-to-temp branch below then extracts the member). */
+	{
+		std::string dbgName, dbgPlaced, dbgLocal;
+		TVPUtf16ToUtf8(dbgName, _name.AsStdString());
+		TVPUtf16ToUtf8(dbgPlaced, placedName.AsStdString());
+		TVPUtf16ToUtf8(dbgLocal, localName.AsStdString());
+		OHOSVideoTrace(("video open: name=" + dbgName +
+			" placed=" + (dbgPlaced.empty() ? std::string("(empty)") : dbgPlaced) +
+			" local=" + (dbgLocal.empty() ? std::string("(empty)") : dbgLocal)).c_str());
+	}
 	/* The AVPlayer needs a real file descriptor. Files that exist on the
 	 * filesystem are used directly; a member INSIDE data.xp3 resolves to a
 	 * virtual path that stat() cannot see, so copy it into a temporary
