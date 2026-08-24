@@ -24,6 +24,15 @@ interface DefaultManifest {
   releaseTag: string;
 }
 
+/** Structural subset of wantAgent.WantAgentInfo (the SDK does not export
+ *  the type itself); fields match the accepted parameter shape. */
+interface KeepAliveAgentInfo {
+  wants: Want[];
+  operationType: number;
+  requestCode: number;
+  wantAgentFlags: number[];
+}
+
 /** data-assets.json root, shipped as rawfile by the CI workflow. */
 interface DataManifest {
   schemaVersion: number;
@@ -172,7 +181,7 @@ struct Index {
         bundleName: ctx.abilityInfo.bundleName,
         abilityName: 'EntryAbility'
       };
-      const wantAgentInfo = {
+      const wantAgentInfo: KeepAliveAgentInfo = {
         wants: [want],
         operationType: wantAgent.OperationType.START_ABILITY,
         requestCode: 0,
