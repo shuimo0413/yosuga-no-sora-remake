@@ -219,6 +219,16 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 			return NULL;
 		}
 		OHOS_EglLog("context[%d]=%p", ++ctx_serial, (void *)g_ohos_egl_context);
+		/* SDL_GL_CreateContext records the context as current WITHOUT calling
+		 * the driver's MakeCurrent (SDL_GL_MakeCurrent then short-circuits),
+		 * so bind it for real here - otherwise the renderer probe runs with
+		 * no current context and its shader cache step fails. */
+		if (!eglMakeCurrent(g_ohos_egl_display, data->egl_surface, data->egl_surface, g_ohos_egl_context))
+		{
+			OHOS_EglLog("CreateContext eglMakeCurrent failed err=%#x", (unsigned)eglGetError());
+			SDL_SetError("OHOS: eglMakeCurrent after create failed");
+			return NULL;
+		}
 	}
 	return (SDL_GLContext)g_ohos_egl_context;
 }
