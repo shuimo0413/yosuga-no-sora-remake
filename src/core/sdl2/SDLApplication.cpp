@@ -1012,6 +1012,17 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	 * "Couldn't find matching render driver". Flag the window OpenGL up
 	 * front so the GLES2 context is created directly. */
 	window_flags |= SDL_WINDOW_OPENGL;
+	/* Request an ES2 context. The block above that normally sets these
+	 * attributes sits inside KRKRZ_ENABLE_CANVAS, which the OHOS build
+	 * does not define (OPTION_ENABLE_CANVAS=OFF); set them here so SDL's
+	 * GL state carries the ES profile into SDL_GL_CreateContext. */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 #endif
 	new_window_w = 0;
 	new_window_h = 0;
@@ -1091,18 +1102,19 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 #if defined(__OHOS__)
-		/* OHOS: go STRAIGHT to the software renderer. The GLES2 driver is
-		 * compiled in but cannot create a context here: the XComponent
-		 * window is not flagged SDL_WINDOW_OPENGL, and GLES2_CreateRenderer's
-		 * fallback SDL_RecreateWindow() fails on this backend - so the
-		 * accelerated probe always ends in "Couldn't find matching render
-		 * driver" (device log: flags=12321 without the OpenGL bit). The
-		 * failed probe also re-creates the window, which disturbs the native
-		 * window state right before the video surface handoff. The software
-		 * renderer paints the window framebuffer via the LockBuffer path,
-		 * and TickBeat pauses it while the AVPlayer owns the surface. */
-		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
-		{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE-direct) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+		/* OHOS: prefer the hardware GLES2 renderer (the window now carries
+		 * SDL_WINDOW_OPENGL + an ES2 profile, so GLES2_CreateRenderer can
+		 * create its context directly and present via eglSwapBuffers).
+		 * Keep the software fallback for robustness: it paints the window
+		 * framebuffer through the LockBuffer path. Either way TickBeat
+		 * pauses the renderer while the AVPlayer owns the surface. */
+		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+		{ OHOS_LogToFile("engine: SDL_CreateRenderer(ACCELERATED) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+		if (!this->renderer)
+		{
+			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
+			{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE-fallback) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+		}
 #else
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		{ OHOS_LogToFile("engine: SDL_CreateRenderer -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
