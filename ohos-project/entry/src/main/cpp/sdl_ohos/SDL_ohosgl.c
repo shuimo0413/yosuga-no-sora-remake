@@ -25,42 +25,6 @@
 static EGLDisplay g_ohos_egl_display = EGL_NO_DISPLAY;
 static EGLContext g_ohos_egl_context = EGL_NO_CONTEXT;
 
-static void OHOS_EglLog(const char *fmt, ...)
-{
-	char line[1024];
-	va_list ap;
-	va_start(ap, fmt);
-	vsnprintf(line, sizeof(line), fmt, ap);
-	va_end(ap);
-
-	/* Write to the SANDBOX files dir (hdc shell can read it) as both an
-	 * egl-specific log and engine.log, plus the public Download dir. The
-	 * public dir is what the user's logs.zip captures; the sandbox one is
-	 * what hdc shell can read directly for live debugging. */
-	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-	const char *sandbox = SDL_OHOS_GetFilesDir();
-	if (sandbox && sandbox[0])
-	{
-		char epath[512];
-		snprintf(epath, sizeof(epath), "%s/yosuga-egl.log", sandbox);
-		FILE *ef = fopen(epath, "a");
-		if (ef) { fprintf(ef, "%s\n", line); fclose(ef); }
-		snprintf(epath, sizeof(epath), "%s/engine.log", sandbox);
-		ef = fopen(epath, "a");
-		if (ef) { fprintf(ef, "egl: %s\n", line); fclose(ef); }
-	}
-	if (dd && dd[0])
-	{
-		char epath[512];
-		snprintf(epath, sizeof(epath), "%s/yosuga-egl.log", dd);
-		FILE *ef = fopen(epath, "a");
-		if (ef) { fprintf(ef, "%s\n", line); fclose(ef); }
-		snprintf(epath, sizeof(epath), "%s/engine.log", dd);
-		ef = fopen(epath, "a");
-		if (ef) { fprintf(ef, "egl: %s\n", line); fclose(ef); }
-	}
-}
-
 static int OHOS_EglInit(void)
 {
 	if (g_ohos_egl_display != EGL_NO_DISPLAY)
@@ -70,18 +34,15 @@ static int OHOS_EglInit(void)
 	g_ohos_egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 	if (g_ohos_egl_display == EGL_NO_DISPLAY)
 	{
-		OHOS_EglLog("eglGetDisplay failed err=%#x", (unsigned)eglGetError());
 		SDL_SetError("OHOS: eglGetDisplay failed");
 		return 0;
 	}
 	EGLint major = 0, minor = 0;
 	if (!eglInitialize(g_ohos_egl_display, &major, &minor))
 	{
-		OHOS_EglLog("eglInitialize failed err=%#x", (unsigned)eglGetError());
 		SDL_SetError("OHOS: eglInitialize failed");
 		return 0;
 	}
-	OHOS_EglLog("eglInitialize ok %d.%d", (int)major, (int)minor);
 	eglBindAPI(EGL_OPENGL_ES_API);
 	return 1;
 }
@@ -103,9 +64,7 @@ int OHOS_GL_LoadLibrary(_THIS, const char *path)
 	 * SDL_CreateRenderer(ACCELERATED) finds no render driver and falls back
 	 * to the software renderer). OHOS_EglInit() returns 1 on success / 0 on
 	 * failure, so translate that to SDL's 0==success / -1==failure. */
-	OHOS_EglLog("OHOS_GL_LoadLibrary called - path=%s", path ? path : "(null)");
 	int r = OHOS_EglInit() ? 0 : -1;
-	OHOS_EglLog("OHOS_GL_LoadLibrary returning %d", r);
 	return r;
 }
 
@@ -123,8 +82,6 @@ void *OHOS_GL_GetProcAddress(_THIS, const char *proc)
 	{
 		/* Only log failures: the GLES2 renderer probe requests many entry
 		 * points and a missing one aborts its initialisation. */
-		OHOS_EglLog("GetProcAddress(%s) FAILED (egl=%p dlsym=%p)",
-			proc, (void *)eglGetProcAddress(proc), (void *)dlsym(RTLD_DEFAULT, proc));
 	}
 	return addr;
 }
@@ -140,22 +97,17 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 	OHNativeWindow *native_window;
 	EGLConfig config = NULL;
 	EGLint num_configs = 0;
-	FILE *lf = fopen("/data/local/tmp/yosuga-egl.log", "a");
-	if (lf) { fprintf(lf, "OHOS_GL_CreateContext enter\n"); fclose(lf); }
 
 	if (window == NULL || (data = (SDL_WindowData *)window->driverdata) == NULL)
 	{
-		OHOS_EglLog("CreateContext: no window driver data");
 		return NULL;
 	}
 	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
 	if (native_window == NULL)
 	{
-		OHOS_EglLog("CreateContext: no native window");
 		SDL_SetError("The XComponent native window is unavailable");
 		return NULL;
 	}
-	OHOS_EglLog("CreateContext: native_window=%p", (void *)native_window);
 
 	if (!OHOS_EglInit())
 	{
@@ -195,7 +147,6 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		};
 		if (!eglChooseConfig(g_ohos_egl_display, config_attribs, &config, 1, &num_configs) || num_configs < 1)
 		{
-			OHOS_EglLog("eglChooseConfig failed err=%#x n=%d", (unsigned)eglGetError(), num_configs);
 			SDL_SetError("OHOS: eglChooseConfig failed");
 			return NULL;
 		}
@@ -203,15 +154,12 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		data->egl_surface = eglCreateWindowSurface(g_ohos_egl_display, config, (EGLNativeWindowType)(uintptr_t)native_window, NULL);
 		if (data->egl_surface == EGL_NO_SURFACE)
 		{
-			OHOS_EglLog("eglCreateWindowSurface failed err=%#x", (unsigned)eglGetError());
 			SDL_SetError("OHOS: eglCreateWindowSurface failed");
 			return NULL;
 		}
-		OHOS_EglLog("egl_surface=%p created", (void *)data->egl_surface);
 	}
 	else
 	{
-		OHOS_EglLog("egl_surface=%p reused for a second context", (void *)data->egl_surface);
 	}
 
 	EGLint ctx_attribs[] = {
@@ -223,18 +171,15 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		g_ohos_egl_context = eglCreateContext(g_ohos_egl_display, config, EGL_NO_CONTEXT, ctx_attribs);
 		if (g_ohos_egl_context == EGL_NO_CONTEXT)
 		{
-			OHOS_EglLog("eglCreateContext failed err=%#x", (unsigned)eglGetError());
 			SDL_SetError("OHOS: eglCreateContext failed");
 			return NULL;
 		}
-		OHOS_EglLog("context[%d]=%p", ++ctx_serial, (void *)g_ohos_egl_context);
 		/* SDL_GL_CreateContext records the context as current WITHOUT calling
 		 * the driver's MakeCurrent (SDL_GL_MakeCurrent then short-circuits),
 		 * so bind it for real here - otherwise the renderer probe runs with
 		 * no current context and its shader cache step fails. */
 		if (!eglMakeCurrent(g_ohos_egl_display, data->egl_surface, data->egl_surface, g_ohos_egl_context))
 		{
-			OHOS_EglLog("CreateContext eglMakeCurrent failed err=%#x", (unsigned)eglGetError());
 			SDL_SetError("OHOS: eglMakeCurrent after create failed");
 			return NULL;
 		}
@@ -251,17 +196,12 @@ int OHOS_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext context)
 		SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
 		if (data == NULL)
 		{
-			OHOS_EglLog("MakeCurrent: no window driver data");
 			return SDL_SetError("Window has no driver data");
 		}
 		ok = eglMakeCurrent(g_ohos_egl_display, data->egl_surface, data->egl_surface, g_ohos_egl_context);
-		OHOS_EglLog("MakeCurrent surface=%p ctx=%p (req ctx=%p) -> %d err=%#x",
-			(void *)data->egl_surface, (void *)g_ohos_egl_context, (void *)context,
-			(int)ok, ok ? 0 : (unsigned)eglGetError());
 		return ok ? 0 : SDL_SetError("OHOS: eglMakeCurrent failed");
 	}
 	ok = eglMakeCurrent(g_ohos_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-	OHOS_EglLog("MakeCurrent(NULL) -> %d", (int)ok);
 	return ok ? 0 : SDL_SetError("OHOS: eglMakeCurrent(NULL) failed");
 }
 
@@ -288,14 +228,12 @@ int OHOS_GL_SwapWindow(_THIS, SDL_Window *window)
 		static int swap_count = 0;
 		if (++swap_count <= 5 || swap_count % 300 == 0)
 		{
-			OHOS_EglLog("swap #%d egl_surface=%p", swap_count, (void *)data->egl_surface);
 		}
 	}
 	{
 		EGLBoolean ok = eglSwapBuffers(g_ohos_egl_display, data->egl_surface);
 		if (!ok)
 		{
-			OHOS_EglLog("eglSwapBuffers failed err=%#x", (unsigned)eglGetError());
 		}
 		return ok ? 0 : SDL_SetError("OHOS: eglSwapBuffers failed");
 	}
@@ -304,7 +242,6 @@ int OHOS_GL_SwapWindow(_THIS, SDL_Window *window)
 void OHOS_GL_DeleteContext(_THIS, SDL_GLContext context)
 {
 	(void)_this;
-	OHOS_EglLog("DeleteContext ctx=%p (current=%p)", (void *)context, (void *)g_ohos_egl_context);
 	if (context)
 	{
 		eglDestroyContext(g_ohos_egl_display, (EGLContext)context);

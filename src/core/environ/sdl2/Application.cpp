@@ -505,9 +505,6 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 				struct stat st;
 				if (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode))
 				{
-					SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-						"(info) OHOS: registering archive auto paths for %s",
-						xp3.c_str());
 					std::string prefix = xp3 + ">";
 					const char *subs[] = {
 						"system/", "scenario/", "bg_1920/", "event_1920/",
@@ -555,45 +552,7 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		image_load_thread_->StartTread();
 #endif
 
-		// OHOS debug: log the selected project dir + probe data.xp3 access.
-		{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-			std::string logpath = "/data/local/tmp/yosuga-engine.log";
-			if (dd && dd[0]) { logpath = std::string(dd) + "/engine.log"; }
-			FILE *lf = fopen(logpath.c_str(), "a");
-			if (lf)
-			{
-				extern tjs_string TVPNativeProjectDir;
-				std::string native_dir_utf8;
-				TVPUtf16ToUtf8(native_dir_utf8, TVPNativeProjectDir);
-				fprintf(lf, "engine: TVPProjectDirSelected=%d nativeProjectDir=%s\n",
-					TVPProjectDirSelected ? 1 : 0, native_dir_utf8.c_str());
-				// Probe whether the engine can actually open data.xp3.
-				std::string xp3 = native_dir_utf8.empty() ? std::string("/data.xp3") : native_dir_utf8 + "/data.xp3";
-				FILE *xf = fopen(xp3.c_str(), "rb");
-				if (xf)
-				{
-					fseek(xf, 0, SEEK_END);
-					long sz = ftell(xf);
-					fprintf(lf, "engine: fopen data.xp3 OK size=%ld path=%s\n", sz, xp3.c_str());
-					fclose(xf);
-				}
-				else
-				{
-					fprintf(lf, "engine: fopen data.xp3 FAILED path=%s\n", xp3.c_str());
-					if (dd && dd[0])
-					{
-						FILE *xf2 = fopen((std::string(dd) + "/data.xp3").c_str(), "rb");
-						if (xf2) { fprintf(lf, "engine: fopen data.xp3 via env OK\n"); fclose(xf2); }
-						else { fprintf(lf, "engine: fopen data.xp3 via env FAILED\n"); }
-					}
-				}
-				fclose(lf);
-			}
-		}
-		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: startup script BEGIN\n"); fclose(lf); } } }
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
-		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: startup script DONE (windows=%d)\n", TVPGetWindowCount()); fclose(lf); } } }
 
 #if 0
 		Run();
@@ -869,19 +828,6 @@ extern "C" void EMSCRIPTEN_KEEPALIVE emscripten_syncfs_is_finished()
 #endif
 
 void tTVPApplication::Run() {
-	// OHOS debug: trace main-loop exit.
-	{
-		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-		if (dd && dd[0])
-		{
-			static bool first = true;
-			if (first) {
-				first = false;
-				FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-				if (lf) { fprintf(lf, "engine: Run() enter tarminate=%d windows=%d\n", tarminate_ ? 1 : 0, TVPGetWindowCount()); fclose(lf); }
-			}
-		}
-	}
 #if 0
 	TVPTerminateCode = 0;
 
@@ -978,9 +924,6 @@ void tTVPApplication::SetTitle( const tjs_string& caption ) {
 }
 
 void tTVPApplication::Terminate() {
-	{
-		const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: Terminate() called\n"); fclose(lf); } }
-	}
 #if 0
 	::PostQuitMessage(0);
 #endif

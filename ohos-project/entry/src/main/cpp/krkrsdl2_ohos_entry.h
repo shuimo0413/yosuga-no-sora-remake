@@ -57,9 +57,6 @@ void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height);
  * SDL video driver can obtain its native window. */
 void OHOS_Entry_AttachXComponent(void *component);
 
-/* Append native bootstrap diagnostics to <public app dir>/engine.log. */
-void OHOS_Entry_LogNative(const char *message);
-
 /* Return the rawfile resource manager created from the ability context, or
  * NULL when initResourceManager has not run yet. */
 void *OHOS_Entry_GetResourceManager(void);

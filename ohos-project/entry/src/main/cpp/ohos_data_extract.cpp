@@ -25,19 +25,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define LOG_DOMAIN 0x0000
-#define LOG_TAG "YosugaOHOS"
-
-static void Log(LogLevel level, const char *fmt, ...)
-{
-	va_list ap;
-	va_start(ap, fmt);
-	char buffer[1024];
-	vsnprintf(buffer, sizeof(buffer), fmt, ap);
-	va_end(ap);
-	OH_LOG_Print(LOG_APP, level, LOG_DOMAIN, LOG_TAG, "%{public}s", buffer);
-}
-
 static NativeResourceManager *GetResourceManager()
 {
 	return static_cast<NativeResourceManager *>(OHOS_Entry_GetResourceManager());
@@ -197,7 +184,6 @@ static bool ExtractDirectory(NativeResourceManager *manager,
 	RawDir *dir = OH_ResourceManager_OpenRawDir(manager, raw_dir.c_str());
 	if (dir == nullptr)
 	{
-		Log(LOG_WARN, "cannot open raw directory: %{public}s", raw_dir.c_str());
 		return false;
 	}
 
@@ -208,7 +194,6 @@ static bool ExtractDirectory(NativeResourceManager *manager,
 	}
 
 	int count = OH_ResourceManager_GetRawFileCount(dir);
-	int files = 0;
 	for (int i = 0; i < count; i++)
 	{
 		const char *name = OH_ResourceManager_GetRawFileName(dir, i);
@@ -225,11 +210,6 @@ static bool ExtractDirectory(NativeResourceManager *manager,
 			OH_ResourceManager_CloseRawFile(file);
 			if (!ExtractFile(manager, raw_path, dest_path))
 			{
-				Log(LOG_WARN, "failed to extract %{public}s", raw_path.c_str());
-			}
-			else
-			{
-				files++;
 			}
 		}
 		else
@@ -239,7 +219,6 @@ static bool ExtractDirectory(NativeResourceManager *manager,
 		}
 	}
 	OH_ResourceManager_CloseRawDir(dir);
-	Log(LOG_INFO, "extracted %{public}s (%d files)", raw_dir.c_str(), files);
 	return true;
 }
 
@@ -249,7 +228,6 @@ int OHOS_ExtractGameData(void)
 	const char *files_dir = SDL_OHOS_GetFilesDir();
 	if (manager == nullptr || files_dir == nullptr)
 	{
-		Log(LOG_ERROR, "extraction aborted: no resource manager or files directory");
 		return 0;
 	}
 
@@ -271,20 +249,15 @@ int OHOS_ExtractGameData(void)
 			ReadFileAll(JoinPath(dest_root, "content-manifest.json"), extracted_manifest) &&
 			extracted_manifest == raw_manifest)
 		{
-			Log(LOG_INFO, "game data already extracted; skipping (%{public}s)", hash_text);
 			return 1;
 		}
 	}
 	else
 	{
-		Log(LOG_WARN, "rawfile data/content-manifest.json is missing; "
-			"extracting unconditionally (generate it with tools/generate_content_manifest.py)");
 	}
 
-	Log(LOG_INFO, "extracting game data into %{public}s", dest_root.c_str());
 	if (!ExtractDirectory(manager, "data", dest_root))
 	{
-		Log(LOG_ERROR, "game data extraction failed");
 		return 0;
 	}
 

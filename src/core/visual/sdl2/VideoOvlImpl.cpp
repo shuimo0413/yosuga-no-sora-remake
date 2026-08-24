@@ -52,42 +52,6 @@
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
 #if defined(__OHOS__)
 #include <dlfcn.h>
-/* Write a trace line into the sandbox engine.log (SDL_Log goes to hilog,
- * which is not collected by the user's logs.zip). */
-typedef const char *(*OHOSGetFilesDirFn)(void);
-static const char *OHOS_SandboxDir(void)
-{
-	static OHOSGetFilesDirFn fn = nullptr;
-	static const char *cached = nullptr;
-	if (cached) return cached;
-	if (fn == nullptr)
-	{
-		void *handle = dlopen("libentry.so", RTLD_NOW);
-		if (!handle) handle = RTLD_DEFAULT;
-		fn = (OHOSGetFilesDirFn)dlsym(handle, "SDL_OHOS_GetFilesDir");
-	}
-	if (fn) cached = fn();
-	return cached;
-}
-/* Append one trace line to <dir>/engine.log if that dir is set. */
-static void OHOS_TraceAppend(const char *dir, const char *msg)
-{
-	if (dir == nullptr || dir[0] == '\0')
-		return;
-	FILE *lf = fopen((std::string(dir) + "/engine.log").c_str(), "a");
-	if (lf) { fprintf(lf, "engine: %s\n", msg); fclose(lf); }
-}
-static void OHOSVideoTrace(const char *msg)
-{
-	const char *sandbox = OHOS_SandboxDir();
-	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-	OHOS_TraceAppend(sandbox, msg);
-	if (pub != nullptr && pub[0] != '\0' &&
-		(sandbox == nullptr || sandbox[0] == '\0' || std::string(pub) != std::string(sandbox)))
-	{
-		OHOS_TraceAppend(pub, msg);
-	}
-}
 /* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
  * engine .so does not need a link-time dependency on the entry module. */
 #include <thread>
@@ -106,9 +70,6 @@ static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
 /* Called by libentry when playback reaches the end. */
 static void OHOSOnVideoEnded()
 {
-	char tb[128];
-	snprintf(tb, sizeof(tb), "OHOSOnVideoEnded overlay=%p", (void *)OHOSVideoActiveOverlay);
-	OHOSVideoTrace(tb);
 	if (OHOSVideoActiveOverlay)
 		OHOSVideoActiveOverlay->OHOSPlaybackFinished();
 }
@@ -124,20 +85,10 @@ static void OHOSVideoResolveBridge()
 	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
 	OHOSVideoResumeFn = (void (*)(void))dlsym(handle, "OHOS_VideoResume");
 	OHOSVideoSetEndFn = (OHOSVideoSetEndFnPtr)dlsym(handle, "OHOS_VideoSetEndCallback");
-	{
-		char tb[256];
-		snprintf(tb, sizeof(tb), "OHOS bridge: open=%p stop=%p close=%p setend=%p dlopen=%s",
-			(void *)OHOSVideoOpenFn, (void *)OHOSVideoStopFn, (void *)OHOSVideoCloseFn,
-			(void *)OHOSVideoSetEndFn, handle ? "ok" : "RTLD_DEFAULT");
-		OHOSVideoTrace(tb);
-	}
 	if (OHOSVideoSetEndFn)
 	{
 		OHOSVideoSetEndFn(&OHOSOnVideoEnded);
-		OHOSVideoTrace("OHOS video end callback registered");
 	}
-	if (OHOSVideoOpenFn) OHOSVideoTrace("OHOS video bridge resolved");
-	else OHOSVideoTrace("OHOS video bridge NOT resolved");
 }
 #endif
 #ifdef __ANDROID__
@@ -499,18 +450,6 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	if (streamName.IsEmpty())
 		streamName = _name;
 	ttstr localName = TVPGetLocallyAccessibleName(streamName);
-	/* Diagnose where the movie resolves: inside data.xp3 the placed name
-	 * carries the 'archive>' form and the local name is empty, which is
-	 * expected (the copy-to-temp branch below then extracts the member). */
-	{
-		std::string dbgName, dbgPlaced, dbgLocal;
-		TVPUtf16ToUtf8(dbgName, _name.AsStdString());
-		TVPUtf16ToUtf8(dbgPlaced, placedName.AsStdString());
-		TVPUtf16ToUtf8(dbgLocal, localName.AsStdString());
-		OHOSVideoTrace(("video open: name=" + dbgName +
-			" placed=" + (dbgPlaced.empty() ? std::string("(empty)") : dbgPlaced) +
-			" local=" + (dbgLocal.empty() ? std::string("(empty)") : dbgLocal)).c_str());
-	}
 	/* The AVPlayer needs a real file descriptor. Files that exist on the
 	 * filesystem are used directly; a member INSIDE data.xp3 resolves to a
 	 * virtual path that stat() cannot see, so copy it into a temporary
@@ -531,18 +470,12 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 			OHOSTempFile = OHOSTempFolder + TJS_W("/") + TVPExtractStorageName(streamName);
 			TVPCreateFolders(OHOSTempFolder);
 			{
-				std::string dbgTemp;
-				TVPUtf16ToUtf8(dbgTemp, OHOSTempFolder.AsStdString());
-				OHOSVideoTrace(("video copy: temp=" + dbgTemp).c_str());
-				OHOSVideoTrace("video copy: opening source stream");
 				tTVPStreamHolder src(streamName);
-				OHOSVideoTrace("video copy: source stream opened, copying");
 				tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
 				tjs_uint8 buffer[65536 * 2];
 				tjs_uint read;
 				while ((read = src->Read(buffer, sizeof(buffer))) != 0)
 					dest->WriteBuffer(buffer, read);
-				OHOSVideoTrace("video copy: done");
 			}
 			localName = OHOSTempFile;
 		}
@@ -622,9 +555,6 @@ void tTJSNI_VideoOverlay::Close()
 #if defined(__OHOS__)
 void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
 {
-	char tb[128];
-	snprintf(tb, sizeof(tb), "OHOSPlaybackFinished status=%d loop=%d", (int)Status, Loop ? 1 : 0);
-	OHOSVideoTrace(tb);
 	/* NOTE: do NOT release the AVPlayer here. An async Close on a detached
 	 * thread raced with the game script reading video frames right after
 	 * Stop ("Scan line 0 is range over" crash). test.122 without any Close

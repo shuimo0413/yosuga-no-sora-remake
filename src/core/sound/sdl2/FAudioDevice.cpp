@@ -13,60 +13,6 @@
 
 #ifdef TVP_FAUDIO_IMPLEMENT
 #include <FAudio.h>
-#ifdef __OHOS__
-#include <SDL.h>
-#endif
-
-#ifdef __OHOS__
-#include <dlfcn.h>
-/* hilog is not readable from hdc on the target device; mirror audio init
- * progress into engine.log. Write BOTH the sandbox files dir (the only
- * hdc-readable location) and the public Download dir (what the user can
- * pull via logs.zip). */
-static const char *OHOSFASandboxDir(void)
-{
-	static const char *(*fn)(void) = nullptr;
-	static const char *cached = nullptr;
-	if (cached)
-		return cached;
-	if (fn == nullptr)
-	{
-		void *handle = dlopen("libentry.so", RTLD_NOW);
-		if (!handle)
-			handle = RTLD_DEFAULT;
-		fn = (const char *(*)(void))dlsym(handle, "SDL_OHOS_GetFilesDir");
-	}
-	if (fn)
-		cached = fn();
-	return cached;
-}
-static void OHOSFAudioLog(const char *fmt, ...)
-{
-	char line[512];
-	va_list ap;
-	va_start(ap, fmt);
-	vsnprintf(line, sizeof(line), fmt, ap);
-	va_end(ap);
-	const char *dirs[2];
-	int ndirs = 0;
-	const char *sandbox = OHOSFASandboxDir();
-	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-	if (sandbox && sandbox[0])
-		dirs[ndirs++] = sandbox;
-	if (pub && pub[0])
-		dirs[ndirs++] = pub;
-	for (int i = 0; i < ndirs; ++i)
-	{
-		std::string lpath = std::string(dirs[i]) + "/engine.log";
-		FILE *lf = fopen(lpath.c_str(), "a");
-		if (lf)
-		{
-			fprintf(lf, "audio: %s\n", line);
-			fclose(lf);
-		}
-	}
-}
-#endif
 
 class FAudioStream;
 class FAudioDevice : public iTVPAudioDevice
@@ -113,34 +59,13 @@ public:
 			TVPThrowExceptionMessage(TJS_W("Channel parameter is out of range"));
 		}
 		TVPAddLog(TJS_W("FAudio initializing..."));
-#ifdef __OHOS__
-		OHOSFAudioLog("FAudio Initialize enter rate=%d ch=%d", (int)param.SampleRate, (int)param.Channels);
-#endif
 
 		uint32_t flags = 0;
 		uint32_t hr = FAudioCreate(&FAudioObj, flags, FAUDIO_DEFAULT_PROCESSOR);
 		if (hr != 0)
 		{
-#ifdef __OHOS__
-			OHOSFAudioLog("FAudioCreate FAILED hr=0x%08x", (unsigned)hr);
-#endif
 			TVPThrowExceptionMessage(TJS_W("Failed to call FAudioCreate"));
 		}
-#ifdef __OHOS__
-		OHOSFAudioLog("FAudioCreate ok obj=%p", (void *)FAudioObj);
-		{
-			/* Which SDL audio drivers are actually registered? If the OHAudio
-			 * driver is missing from this list the bootstrap registration or
-			 * the SDL_AUDIO_DRIVER_OHOS define did not take effect. */
-			int ndrv = SDL_GetNumAudioDrivers();
-			OHOSFAudioLog("SDL audio drivers=%d", ndrv);
-			for (int i = 0; i < ndrv; ++i)
-				OHOSFAudioLog("SDL audio driver[%d]=%s", i, SDL_GetAudioDriver(i));
-			OHOSFAudioLog("SDL current audio driver=%s",
-				SDL_GetCurrentAudioDriver());
-			OHOSFAudioLog("SDL audio devices=%d", SDL_GetNumAudioDevices(0));
-		}
-#endif
 		hr = FAudio_CreateMasteringVoice(
 			FAudioObj,
 			&MasteringVoiceObj,
@@ -152,14 +77,8 @@ public:
 		);
 		if (hr != 0)
 		{
-#ifdef __OHOS__
-			OHOSFAudioLog("FAudio_CreateMasteringVoice FAILED hr=0x%08x", (unsigned)hr);
-#endif
 			TVPThrowExceptionMessage(TJS_W("Failed to call FAudio_CreateMasteringVoice"));
 		}
-#ifdef __OHOS__
-		OHOSFAudioLog("FAudio mastering voice ok");
-#endif
 
 		FAudioVoiceDetails details;
 		FAudioVoice_GetVoiceDetails(MasteringVoiceObj, &details);

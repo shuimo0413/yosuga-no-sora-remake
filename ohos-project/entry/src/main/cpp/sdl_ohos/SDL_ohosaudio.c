@@ -79,36 +79,6 @@ struct SDL_PrivateAudioData
     int shutdown;
 };
 
-static void OHOSAUDIO_Log(const char *fmt, ...)
-{
-    char line[512];
-    va_list ap;
-    va_start(ap, fmt);
-    SDL_vsnprintf(line, sizeof(line), fmt, ap);
-    va_end(ap);
-    OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", "audio: %{public}s", line);
-    /* hilog is not readable from hdc on this device; mirror into the
-     * engine.log files so the audio driver can be diagnosed live. */
-    {
-        const char *dirs[2];
-        int ndirs = 0;
-        const char *sandbox = SDL_OHOS_GetFilesDir();
-        const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-        if (sandbox && sandbox[0]) dirs[ndirs++] = sandbox;
-        if (pub && pub[0]) dirs[ndirs++] = pub;
-        for (int i = 0; i < ndirs; ++i)
-        {
-            char lpath[640];
-            snprintf(lpath, sizeof(lpath), "%s/engine.log", dirs[i]);
-            FILE *lf = fopen(lpath, "a");
-            if (lf)
-            {
-                fprintf(lf, "audio: %s\n", line);
-                fclose(lf);
-            }
-        }
-    }
-}
 
 static int OHOSAUDIO_RingUsed(struct SDL_PrivateAudioData *hidden)
 {
@@ -130,14 +100,6 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
     if (hidden == NULL || buffer == NULL || length <= 0)
     {
         return AUDIOSTREAM_SUCCESS;
-    }
-    {
-        /* Periodic trace: is the service still requesting PCM? */
-        static int cb_count = 0;
-        if (++cb_count <= 5 || cb_count % 500 == 1)
-        {
-            OHOSAUDIO_Log("write callback #%d len=%d", cb_count, (int)length);
-        }
     }
 
     int copied = 0;
@@ -165,8 +127,6 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
             static int under_count = 0;
             if (++under_count <= 5 || under_count % 200 == 1)
             {
-                OHOSAUDIO_Log("UNDERRUN #%d need=%d got=%d",
-                    under_count, (int)length, copied);
             }
         }
     }
@@ -188,7 +148,6 @@ static int32_t OHOSAUDIO_StreamEventCallback(OH_AudioRenderer *renderer, void *u
 {
     (void)renderer;
     (void)userData;
-    OHOSAUDIO_Log("stream event=%d", (int)event);
     return AUDIOSTREAM_SUCCESS;
 }
 
@@ -197,7 +156,6 @@ static int32_t OHOSAUDIO_InterruptCallback(OH_AudioRenderer *renderer, void *use
 {
     (void)renderer;
     (void)userData;
-    OHOSAUDIO_Log("interrupt type=%d hint=%d", (int)type, (int)hint);
     return AUDIOSTREAM_SUCCESS;
 }
 
@@ -206,7 +164,6 @@ static int32_t OHOSAUDIO_ErrorCallback(OH_AudioRenderer *renderer, void *userDat
 {
     (void)renderer;
     (void)userData;
-    OHOSAUDIO_Log("error=%d", (int)error);
     return AUDIOSTREAM_SUCCESS;
 }
 
@@ -225,11 +182,9 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     _this->hidden = hidden;
 
     OH_AudioStreamBuilder *builder = NULL;
-    OHOSAUDIO_Log("OpenDevice enter freq=%d ch=%d", _this->spec.freq, _this->spec.channels);
     res = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
     if (res != AUDIOSTREAM_SUCCESS || builder == NULL)
     {
-        OHOSAUDIO_Log("OH_AudioStreamBuilder_Create failed (%d)", (int)res);
         SDL_free(hidden);
         _this->hidden = NULL;
         return SDL_SetError("OHOS: OH_AudioStreamBuilder_Create failed (%d)", (int)res);
@@ -251,7 +206,6 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
         OH_AudioStream_Result fr = OH_AudioStreamBuilder_SetFrameSizeInCallback(builder, 1024);
         if (fr != AUDIOSTREAM_SUCCESS)
         {
-            OHOSAUDIO_Log("SetFrameSizeInCallback failed (%d)", (int)fr);
         }
     }
 
@@ -263,13 +217,11 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     res = OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks, hidden);
     if (res != AUDIOSTREAM_SUCCESS)
     {
-        OHOSAUDIO_Log("SetRendererCallback failed (%d)", (int)res);
     }
 
     res = OH_AudioStreamBuilder_GenerateRenderer(builder, &hidden->renderer);
     if (res != AUDIOSTREAM_SUCCESS || hidden->renderer == NULL)
     {
-        OHOSAUDIO_Log("OH_AudioStreamBuilder_GenerateRenderer failed (%d)", (int)res);
         OH_AudioStreamBuilder_Destroy(builder);
         hidden->builder = NULL;
         SDL_free(hidden);
@@ -302,13 +254,10 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     hidden->ring_write = (hidden->ring_size * 3) / 4;
     hidden->shutdown = 0;
 
-    OHOSAUDIO_Log("opened %d Hz %d ch %d bytes/period",
-        _this->spec.freq, _this->spec.channels, hidden->mixlen);
 
     res = OH_AudioRenderer_Start(hidden->renderer);
     if (res != AUDIOSTREAM_SUCCESS)
     {
-        OHOSAUDIO_Log("OH_AudioRenderer_Start failed (%d)", (int)res);
         return SDL_SetError("OHOS: OH_AudioRenderer_Start failed (%d)", (int)res);
     }
     return 0;
@@ -333,18 +282,9 @@ static void OHOSAUDIO_PlayDevice(_THIS)
     /* Block while the ring cannot take a whole period: the audio service
      * consumes data in its own callback and signals us, which paces the
      * SDL mixer thread to the hardware. */
+    while (OHOSAUDIO_RingSpace(hidden) < size && !hidden->shutdown)
     {
-        static int wait_count = 0;
-        int waits = 0;
-        while (OHOSAUDIO_RingSpace(hidden) < size && !hidden->shutdown)
-        {
-            SDL_CondWaitTimeout(hidden->cond, hidden->lock, 200);
-            waits++;
-        }
-        if (waits > 0 && (++wait_count <= 5 || wait_count % 50 == 1))
-        {
-            OHOSAUDIO_Log("PlayDevice waited %d x 200ms (ring full?)", waits);
-        }
+        SDL_CondWaitTimeout(hidden->cond, hidden->lock, 200);
     }
     if (!hidden->shutdown)
     {
@@ -431,7 +371,6 @@ static SDL_bool OHOSAUDIO_Init(SDL_AudioDriverImpl *impl)
     impl->OnlyHasDefaultOutputDevice = SDL_TRUE;
     impl->HasCaptureSupport = SDL_FALSE;
 
-    OHOSAUDIO_Log("driver init: OHAudio audio driver registered");
     return SDL_TRUE; /* this audio target is available. */
 }
 

@@ -60,10 +60,7 @@ public:
 	typedef void (*EndCallback)(void);
 	static void SetEndCallback(EndCallback cb);
 
-	static std::string LogPath();
-
 private:
-	void Log(const char *fmt, ...);
 	/* Release the AVPlayer on a worker thread after COMPLETED (stops the
 	 * source-unready callback flood); sets m_player=null under m_mutex. */
 	void DelayedRelease();

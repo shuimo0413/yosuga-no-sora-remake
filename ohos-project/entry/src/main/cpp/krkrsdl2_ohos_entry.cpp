@@ -167,8 +167,6 @@ void OnSurfaceCreated(OH_NativeXComponent *component, void *window)
 {
 	(void)component;
 	(void)window;
-	Log(LOG_INFO, "XComponent surface created");
-	OHOS_Entry_LogNative("engine: OnSurfaceCreated called");
 }
 
 void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
@@ -187,23 +185,10 @@ void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
 	pthread_cond_broadcast(&g_cond);
 	pthread_mutex_unlock(&g_lock);
 
-	char sdiag[192];
-	snprintf(sdiag, sizeof(sdiag),
-		"engine: OnSurfaceChanged w=%llu h=%llu window=%p size_ret=%d",
-		static_cast<unsigned long long>(width),
-		static_cast<unsigned long long>(height),
-		static_cast<void *>(window), static_cast<int>(sz));
-	OHOS_Entry_LogNative(sdiag);
-
 	if (g_window_ready)
 	{
 		SDL_OHOS_OnSurfaceChanged(static_cast<int>(width), static_cast<int>(height));
 	}
-
-	Log(LOG_INFO, "XComponent surface changed: %llux%llu window=%p",
-		static_cast<unsigned long long>(width),
-		static_cast<unsigned long long>(height),
-		static_cast<void *>(g_native_window));
 }
 
 void OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
@@ -214,7 +199,6 @@ void OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
 	g_native_window = nullptr;
 	g_window_ready = false;
 	pthread_mutex_unlock(&g_lock);
-	Log(LOG_INFO, "XComponent surface destroyed");
 }
 
 [[maybe_unused]] void OnTouchEvent(OH_NativeXComponent *component, void *window)
@@ -350,22 +334,16 @@ void OHOS_Entry_SetResourceManager(napi_env env, napi_value ability_context)
 		g_resource_manager = nullptr;
 	}
 	g_resource_manager = OH_ResourceManager_InitNativeResourceManager(env, ability_context);
-	if (g_resource_manager == nullptr)
-	{
-		Log(LOG_ERROR, "OH_ResourceManager_InitNativeResourceManager failed");
-	}
 }
 
 void OHOS_Entry_SetFilesDir(const char *files_dir)
 {
 	SDL_OHOS_SetFilesDir(files_dir);
-	Log(LOG_INFO, "filesDir: %{public}s", files_dir != nullptr ? files_dir : "(null)");
 }
 void OHOS_Entry_SetSurfaceId(const char *surface_id)
 {
 	if (surface_id == nullptr || surface_id[0] == '\0')
 	{
-		OHOS_Entry_LogNative("engine: SetSurfaceId called with empty id");
 		return;
 	}
 	uint64_t id = 0;
@@ -375,12 +353,8 @@ void OHOS_Entry_SetSurfaceId(const char *surface_id)
 	}
 	catch (...)
 	{
-		OHOS_Entry_LogNative("engine: SetSurfaceId parse failed");
 		return;
 	}
-	char msg[128];
-	snprintf(msg, sizeof(msg), "engine: SetSurfaceId=%s parsed=%llu", surface_id, static_cast<unsigned long long>(id));
-	OHOS_Entry_LogNative(msg);
 
 	OHNativeWindow *window = nullptr;
 	int32_t ret = OH_NativeWindow_CreateNativeWindowFromSurfaceId(id, &window);
@@ -399,17 +373,6 @@ void OHOS_Entry_SetSurfaceId(const char *surface_id)
 		}
 		pthread_cond_broadcast(&g_cond);
 		pthread_mutex_unlock(&g_lock);
-		char wmsg[128];
-		snprintf(wmsg, sizeof(wmsg), "engine: native window created from surfaceId (%llux%llu)",
-			static_cast<unsigned long long>(g_surface_width),
-			static_cast<unsigned long long>(g_surface_height));
-		OHOS_Entry_LogNative(wmsg);
-	}
-	else
-	{
-		char fmsg[128];
-		snprintf(fmsg, sizeof(fmsg), "engine: CreateNativeWindowFromSurfaceId failed ret=%d", static_cast<int>(ret));
-		OHOS_Entry_LogNative(fmsg);
 	}
 }
 
@@ -418,7 +381,6 @@ void OHOS_Entry_SetVideoSurfaceId(const char *surface_id)
 {
 	if (surface_id == nullptr || surface_id[0] == '\0')
 	{
-		OHOS_Entry_LogNative("engine: SetVideoSurfaceId called with empty id");
 		return;
 	}
 	uint64_t id = 0;
@@ -428,12 +390,8 @@ void OHOS_Entry_SetVideoSurfaceId(const char *surface_id)
 	}
 	catch (...)
 	{
-		OHOS_Entry_LogNative("engine: SetVideoSurfaceId parse failed");
 		return;
 	}
-	char msg[128];
-	snprintf(msg, sizeof(msg), "engine: SetVideoSurfaceId=%s parsed=%llu", surface_id, static_cast<unsigned long long>(id));
-	OHOS_Entry_LogNative(msg);
 
 	OHNativeWindow *window = nullptr;
 	int32_t ret = OH_NativeWindow_CreateNativeWindowFromSurfaceId(id, &window);
@@ -446,13 +404,6 @@ void OHOS_Entry_SetVideoSurfaceId(const char *surface_id)
 		}
 		g_video_native_window = window;
 		pthread_mutex_unlock(&g_lock);
-		OHOS_Entry_LogNative("engine: video native window created from surfaceId");
-	}
-	else
-	{
-		char fmsg[128];
-		snprintf(fmsg, sizeof(fmsg), "engine: CreateVideoNativeWindowFromSurfaceId failed ret=%d", static_cast<int>(ret));
-		OHOS_Entry_LogNative(fmsg);
 	}
 }
 
@@ -467,12 +418,6 @@ void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height)
 	 * logical resolution 1920x1080. The physical size is recorded here only
 	 * to scale touch coordinates from the XComponent pixel space into the
 	 * logical window space. */
-	{
-		char sdiag[128];
-		snprintf(sdiag, sizeof(sdiag), "engine: record physical size(%llu x %llu)",
-			static_cast<unsigned long long>(width), static_cast<unsigned long long>(height));
-		OHOS_Entry_LogNative(sdiag);
-	}
 }
 
 void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir)
@@ -480,10 +425,6 @@ void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir)
 	SDL_OHOS_SetDataDir(base_dir);
 	SDL_OHOS_SetSaveDir(save_dir);
 	if (save_dir != nullptr && save_dir[0] != '\0') { setenv("KRKR_OHOS_SAVE_DIR", save_dir, 1); }
-	OHOS_Entry_LogNative((std::string("engine: setenv KRKR_OHOS_SAVE_DIR=") + (save_dir ? save_dir : "")).c_str());
-	Log(LOG_INFO, "external baseDir: %{public}s  saveDir: %{public}s",
-		base_dir != nullptr ? base_dir : "(null)",
-		save_dir != nullptr ? save_dir : "(null)");
 }
 
 void *OHOS_Entry_GetResourceManager(void)
@@ -491,41 +432,11 @@ void *OHOS_Entry_GetResourceManager(void)
 	return static_cast<void *>(g_resource_manager);
 }
 
-void OHOS_Entry_LogNative(const char *message)
-{
-	const char *text = message != nullptr ? message : "(null)";
-	Log(LOG_INFO, "%s", text);
-	// Write to the sandbox files dir (readable via hdc as shell) and, when
-	// granted, to the public Download app folder.
-	const char *targets[3] = {g_files_dir.c_str(), g_data_dir.c_str(), "/data/local/tmp"};
-	for (int i = 0; i < 3; ++i)
-	{
-		if (targets[i] == nullptr || targets[i][0] == '\0')
-		{
-			continue;
-		}
-		std::string dir_name = std::string(targets[i]);
-		std::string log_path = dir_name + "/engine.log";
-		if (i == 2)
-		{
-			log_path = "/data/local/tmp/yosuga-engine.log";
-		}
-		FILE *file = fopen(log_path.c_str(), "a");
-		if (file != nullptr)
-		{
-			fputs(text, file);
-			fputc('\n', file);
-			fclose(file);
-		}
-	}
-}
-
 void OHOS_Entry_AttachXComponent(void *component)
 {
 	OH_NativeXComponent *native = static_cast<OH_NativeXComponent *>(component);
 	if (native == nullptr)
 	{
-		Log(LOG_ERROR, "AttachXComponent: null component");
 		return;
 	}
 
@@ -547,32 +458,23 @@ void OHOS_Entry_AttachXComponent(void *component)
 	// OnTouchEvent). Touches are captured in ArkTS (.onTouch) and forwarded
 	// through napi sendTouch instead.
 	// callback.DispatchTouchEvent = OnTouchEvent;
-	int32_t reg = OH_NativeXComponent_RegisterCallback(native, &callback);
-	char regmsg[96];
-	snprintf(regmsg, sizeof(regmsg), "engine: XComponent RegisterCallback result=%d", static_cast<int>(reg));
-	OHOS_Entry_LogNative(regmsg);
-
+	OH_NativeXComponent_RegisterCallback(native, &callback);
 
 	// NOTE: do NOT call OH_NativeXComponent_GetXComponentSize with a null
 	// window here: on this system that triggers SIGBUS on the UI thread.
 	// The surface callbacks deliver the window; we wait for them instead.
-	Log(LOG_INFO, "XComponent attached");
 }
 
 static void EngineMain()
 {
 	g_engine_running = true;
 	OHOS_InstallCrashHandler();
-	OHOS_Entry_LogNative("engine: thread started");
 
 	if (!SDL_OHOS_WaitForNativeWindow(60000))
 	{
-		Log(LOG_ERROR, "timed out waiting for the XComponent native window");
-		OHOS_Entry_LogNative("engine: FAILED waiting for XComponent native window (60s timeout)");
 		g_engine_running = false;
 		return;
 	}
-	OHOS_Entry_LogNative("engine: XComponent native window ready");
 
 	// Determine the engine base directory. The ArkTS shell may have set an
 	// external (public Download) base with game data at <base>/data and
@@ -592,37 +494,6 @@ static void EngineMain()
 		bool has_system = stat(system_dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 		bool has_xp3 = stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 		data_ok = (has_startup && has_system) || has_xp3;
-		char diag[384];
-		snprintf(diag, sizeof(diag),
-			"engine: base=%s startup=%s system=%s xp3=%s data_ok=%d",
-			base_dir.c_str(), has_startup ? "yes" : "no",
-			has_system ? "yes" : "no", has_xp3 ? "yes" : "no",
-			data_ok ? 1 : 0);
-		OHOS_Entry_LogNative(diag);
-		/* Diagnose which Title.tjs is actually in use: the logo cover colour
-		 * fix lives in the game DATA (not the HAP), and hdc cannot read the
-		 * public Download dir. Logging mtime/size tells us whether the user's
-		 * replaced file is the one the engine loads. */
-		{
-			std::string tjs = base_dir + "/data/system/Title.tjs";
-			struct stat tst;
-			if (stat(tjs.c_str(), &tst) == 0)
-			{
-				char tdiag[256];
-				snprintf(tdiag, sizeof(tdiag),
-					"engine: Title.tjs size=%lld mtime=%lld",
-					(long long)tst.st_size, (long long)tst.st_mtime);
-				OHOS_Entry_LogNative(tdiag);
-			}
-			else
-			{
-				OHOS_Entry_LogNative("engine: Title.tjs stat FAILED");
-			}
-		}
-	}
-	else
-	{
-		OHOS_Entry_LogNative("engine: base_dir is EMPTY");
 	}
 	if (!data_ok)
 	{
@@ -636,56 +507,41 @@ static void EngineMain()
 	}
 	if (!data_ok)
 	{
-		Log(LOG_ERROR, "game data is missing; use the in-game download or import first");
 		g_engine_running = false;
 		return;
 	}
 
-	if (!base_dir.empty() && chdir(base_dir.c_str()) != 0)
-	{
-		Log(LOG_WARN, "chdir(%{public}s) failed", base_dir.c_str());
-	}
+	if (!base_dir.empty())
+		chdir(base_dir.c_str());
 
 	if (!base_dir.empty())
 	{
 		// Let the engine core find the data without a cross-library symbol:
 		// the environment survives the libentry -> libkrkrsdl2 boundary.
 		setenv("KRKR_OHOS_DATA_DIR", base_dir.c_str(), 1);
-		OHOS_Entry_LogNative(("engine: KRKR_OHOS_DATA_DIR=" + base_dir).c_str());
 	}
 
 	char app_name[] = "krkrsdl2";
 	char *argv[] = {app_name, nullptr};
 
-	OHOS_Entry_LogNative("engine: data ok, starting krkrsdl2 platform");
 	try
 	{
-		OHOS_Entry_LogNative("engine: pre_init_platform enter");
 		krkrsdl2_pre_init_platform();
-		OHOS_Entry_LogNative("engine: pre_init_platform done");
 		krkrsdl2_convert_set_args(1, argv);
-		OHOS_Entry_LogNative("engine: init_platform enter");
 		if (krkrsdl2_init_platform())
 		{
 			// The application asked to terminate during startup.
-			OHOS_Entry_LogNative("engine: init_platform requested termination");
 			g_engine_running = false;
 			return;
 		}
-		OHOS_Entry_LogNative("engine: init_platform done");
-		OHOS_Entry_LogNative("engine: entering main loop");
 		krkrsdl2_run_main_loop();
 		krkrsdl2_cleanup();
 	}
 	catch (...)
 	{
-		Log(LOG_ERROR, "uncaught exception escaped the Kirikiri engine");
-		OHOS_Entry_LogNative("engine: UNCAUGHT EXCEPTION escaped Kirikiri engine");
 	}
 
 	g_engine_running = false;
-	Log(LOG_INFO, "engine thread finished");
-	OHOS_Entry_LogNative("engine: thread finished");
 }
 
 
@@ -774,9 +630,8 @@ int OHOS_VideoOpen(const char *path, int loop)
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}
 	g_video_pending = false;
-	if (win == nullptr) { OHOS_Entry_LogNative("video: no video native window for playback (timeout)"); return -1; }
+	if (win == nullptr) { return -1; }
 	bool ok = g_ohos_player.Open(path ? path : "", win, loop != 0);
-	OHOS_Entry_LogNative(ok ? "video: opened (AVPlayer)" : "video: open FAILED");
 	return ok ? 0 : -1;
 }
 

@@ -106,57 +106,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	BufferHandle *handle = NULL;
 	int fence_fd = -1;
 	int32_t dummy = 0;
-	static int fb_count = 0;
-	/* Mirror progress into the sandbox engine.log (hdc-readable). */
-	{
-		if (++fb_count % 100 == 1 || fb_count <= 5)
-		{
-			const char *dd = SDL_OHOS_GetFilesDir();
-			if (dd && dd[0])
-			{
-				FILE *ef;
-				char epath[512];
-				snprintf(epath, sizeof(epath), "%s/engine.log", dd);
-				ef = fopen(epath, "a");
-				if (ef) { fprintf(ef, "engine: UpdateWindowFramebuffer #%d\n", fb_count); fclose(ef); }
-			}
-			/* Mirror into the public Download app dir too. */
-			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-			if (pub && pub[0] && (!dd || strncmp(pub, dd, 512) != 0))
-			{
-				FILE *ef;
-				char epath[512];
-				snprintf(epath, sizeof(epath), "%s/engine.log", pub);
-				ef = fopen(epath, "a");
-				if (ef) { fprintf(ef, "engine: UpdateWindowFramebuffer #%d\n", fb_count); fclose(ef); }
-			}
-		}
-	}
-
-	/* FB-status diagnostic file, also in the sandbox so hdc can read it. */
-	FILE *fb = NULL;
-	{
-		const char *dd = SDL_OHOS_GetFilesDir();
-		if (dd && dd[0])
-		{
-			char fpath[512];
-			snprintf(fpath, sizeof(fpath), "%s/engine.log", dd);
-			fb = fopen(fpath, "a");
-			if (fb) fprintf(fb, "engine: UpdateWindowFramebuffer enter fb_count=%d\n", fb_count);
-		}
-	}
-	/* FB-status in the public Download app dir as well. */
-	FILE *fb_pub = NULL;
-	{
-		const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-		if (pub && pub[0])
-		{
-			char fpath[512];
-			snprintf(fpath, sizeof(fpath), "%s/engine.log", pub);
-			fb_pub = fopen(fpath, "a");
-			if (fb_pub) fprintf(fb_pub, "engine: UpdateWindowFramebuffer enter fb_count=%d\n", fb_count);
-		}
-	}
 
 	if (data == NULL || data->framebuffer == NULL)
 	{
@@ -167,18 +116,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	 * must not touch the native window at all. */
 	if (SDL_OHOS_IsVideoPlaying && SDL_OHOS_IsVideoPlaying())
 	{
-		static int skip_log = 0;
-		if (++skip_log % 200 == 1)
-		{
-			const char *dd = SDL_OHOS_GetFilesDir();
-			if (dd && dd[0])
-			{
-				char ep[512];
-				snprintf(ep, sizeof(ep), "%s/engine.log", dd);
-				FILE *ef = fopen(ep, "a");
-				if (ef) { fprintf(ef, "engine: video playing - framebuffer skip #%d\n", skip_log); fclose(ef); }
-			}
-		}
 		return 0;
 	}
 	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
@@ -207,7 +144,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	}
 	if (OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, bw, bh) != 0)
 	{
-		if (fb) { fprintf(fb, "  SET_BUFFER_GEOMETRY failed\n"); fclose(fb); }
 		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
 	}
 
@@ -230,7 +166,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	}
 	else
 	{
-		if (fb) { fprintf(fb, "  RequestBuffer failed\n"); fclose(fb); }
 		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
 	}
 
@@ -255,7 +190,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 			OHOS_NW_UnlockAndFlushBuffer(native_window);
 		else
 			OH_NativeWindow_NativeWindowAbortBuffer(native_window, buffer);
-		if (fb) { fprintf(fb, "  no writable address\n"); fclose(fb); }
 		return SDL_SetError("OHOS: buffer has no writable address");
 	}
 
@@ -307,59 +241,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 				}
 			}
 		}
-		{
-			const char *dd = SDL_OHOS_GetFilesDir();
-			if (dd && dd[0])
-			{
-				char lpath[512];
-				snprintf(lpath, sizeof(lpath), "%s/engine.log", dd);
-				FILE *lf = fopen(lpath, "a");
-				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
-			}
-		/* Sample the SOURCE framebuffer and the DESTINATION buffer centre
-		 * pixels every 100 frames: tells us whether the engine is drawing
-		 * black frames (source black) or the buffer content simply does not
-		 * reach the screen (source has colour, screen stays black). */
-		if (fb_count % 100 == 1)
-		{
-			/* Sample five points and count non-black pixels of the SOURCE
-			 * framebuffer: tells whether the whole frame is black or just
-			 * the centre. */
-			const Uint8 *sp = (const Uint8 *)data->framebuffer->pixels;
-			int pitch = data->framebuffer->pitch;
-			int pts[5][2] = { {100,100}, {w-100,100}, {100,h-100}, {w-100,h-100}, {w/2,h/2} };
-			long nonblack = 0;
-			int stride4 = pitch / 4;
-			for (int y = 0; y < h; y += 8)
-			{
-				const Uint32 *row = (const Uint32 *)(sp + (size_t)y * (size_t)pitch);
-				for (int x = 0; x < w; x += 8)
-				{
-					if ((row[x] & 0x00FFFFFFu) != 0) nonblack++;
-				}
-			}
-			if (fb)
-			{
-				fprintf(fb, "  src samples: nonblack=%ld", nonblack);
-				for (int k = 0; k < 5; k++)
-				{
-					const Uint8 *px = sp + (size_t)pts[k][1] * (size_t)pitch + (size_t)pts[k][0] * 4;
-					fprintf(fb, " (%d,%d)=[%d %d %d %d]", pts[k][0], pts[k][1], px[0], px[1], px[2], px[3]);
-				}
-				fprintf(fb, "\n");
-			}
-		}
-			/* Also mirror into the public Download app dir. */
-			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-			if (pub && pub[0] && (!dd || strncmp(pub, dd, 512) != 0))
-			{
-				char lpath[512];
-				snprintf(lpath, sizeof(lpath), "%s/engine.log", pub);
-				FILE *lf = fopen(lpath, "a");
-				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
-			}
-			OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", "FB copy %dx%d -> %dx%d", (int)w, (int)h, (int)bw, (int)bh);
-		}
 	}
 
 	if (mapped != NULL)
@@ -368,7 +249,6 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	{
 		if (OHOS_NW_UnlockAndFlushBuffer(native_window) != 0)
 		{
-			if (fb) { fprintf(fb, "  UnlockAndFlushBuffer failed\n"); fclose(fb); }
 			return SDL_SetError("OHOS: UnlockAndFlushBuffer failed");
 		}
 	}
@@ -379,13 +259,9 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		region.rectNumber = 0;
 		if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
 		{
-			if (fb) { fprintf(fb, "  FlushBuffer failed\n"); fclose(fb); }
-			if (fb_pub) { fprintf(fb_pub, "  FlushBuffer failed\n"); fclose(fb_pub); }
 			return SDL_SetError("OHOS: FlushBuffer failed");
 		}
 	}
-	if (fb) { fprintf(fb, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb); }
-	if (fb_pub) { fprintf(fb_pub, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb_pub); }
 	(void)rects;
 	(void)numrects;
 	(void)dummy;

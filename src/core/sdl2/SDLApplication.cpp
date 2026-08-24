@@ -87,88 +87,6 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 	#define OHOS_DBG(...) do {} while(0)
 #endif
 
-#if defined(__OHOS__)
-#include <cstdarg>
-#include <cstdio>
-#include <sys/stat.h>
-#include "StorageIntf.h" /* TVPAddAutoPath for archive-scoped auto paths */
-/* OHOS: route SDL-side diagnostics into the SAME <sandbox files>/engine.log
- * that the NAPI entry side (OHOS_Entry_LogNative) writes. The envar
- * KRKR_OHOS_DATA_DIR points at the PUBLIC Download folder (hdc cannot read
- * it) and /data/local/tmp is not writable by the app, so the sandbox files
- * dir is the only hdc-readable log destination on device. SDL_OHOS_GetFilesDir
- * is exported by libentry.so and resolved once via dlsym. */
-static const char *OHOS_GetSandboxFilesDir(void)
-{
-	static const char *(*ohos_get_files_dir)(void) = nullptr;
-	static const char *cached = nullptr;
-	if (cached)
-		return cached;
-	if (ohos_get_files_dir == nullptr)
-	{
-		void *handle = dlopen("libentry.so", RTLD_NOW);
-		if (!handle)
-			handle = RTLD_DEFAULT;
-		ohos_get_files_dir = (const char *(*)(void))dlsym(handle, "SDL_OHOS_GetFilesDir");
-	}
-	if (ohos_get_files_dir)
-		cached = ohos_get_files_dir();
-	return cached;
-}
-
-/* Append one formatted line to <dir>/engine.log. Returns 1 on success. */
-static int OHOS_LogAppend(const char *dir, const char *fmt, va_list args)
-{
-	if (dir == nullptr || dir[0] == '\0')
-		return 0;
-	std::string path = std::string(dir) + "/engine.log";
-	FILE *lf = fopen(path.c_str(), "a");
-	if (lf == nullptr)
-		return 0;
-	vfprintf(lf, fmt, args);
-	fputc('\n', lf);
-	fclose(lf);
-	return 1;
-}
-
-/* Append one formatted line to engine.log in BOTH the sandbox files dir (the
- * only path hdc shell can always read) and the public Download app dir (the
- * user can also pull it). If the two resolve to the same directory the line
- * is only written once. */
-static void OHOS_LogToFile(const char *fmt, ...)
-{
-	const char *sandbox = OHOS_GetSandboxFilesDir();
-	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
-	va_list args;
-	va_start(args, fmt);
-	OHOS_LogAppend(sandbox, fmt, args);
-	if (pub != nullptr && pub[0] != '\0')
-	{
-		if (sandbox == nullptr || sandbox[0] == '\0' || std::string(pub) != std::string(sandbox))
-		{
-			va_list args2;
-			va_start(args2, fmt);
-			OHOS_LogAppend(pub, fmt, args2);
-			va_end(args2);
-		}
-	}
-	va_end(args);
-}
-/* Redirect every SDL_Log line (krkrz TJS exceptions, FAudio errors, video
- * errors) into engine.log: hilog is unreadable from hdc on the target
- * device. */
-static void OHOSSDLLogOutput(void *userdata, int category, SDL_LogPriority priority, const char *message)
-{
-	(void)userdata;
-	(void)category;
-	(void)priority;
-	OHOS_LogToFile("sdl: %s", message);
-}
-#else
-/* Non-OHOS builds: OHOS_LogToFile is a no-op. */
-static void OHOS_LogToFile(const char *, ...) {}
-#endif
-
 #if defined(__linux__)
 // By specification of SDL_RenderPresent, the backbuffer should be
 // considered invalidated after each call. This is required for
@@ -964,7 +882,6 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	{
 		if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		{
-			OHOS_LogToFile("engine: SDL_Init(VIDEO) FAILED: %s", SDL_GetError());
 			TVPThrowExceptionMessage(TJS_W("Cannot initialize SDL video subsystem: %1"), ttstr(SDL_GetError()));
 		}
 		refresh_controllers();
@@ -1050,18 +967,9 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	window_flags |= SDL_WINDOW_HIDDEN;
 #endif
 
-			OHOS_LogToFile("engine: calling SDL_CreateWindow w=%d h=%d flags=%u", new_window_w, new_window_h, (unsigned)window_flags);
-#if defined(__OHOS__)
-	{
-		const char *drv = SDL_GetCurrentVideoDriver();
-		OHOS_LogToFile("engine: current video driver=%s", drv ? drv : "(null)");
-		OHOS_LogToFile("engine: context=%d target=%d", SDL_GL_GetCurrentContext() != NULL ? 1 : 0, SDL_GL_GetCurrentWindow() != NULL ? 1 : 0);
-	}
-#endif
 	this->window = SDL_CreateWindow("krkrsdl2", new_window_x, new_window_y, new_window_w, new_window_h, window_flags);
 	if (!this->window)
 	{
-			OHOS_LogToFile("engine: SDL_CreateWindow FAILED w=%d h=%d: %s", new_window_w, new_window_h, SDL_GetError());
 		TVPThrowExceptionMessage(TJS_W("Cannot create SDL window: %1"), ttstr(SDL_GetError()));
 	}
 #if defined(__EMSCRIPTEN__) && defined(KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE)
@@ -1093,25 +1001,6 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	if (TVPIsEnableDrawDevice())
 #endif
 	{
-#if defined(__OHOS__)
-		{
-			/* OHOS diagnostic: list the SDL render drivers compiled in. We expect
-			 * an "opengles2" (accelerated) driver; if only "software" is present
-			 * then SDL_VIDEO_RENDER_OGL_ES2 was not defined when SDL_render.c and
-			 * SDL_render_gles2.c were compiled. */
-			int ndrv = SDL_GetNumRenderDrivers();
-			OHOS_LogToFile("engine: SDL_GetNumRenderDrivers=%d", ndrv);
-			for (int di = 0; di < ndrv; ++di)
-			{
-				SDL_RendererInfo ri;
-				SDL_memset(&ri, 0, sizeof(ri));
-				if (SDL_GetRenderDriverInfo(di, &ri) == 0)
-				{
-					OHOS_LogToFile("engine: render driver[%d]=%s flags=%u", di, ri.name, (unsigned)ri.flags);
-				}
-			}
-		}
-#endif
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 #if defined(__OHOS__)
 		/* OHOS: prefer the hardware GLES2 renderer (eglSwapBuffers into the
@@ -1121,19 +1010,9 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 		 * paints through the LockBuffer path and TickBeat pauses whichever
 		 * renderer is active while the AVPlayer owns the surface. */
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-		{ OHOS_LogToFile("engine: SDL_CreateRenderer(ACCELERATED) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
 		if (!this->renderer)
 		{
 			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
-			{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE-fallback) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
-		}
-#else
-		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-		{ OHOS_LogToFile("engine: SDL_CreateRenderer -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
-		if (!this->renderer)
-		{
-			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
-			{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
 		}
 #endif
 		if (!this->renderer)
@@ -2083,7 +1962,6 @@ void TVPWindowWindow::Show()
 }
 void TVPWindowWindow::TickBeat()
 {
-	{ static int tb = 0; if (++tb <= 5 || tb % 60 == 0) { OHOS_LogToFile("engine: TickBeat #%d needsGraphicUpdate=%d renderer=%s surface=%s", tb, this->needsGraphicUpdate ? 1 : 0, this->renderer ? "Y" : "N", this->surface ? "Y" : "N"); } }
 	if (!this->visibilityHasInitialized)
 	{
 		this->visibilityHasInitialized = true;
@@ -2105,18 +1983,13 @@ void TVPWindowWindow::TickBeat()
 			void *handle = dlopen("libentry.so", RTLD_NOW);
 			if (!handle) handle = RTLD_DEFAULT;
 			is_video_playing = (OHOSIsVideoPlayingFn)dlsym(handle, "SDL_OHOS_IsVideoPlaying");
-			OHOS_LogToFile("engine: IsVideoPlaying dlsym=%p", (void *)is_video_playing);
 		}
 		if (is_video_playing && is_video_playing())
 		{
-			static int skip_count = 0;
-			if (++skip_count % 200 == 1)
-				OHOS_LogToFile("engine: TickBeat video skip #%d", skip_count);
 			return;
 		}
 	}
 #endif
-	OHOS_DBG("TickBeat render needsG=%d renderer=%p surface=%p", this->needsGraphicUpdate ? 1 : 0, (void*)this->renderer, (void*)this->surface);
 #if defined(__OHOS__)
 	/* OHOS: ensure the window surface is valid before presenting. SDL's
 	 * FULLSCREEN_DESKTOP window recreation clears surface_valid, after
@@ -2135,19 +2008,10 @@ void TVPWindowWindow::TickBeat()
 	 * (src samples nonblack=0 in the framebuffer diagnostics). */
 	if (this->window)
 	{
-		SDL_Surface *ws = SDL_GetWindowSurface(this->window);
-		if (!ws)
-		{
-			OHOS_LogToFile("engine: TickBeat SDL_GetWindowSurface failed: %s", SDL_GetError());
-		}
-		{
-			static int wscount = 0;
-			if (++wscount % 300 == 1)
-			{
-				OHOS_LogToFile("engine: TickBeat window surface=%p engine surface=%p",
-					(void *)ws, (void *)this->surface);
-			}
-		}
+		/* Keep the window surface valid: SDL_UpdateWindowSurface silently
+		 * no-ops when it is stale, so the software-rendered frame would
+		 * never reach the screen. */
+		SDL_GetWindowSurface(this->window);
 	}
 #endif
 	if (this->needsGraphicUpdate)
@@ -2159,34 +2023,6 @@ void TVPWindowWindow::TickBeat()
 			rect.y = this->bitmapCompletion->update_rect.top;
 			rect.w = this->bitmapCompletion->update_rect.get_width();
 			rect.h = this->bitmapCompletion->update_rect.get_height();
-#if defined(__OHOS__)
-			{
-				/* Verify the ENGINE drawing surface (the texture upload
-				 * source) really carries the game picture: count non-black
-				 * pixels so a black screen can be told apart from a broken
-				 * upload path. */
-				static int upcount = 0;
-				if (++upcount % 300 == 1)
-				{
-					SDL_Surface *ks = this->surface;
-					long nonblack = 0;
-					if (ks && ks->pixels)
-					{
-						for (int yy = 0; yy < ks->h; yy += 8)
-						{
-							const Uint32 *row = (const Uint32 *)((const Uint8 *)ks->pixels + (size_t)yy * (size_t)ks->pitch);
-							for (int xx = 0; xx < ks->w; xx += 8)
-							{
-								if ((row[xx] & 0x00FFFFFFu) != 0) nonblack++;
-							}
-						}
-					}
-					OHOS_LogToFile("engine: TickBeat upload src=%p %dx%d nonblack=%ld update_rect=%dx%d@%d,%d",
-						(void *)ks, ks ? ks->w : 0, ks ? ks->h : 0, nonblack,
-						rect.w, rect.h, rect.x, rect.y);
-				}
-			}
-#endif
 			if (this->renderer)
 			{
 #if defined(KRKRSDL2_ENABLE_ZOOM) || defined(KRKRSDL2_RENDERER_FULL_UPDATES)
@@ -3219,16 +3055,6 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_MOUSEBUTTONDOWN:
 				case SDL_MOUSEBUTTONUP:
 				{
-					{
-						static int mm = 0;
-						if (++mm <= 5 || mm % 120 == 1)
-						{
-							OHOS_LogToFile("engine: WINDOW mouse type=%d x=%d y=%d btn=%d flags=%#x active=%d",
-								(int)event.type, event.button.x, event.button.y, (int)event.button.button,
-								(unsigned)(this->window ? SDL_GetWindowFlags(this->window) : 0),
-								(this->window ? ((SDL_GetWindowFlags(this->window) & SDL_WINDOW_INPUT_FOCUS) ? 1 : 0) : -1));
-						}
-					}
 					if (SDL_IsTextInputActive() && this->imeCompositionStr)
 					{
 						return false;
@@ -3469,7 +3295,6 @@ void sdl_process_events()
 		}
 		else if (event.type == SDL_QUIT)
 		{
-			OHOS_LogToFile("engine: SDL_QUIT event received");
 			Application->Terminate();
 		}
 	}
@@ -3613,10 +3438,6 @@ bool krkrsdl2_init_platform(void)
 	romfsInit();
 	socketInitializeDefault();
 	nxlinkStdio();
-#endif
-
-#if defined(__OHOS__)
-	SDL_LogSetOutputFunction(OHOSSDLLogOutput, nullptr);
 #endif
 
 	SDL_setenv("VITA_DISABLE_TOUCH_BACK", "1", 1);

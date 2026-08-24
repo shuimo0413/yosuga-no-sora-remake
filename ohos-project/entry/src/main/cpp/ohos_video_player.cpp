@@ -82,42 +82,6 @@ OHOSVideoPlayer::~OHOSVideoPlayer()
 	g_cb_self = nullptr;
 }
 
-std::string OHOSVideoPlayer::LogPath()
-{
-	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-	return (dd && dd[0]) ? (std::string(dd) + "/video-player.log") : std::string("/data/local/tmp/yosuga-video.log");
-}
-
-void OHOSVideoPlayer::Log(const char *fmt, ...)
-{
-	va_list ap;
-	va_start(ap, fmt);
-	char line[1024];
-	vsnprintf(line, sizeof(line), fmt, ap);
-	va_end(ap);
-
-	FILE *lf = fopen(LogPath().c_str(), "a");
-	if (lf)
-	{
-		fprintf(lf, "%s\n", line);
-		fclose(lf);
-	}
-
-	/* Mirror into the sandbox files dir too: hdc shell can read it while the
-	 * public Download dir cannot be reached from hdc. */
-	const char *sandbox = SDL_OHOS_GetFilesDir();
-	if (sandbox && sandbox[0])
-	{
-		char spath[640];
-		snprintf(spath, sizeof(spath), "%s/video-player.log", sandbox);
-		FILE *sf = fopen(spath, "a");
-		if (sf)
-		{
-			fprintf(sf, "%s\n", line);
-			fclose(sf);
-		}
-	}
-}
 
 bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWindow, bool loop)
 {
@@ -141,14 +105,12 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 
 	if (m_nativeWindow == nullptr)
 	{
-		Log("Open: native window is null");
 		return false;
 	}
 
 	m_player = OH_AVPlayer_Create();
 	if (m_player == nullptr)
 	{
-		Log("Open: OH_AVPlayer_Create failed");
 		return false;
 	}
 
@@ -156,7 +118,6 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	int vfd = open(filePath.c_str(), O_RDONLY);
 	if (vfd < 0)
 	{
-		Log("Open: open(%s) failed", filePath.c_str());
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
@@ -164,7 +125,6 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	struct stat vst;
 	if (stat(filePath.c_str(), &vst) != 0 || vst.st_size <= 0)
 	{
-		Log("Open: stat(%s) failed", filePath.c_str());
 		close(vfd);
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
@@ -174,12 +134,10 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	close(vfd); /* AVPlayer duplicates/keeps its own reference */
 	if (ret != AV_ERR_OK)
 	{
-		Log("Open: SetFDSource(%s) ret=%d", filePath.c_str(), (int)ret);
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
 	}
-	Log("Open: SetFDSource ok, size=%lld", (long long)vst.st_size);
 
 	/* The AVPlayer and the SDL engine share the SAME XComponent native
 	 * window. Take the surface over IMMEDIATELY - before Prepare/Play -
@@ -191,13 +149,11 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	m_playing = true;
 	{
 		int32_t cc = OHOS_NW_CleanCache(m_nativeWindow);
-		Log("Open: CleanCache ret=%d", (int)cc);
 	}
 
 	ret = OH_AVPlayer_SetVideoSurface(m_player, m_nativeWindow);
 	if (ret != AV_ERR_OK)
 	{
-		Log("Open: SetVideoSurface ret=%d", (int)ret);
 		m_playing = false;
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
@@ -216,11 +172,9 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	OH_AVPlayer_SetOnInfoCallback(m_player, OHOS_VPlayerInfoCallback, this);
 	OH_AVPlayer_SetOnErrorCallback(m_player, OHOS_VPlayerErrorCallback, this);
 
-	Log("Open: Prepare+Play (%s)", filePath.c_str());
 	ret = OH_AVPlayer_Prepare(m_player);
 	if (ret != AV_ERR_OK)
 	{
-		Log("Open: Prepare ret=%d", (int)ret);
 		m_playing = false;
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
@@ -234,22 +188,18 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	OH_AVPlayer_GetVideoWidth(m_player, &vw);
 	OH_AVPlayer_GetVideoHeight(m_player, &vh);
 	OH_AVPlayer_GetDuration(m_player, &vdur);
-	Log("Open: prepared video=%dx%d duration=%dms", (int)vw, (int)vh, (int)vdur);
 
 	/* Set volume after Prepare so audio output is active. */
 	OH_AVPlayer_SetVolume(m_player, 1.0f, 1.0f);
-	Log("Open: volume set to 1.0");
 	ret = OH_AVPlayer_Play(m_player);
 	if (ret != AV_ERR_OK)
 	{
-		Log("Open: Play ret=%d", (int)ret);
 		m_playing = false;
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
 	}
 	m_playing = true;
-	Log("Open: playing");
 	return true;
 }
 
@@ -273,7 +223,6 @@ void OHOSVideoPlayer::DelayedRelease()
 			if (m_generation.load(std::memory_order_relaxed) != gen ||
 				m_player == nullptr)
 			{
-				Log("DelayedRelease: generation changed, nothing to release");
 				return;
 			}
 			p = m_player;
@@ -296,7 +245,6 @@ void OHOSVideoPlayer::DelayedRelease()
 
 void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 {
-	Log("HandleInfo: type=%d player=%p current=%p", type, (void *)player, (void *)m_player);
 	if (type == (int)AV_INFO_TYPE_EOS)
 	{
 		/* Late callbacks from a player released during a re-open must not
@@ -304,10 +252,8 @@ void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 		 * resume presenting over the new video). */
 		if (player != m_player)
 		{
-			Log("HandleInfo: stale EOS from old player ignored");
 			return;
 		}
-		Log("HandleInfo: EOS -> notify engine");
 		/* Same as AV_COMPLETED: the engine TickBeat loop skips presenting the
 		 * SDL framebuffer while m_playing is 1, so the screen stays on the
 		 * video's last frame. Clear it now so the menu can render. */
@@ -323,11 +269,9 @@ void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 		if (player != nullptr && m_player == player)
 		{
 			OH_AVPlayer_GetState(player, &st);
-			Log("HandleInfo: state=%d", (int)st);
 		}
 		else
 		{
-			Log("HandleInfo: stale STATE_CHANGE from old player ignored");
 			return;
 		}
 		if (st == AV_PREPARED)
@@ -339,11 +283,9 @@ void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 			OH_AVPlayer_GetVideoWidth(player, &vw);
 			OH_AVPlayer_GetVideoHeight(player, &vh);
 			OH_AVPlayer_GetDuration(player, &vdur);
-			Log("HandleInfo: PREPARED video=%dx%d duration=%dms", (int)vw, (int)vh, (int)vdur);
 		}
 		if (st == AV_COMPLETED)
 		{
-			Log("HandleInfo: COMPLETED -> notify engine");
 			/* Clear m_playing IMMEDIATELY, not just in the 1.5s-later
 			 * DelayedRelease(). SDL_OHOS_IsVideoPlaying() reads m_playing and
 			 * the engine TickBeat loop returns early (skips SDL_RenderPresent)
@@ -364,7 +306,6 @@ void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 
 void OHOSVideoPlayer::HandleError(OH_AVPlayer *player, int32_t errorCode)
 {
-	Log("HandleError: %d player=%p current=%p", (int)errorCode, (void *)player, (void *)m_player);
 	if (player != m_player)
 		return;
 	if (m_listener) m_listener->OnVideoError((int)errorCode);
@@ -381,7 +322,6 @@ void OHOSVideoPlayer::Pause()
 	 * shared XComponent surface, freezing the video on the first frame.
 	 * The surface stays owned by the video (the paused AVPlayer keeps its
 	 * last frame on screen); only Stop/Close/COMPLETED hand it back. */
-	Log("Pause: player paused, m_playing kept=%d", m_playing.load() ? 1 : 0);
 }
 
 void OHOSVideoPlayer::Resume()
