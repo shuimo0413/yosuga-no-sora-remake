@@ -8,6 +8,7 @@
 
 #include "ohos_video_player.h"
 
+#include "sdl_ohos_bridge.h"
 #include <multimedia/player_framework/avplayer.h>
 #include <multimedia/player_framework/avplayer_base.h>
 #include <native_window/external_window.h>
@@ -89,15 +90,32 @@ std::string OHOSVideoPlayer::LogPath()
 
 void OHOSVideoPlayer::Log(const char *fmt, ...)
 {
+	va_list ap;
+	va_start(ap, fmt);
+	char line[1024];
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+
 	FILE *lf = fopen(LogPath().c_str(), "a");
 	if (lf)
 	{
-		va_list ap;
-		va_start(ap, fmt);
-		vfprintf(lf, fmt, ap);
-		va_end(ap);
-		fputc('\n', lf);
+		fprintf(lf, "%s\n", line);
 		fclose(lf);
+	}
+
+	/* Mirror into the sandbox files dir too: hdc shell can read it while the
+	 * public Download dir cannot be reached from hdc. */
+	const char *sandbox = SDL_OHOS_GetFilesDir();
+	if (sandbox && sandbox[0])
+	{
+		char spath[640];
+		snprintf(spath, sizeof(spath), "%s/video-player.log", sandbox);
+		FILE *sf = fopen(spath, "a");
+		if (sf)
+		{
+			fprintf(sf, "%s\n", line);
+			fclose(sf);
+		}
 	}
 }
 

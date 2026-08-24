@@ -162,6 +162,18 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	 * must not touch the native window at all. */
 	if (SDL_OHOS_IsVideoPlaying && SDL_OHOS_IsVideoPlaying())
 	{
+		static int skip_log = 0;
+		if (++skip_log % 200 == 1)
+		{
+			const char *dd = SDL_OHOS_GetFilesDir();
+			if (dd && dd[0])
+			{
+				char ep[512];
+				snprintf(ep, sizeof(ep), "%s/engine.log", dd);
+				FILE *ef = fopen(ep, "a");
+				if (ef) { fprintf(ef, "engine: video playing - framebuffer skip #%d\n", skip_log); fclose(ef); }
+			}
+		}
 		return 0;
 	}
 	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
