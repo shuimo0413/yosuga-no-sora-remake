@@ -3608,15 +3608,6 @@ bool krkrsdl2_init_platform(void)
 #endif
 #endif
 
-#if defined(__OHOS__)
-#ifdef SDL_HINT_AUDIODRIVER
-	// OpenHarmony does not have an SDL2 audio backend yet. Keep the audio
-	// subsystem alive with the dummy driver so the game runs without sound
-	// instead of failing on the audio device.
-	SDL_SetHintWithPriority(SDL_HINT_AUDIODRIVER, "dummy", SDL_HINT_OVERRIDE);
-#endif
-#endif
-
 #ifdef TVP_LOG_TO_COMMANDLINE_CONSOLE
 	SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_VERBOSE);
 #endif
