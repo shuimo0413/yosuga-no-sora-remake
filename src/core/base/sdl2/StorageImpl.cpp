@@ -553,29 +553,11 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 		std::string rel(nname.begin() + 2, nname.end());
 		if (rel.empty() || (rel[0] != '/' && rel[0] != '\\'))
 			rel = "/" + rel;
-		/* Verify the candidate exists: archive members resolve to virtual
-		 * paths and must fall through to the temp-copy path instead. */
-		struct stat rst;
-		if (stat(rel.c_str(), &rst) != 0)
-		{
-			name.Clear();
-			return;
-		}
 		tjs_string w;
 		if (TVPUtf8ToUtf16(w, rel)) { name = ttstr(w); return; }
 	}
-	// any other path: pass through unchanged when it is a REAL local file.
-	// A data.xp3 archive member is a VIRTUAL path that does not exist on the
-	// filesystem: report "not locally accessible" (empty) so callers like
-	// tTVPLocalTempStorageHolder extract the archive member into a temporary
-	// file instead of handing the AVPlayer an unopenable path.
+	// any other path: pass through unchanged (already absolute or relative).
 	{
-		struct stat cst;
-		if (stat(nname.c_str(), &cst) != 0)
-		{
-			name.Clear();
-			return;
-		}
 		tjs_string w;
 		if (TVPUtf8ToUtf16(w, nname)) { name = ttstr(w); return; }
 	}
