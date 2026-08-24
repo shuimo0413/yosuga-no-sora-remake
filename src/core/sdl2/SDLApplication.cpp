@@ -1090,16 +1090,28 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 		}
 #endif
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
+#if defined(__OHOS__)
+		/* OHOS: go STRAIGHT to the software renderer. The GLES2 driver is
+		 * compiled in but cannot create a context here: the XComponent
+		 * window is not flagged SDL_WINDOW_OPENGL, and GLES2_CreateRenderer's
+		 * fallback SDL_RecreateWindow() fails on this backend - so the
+		 * accelerated probe always ends in "Couldn't find matching render
+		 * driver" (device log: flags=12321 without the OpenGL bit). The
+		 * failed probe also re-creates the window, which disturbs the native
+		 * window state right before the video surface handoff. The software
+		 * renderer paints the window framebuffer via the LockBuffer path,
+		 * and TickBeat pauses it while the AVPlayer owns the surface. */
+		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
+		{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE-direct) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+#else
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		{ OHOS_LogToFile("engine: SDL_CreateRenderer -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
 		if (!this->renderer)
 		{
-			// OHOS: accelerated (GLES2) may be unavailable; fall back to the
-			// software renderer which paints into the window framebuffer.
 			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
 			{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
-		OHOS_DBG("SDL_CreateRenderer(SOFTWARE)=%p err=%s", (void*)this->renderer, this->renderer ? "OK" : SDL_GetError());
 		}
+#endif
 		if (!this->renderer)
 		{
 			TVPAddLog(ttstr("Cannot create SDL renderer: ") + ttstr(SDL_GetError()));
