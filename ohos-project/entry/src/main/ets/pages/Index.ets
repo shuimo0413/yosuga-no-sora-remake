@@ -156,7 +156,7 @@ struct Index {
     try {
       this.log('PAGE_ERROR: ' + JSON.stringify(err));
     } catch (e) {
-      hilog.error(0x0000, 'YosugaOHOS', 'PAGE_ERROR %{public}s', JSON.stringify(err));
+      hilog.error(0xD003300, 'YosugaOHOS', 'PAGE_ERROR %{public}s', JSON.stringify(err));
     }
   }
 
@@ -200,7 +200,7 @@ struct Index {
   }
 
   private log(msg: string): void {
-    hilog.info(0x0000, 'YosugaOHOS', '%{public}s', msg);
+    hilog.info(0xD003300, 'YosugaOHOS', '%{public}s', msg);
     // Mirror onto the on-screen debug area only.
     const line = Date.now() % 100000 + ': ' + msg;
     this.debugOut = (this.debugOut + '\n' + line).slice(-800);
