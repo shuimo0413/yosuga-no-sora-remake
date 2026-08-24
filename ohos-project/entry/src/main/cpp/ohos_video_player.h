@@ -49,9 +49,11 @@ public:
 
 	void SetListener(VideoPlayerEventListener *listener) { m_listener = listener; }
 
-	/* Called from the AVPlayer async info/error callbacks. */
-	void HandleInfo(int type);
-	void HandleError(int32_t errorCode);
+	/* Called from the AVPlayer async info/error callbacks. The player
+	 * pointer identifies which AVPlayer fired them: callbacks from a player
+	 * released during a re-open arrive late and must be ignored. */
+	void HandleInfo(OH_AVPlayer *player, int type);
+	void HandleError(OH_AVPlayer *player, int32_t errorCode);
 
 	/* Global callback fired once when playback reaches EOS. The engine hooks
 	 * this to advance the script (SetStatusAsync(Stop)). */
@@ -69,6 +71,9 @@ private:
 	OH_AVPlayer *m_player;
 	OHNativeWindow *m_nativeWindow;
 	std::atomic<bool> m_playing;
+	/* Bumped on every Open(): lets delayed workers tell their own player
+	 * apart from a newer one opened in the meantime. */
+	std::atomic<uint64_t> m_generation{0};
 	VideoPlayerEventListener *m_listener;
 	std::mutex m_mutex;
 };

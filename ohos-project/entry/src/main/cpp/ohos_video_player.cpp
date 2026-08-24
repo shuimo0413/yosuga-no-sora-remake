@@ -28,20 +28,20 @@ namespace Yosuga
 
 static OHOSVideoPlayer *g_cb_self = nullptr;
 
-static void OHOS_VPlayerInfoCallback(OH_AVPlayer */*player*/, AVPlayerOnInfoType type,
+static void OHOS_VPlayerInfoCallback(OH_AVPlayer *player, AVPlayerOnInfoType type,
 	OH_AVFormat */*infoBody*/, void *userData)
 {
 	OHOSVideoPlayer *self = static_cast<OHOSVideoPlayer *>(userData);
 	if (self == nullptr) return;
-	self->HandleInfo((int)type);
+	self->HandleInfo(player, (int)type);
 }
 
-static void OHOS_VPlayerErrorCallback(OH_AVPlayer */*player*/, int32_t errorCode,
+static void OHOS_VPlayerErrorCallback(OH_AVPlayer *player, int32_t errorCode,
 	const char */*errorMsg*/, void *userData)
 {
 	OHOSVideoPlayer *self = static_cast<OHOSVideoPlayer *>(userData);
 	if (self == nullptr) return;
-	self->HandleError(errorCode);
+	self->HandleError(player, errorCode);
 }
 
 static OHOSVideoPlayer::EndCallback g_ohos_end_callback = nullptr;
@@ -125,10 +125,17 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 
 	if (m_player != nullptr)
 	{
+		/* Release the previous player SYNCHRONOUSLY. The async Release
+		 * leaves the old player's render thread alive on the shared
+		 * XComponent window while the new player starts; the two fight over
+		 * the surface buffer queue and the video freezes after its first
+		 * frame (audio keeps playing). ReleaseSync waits until the old
+		 * player is fully torn down and its callbacks have drained. */
 		OH_AVPlayer_Stop(m_player);
-		OH_AVPlayer_Release(m_player);
+		OH_AVPlayer_ReleaseSync(m_player);
 		m_player = nullptr;
 	}
+	m_generation.fetch_add(1);
 	m_nativeWindow = nativeWindow;
 	m_playing = false;
 
@@ -182,7 +189,10 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	 * AVPlayer starts, the producers fight over buffer slots and the
 	 * video freezes on the first frame (audio keeps going). */
 	m_playing = true;
-	OHOS_NW_CleanCache(m_nativeWindow);
+	{
+		int32_t cc = OHOS_NW_CleanCache(m_nativeWindow);
+		Log("Open: CleanCache ret=%d", (int)cc);
+	}
 
 	ret = OH_AVPlayer_SetVideoSurface(m_player, m_nativeWindow);
 	if (ret != AV_ERR_OK)
@@ -216,6 +226,16 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 		m_player = nullptr;
 		return false;
 	}
+	/* Diagnostic: did the AVPlayer actually open a VIDEO track? If the
+	 * width stays 0 the video stream was not attached to the surface and
+	 * only the audio plays (exactly the "sound but frozen picture"
+	 * symptom). */
+	int32_t vw = 0, vh = 0, vdur = 0;
+	OH_AVPlayer_GetVideoWidth(m_player, &vw);
+	OH_AVPlayer_GetVideoHeight(m_player, &vh);
+	OH_AVPlayer_GetDuration(m_player, &vdur);
+	Log("Open: prepared video=%dx%d duration=%dms", (int)vw, (int)vh, (int)vdur);
+
 	/* Set volume after Prepare so audio output is active. */
 	OH_AVPlayer_SetVolume(m_player, 1.0f, 1.0f);
 	Log("Open: volume set to 1.0");
@@ -241,11 +261,21 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
  * thread - that deadlocks). */
 void OHOSVideoPlayer::DelayedRelease()
 {
-	std::thread([this]() {
+	uint64_t gen = m_generation.load(std::memory_order_relaxed);
+	std::thread([this, gen]() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 		OH_AVPlayer *p = nullptr;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
+			/* If the game script opened a NEW video in the meantime, the
+			 * generation was bumped: release only the player this call
+			 * belongs to, never the new one (that froze the new video). */
+			if (m_generation.load(std::memory_order_relaxed) != gen ||
+				m_player == nullptr)
+			{
+				Log("DelayedRelease: generation changed, nothing to release");
+				return;
+			}
 			p = m_player;
 			m_player = nullptr;
 			/* PLAYBACK COMPLETED: the engine must resume presenting its own
@@ -264,11 +294,19 @@ void OHOSVideoPlayer::DelayedRelease()
 	}).detach();
 }
 
-void OHOSVideoPlayer::HandleInfo(int type)
+void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 {
-	Log("HandleInfo: type=%d", type);
+	Log("HandleInfo: type=%d player=%p current=%p", type, (void *)player, (void *)m_player);
 	if (type == (int)AV_INFO_TYPE_EOS)
 	{
+		/* Late callbacks from a player released during a re-open must not
+		 * clear the new player's m_playing flag (that would let the engine
+		 * resume presenting over the new video). */
+		if (player != m_player)
+		{
+			Log("HandleInfo: stale EOS from old player ignored");
+			return;
+		}
 		Log("HandleInfo: EOS -> notify engine");
 		/* Same as AV_COMPLETED: the engine TickBeat loop skips presenting the
 		 * SDL framebuffer while m_playing is 1, so the screen stays on the
@@ -282,10 +320,15 @@ void OHOSVideoPlayer::HandleInfo(int type)
 		/* On this SDK the end-of-stream surfaces as a state change to
 		 * AV_COMPLETED rather than an EOS info event. */
 		AVPlayerState st = AV_IDLE;
-		if (m_player != nullptr)
+		if (player != nullptr && m_player == player)
 		{
-			OH_AVPlayer_GetState(m_player, &st);
+			OH_AVPlayer_GetState(player, &st);
 			Log("HandleInfo: state=%d", (int)st);
+		}
+		else
+		{
+			Log("HandleInfo: stale STATE_CHANGE from old player ignored");
+			return;
 		}
 		if (st == AV_COMPLETED)
 		{
@@ -308,9 +351,11 @@ void OHOSVideoPlayer::HandleInfo(int type)
 	}
 }
 
-void OHOSVideoPlayer::HandleError(int32_t errorCode)
+void OHOSVideoPlayer::HandleError(OH_AVPlayer *player, int32_t errorCode)
 {
-	Log("HandleError: %d", (int)errorCode);
+	Log("HandleError: %d player=%p current=%p", (int)errorCode, (void *)player, (void *)m_player);
+	if (player != m_player)
+		return;
 	if (m_listener) m_listener->OnVideoError((int)errorCode);
 }
 
