@@ -2057,10 +2057,13 @@ void TVPWindowWindow::TickBeat()
 			void *handle = dlopen("libentry.so", RTLD_NOW);
 			if (!handle) handle = RTLD_DEFAULT;
 			is_video_playing = (OHOSIsVideoPlayingFn)dlsym(handle, "SDL_OHOS_IsVideoPlaying");
+			OHOS_LogToFile("engine: IsVideoPlaying dlsym=%p", (void *)is_video_playing);
 		}
 		if (is_video_playing && is_video_playing())
 		{
-			OHOS_DBG("TickBeat skip: video playing");
+			static int skip_count = 0;
+			if (++skip_count % 200 == 1)
+				OHOS_LogToFile("engine: TickBeat video skip #%d", skip_count);
 			return;
 		}
 	}

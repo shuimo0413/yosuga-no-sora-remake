@@ -95,6 +95,7 @@ static OHOSVideoSetEndFnPtr OHOSVideoSetEndFn = nullptr;
 static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
 static void (*OHOSVideoStopFn)(void) = nullptr;
 static void (*OHOSVideoCloseFn)(void) = nullptr;
+static void (*OHOSVideoResumeFn)(void) = nullptr;
 typedef void (*OHOSVideoCloseFnPtr)(void);
 static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
 
@@ -116,6 +117,7 @@ static void OHOSVideoResolveBridge()
 	OHOSVideoOpenFn = (int (*)(const char *, int))dlsym(handle, "OHOS_VideoOpen");
 	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
 	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
+	OHOSVideoResumeFn = (void (*)(void))dlsym(handle, "OHOS_VideoResume");
 	OHOSVideoSetEndFn = (OHOSVideoSetEndFnPtr)dlsym(handle, "OHOS_VideoSetEndCallback");
 	{
 		char tb[256];
@@ -502,7 +504,14 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 			"OHOS AVPlayer open failed: %s", filename.c_str());
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
 	}
-	SetStatus(tTVPVideoOverlayStatus::Stop);
+	/* NOTE: do NOT SetStatus(Stop) here. The AVPlayer already starts in
+	 * Open(), and the queued async stop event can reach the TJS layer AFTER
+	 * play() has advanced the phase machine - it then escapes Movie.tjs's
+	 * open-init-stop filter (which only ignores phase==1) and is treated as
+	 * the real end of playback. The MovieLayer is disposed, VideoOverlay::
+	 * Shutdown() releases the AVPlayer (state 7/AV_RELEASED in the log),
+	 * m_playing drops so the engine resumes presenting over the video and
+	 * the movie freezes on its first frame. play() sets the Play status. */
 #endif
 }
 //---------------------------------------------------------------------------
@@ -676,7 +685,12 @@ void tTJSNI_VideoOverlay::Play()
 	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("playMovie"))
 		SetStatus(tTVPVideoOverlayStatus::Play);
 #elif defined(__OHOS__)
-	/* OH_AVPlayer starts playing as part of Open(); nothing to do here. */
+	/* The TJS layer does pause=true -> play() -> pause=false around start().
+	 * Pause() suspends the AVPlayer, so play() must RESUME it (and re-raise
+	 * m_playing so the engine TickBeat keeps skipping the framebuffer) -
+	 * otherwise the video stays frozen on its first frame. */
+	OHOSVideoResolveBridge();
+	if (OHOSVideoResumeFn) OHOSVideoResumeFn();
 	SetStatus(tTVPVideoOverlayStatus::Play);
 #endif
 }
@@ -730,6 +744,10 @@ void tTJSNI_VideoOverlay::Pause()
 #elif defined(__ANDROID__)
 	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("pauseMovie"))
 		SetStatus(tTVPVideoOverlayStatus::Pause);
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if (OHOSVideoStopFn) OHOSVideoStopFn();
+	SetStatus(tTVPVideoOverlayStatus::Pause);
 #endif
 }
 void tTJSNI_VideoOverlay::Rewind()
