@@ -34,68 +34,12 @@
 #include <ucontext.h>
 #include <dlfcn.h>
 
-/* OHOS debug: catch native crashes and dump a backtrace to the public
- * Download folder so crashes can be diagnosed without root/faultlog. */
+/* Catch fatal signals and exit cleanly so a crashed engine does not
+ * leave the app wedged on a dead frame. */
 static void OHOS_CrashHandler(int sig, siginfo_t *si, void *uc)
 {
-	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-	std::string out = (dd && dd[0]) ? std::string(dd) + "/crash.txt"
-	                              : "/data/local/tmp/yosuga-crash.txt";
-	FILE *lf = fopen(out.c_str(), "a");
-	if (lf)
-	{
-		fprintf(lf, "===== CRASH signal=%d (%s) tid=%lu =====\r\n", sig, strsignal(sig), (unsigned long)syscall(__NR_gettid));
-		if (si) fprintf(lf, "  fault addr = %p\r\n", si->si_addr);
-#if defined(__aarch64__)
-		/* musl does not expose ucontext_t fields here. Read the kernel
-		 * sigcontext directly. The observed layout has uc_mcontext at offset
-		 * 176 (uc_flags 8 + uc_link 8 + uc_stack 32 + uc_sigmask 128):
-		 *   uc_mcontext = struct sigcontext {
-		 *     fault_address(8) regs[31](248) sp(8) pc(8) pstate(8) }
-		 * so fault_address=b+176, regs[30]=b+424, sp=b+432, pc=b+440. */
-		if (uc)
-		{
-			const unsigned char *b = (const unsigned char *)uc;
-			unsigned long pc = 0, sp = 0, lr = 0, fp = 0;
-			memcpy(&pc, b + 440, 8);
-			memcpy(&sp, b + 432, 8);
-			memcpy(&lr, b + 424, 8);  /* regs[30] = LR */
-			memcpy(&fp, b + 416, 8); /* regs[29] = FP */
-			fprintf(lf, "  pc=%p sp=%p lr(x30)=%p fp(x29)=%p\r\n",
-				(void *)pc, (void *)sp, (void *)lr, (void *)fp);
-			/* resolve pc to library + offset for addr2line */
-			Dl_info info;
-			memset(&info, 0, sizeof(info));
-			if (pc && dladdr((void *)pc, &info) && info.dli_fname)
-			{
-				fprintf(lf, "  pc in: %s +0x%lx\r\n", info.dli_fname,
-					(unsigned long)(pc - (unsigned long)info.dli_fbase));
-			}
-			if (lr && dladdr((void *)lr, &info) && info.dli_fname)
-			{
-				fprintf(lf, "  lr in: %s +0x%lx\r\n", info.dli_fname,
-					(unsigned long)(lr - (unsigned long)info.dli_fbase));
-			}
-			/* dump the first sigcontext words in case offsets drift */
-			fprintf(lf, "  mctx[0..3]=%lx %lx %lx %lx\r\n",
-				*(unsigned long *)(b + 176 + 0),
-				*(unsigned long *)(b + 176 + 8),
-				*(unsigned long *)(b + 176 + 16),
-				*(unsigned long *)(b + 176 + 24));
-		}
-		else
-		{
-			register unsigned long r_pc __asm__("x30");
-			register unsigned long r_sp __asm__("sp");
-			fprintf(lf, "  (no uc) lr(x30)=%p sp=%p\r\n", (void *)r_pc, (void *)r_sp);
-		}
-#else
-		if (uc) fprintf(lf, "  (ucontext dump not implemented on this arch)\r\n");
-#endif
-		fprintf(lf, "===== end crash =====\r\n");
-		fflush(lf);
-		fclose(lf);
-	}
+	(void)si;
+	(void)uc;
 	_exit(128 + sig);
 }
 

@@ -1346,38 +1346,10 @@ static void STDCALL TVP_Stub_590a1ec7f64904eaa32b5c771bb5f8cd(const ttstr & cont
 }
 static void STDCALL TVP_Stub_dd13d4bc2b48540a92f047bf015b829b(const ttstr & name , tTJSVariant * result = NULL , bool isexpression = false , const tjs_char * modestr = NULL)
 {
-	{
-		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-		if (dd && dd[0])
-		{
-			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-			if (lf)
-			{
-				std::string n;
-				TVPUtf16ToUtf8(n, name.AsStdString());
-				fprintf(lf, "engine: execStorage %s\n", n.c_str());
-				fclose(lf);
-			}
-		}
-	}
 	return TVPExecuteStorage(name, result, isexpression, modestr);
 }
 static void STDCALL TVP_Stub_0ff502d492598d2211405180bfb4d1e1(const ttstr & name , iTJSDispatch2 * context , tTJSVariant * result = NULL , bool isexpression = false , const tjs_char * modestr = NULL)
 {
-	{
-		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-		if (dd && dd[0])
-		{
-			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-			if (lf)
-			{
-				std::string n;
-				TVPUtf16ToUtf8(n, name.AsStdString());
-				fprintf(lf, "engine: execStorageCtx %s\n", n.c_str());
-				fclose(lf);
-			}
-		}
-	}
 	return TVPExecuteStorage(name, context, result, isexpression, modestr);
 }
 static void STDCALL TVP_Stub_cf5401746759bfe38918087aaab6c57b()
@@ -1546,7 +1518,6 @@ static void STDCALL TVP_Stub_58e9454d7096a52808f9a83b9ce25ff0()
 #include "DebugIntf.h"
 static void STDCALL TVP_Stub_cdefadd0c3bf15b4639b2f0338a40585(const ttstr & line)
 {
-	{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { std::string l8; TVPUtf16ToUtf8(l8, line.AsStdString()); fprintf(lf, "engine: TVPLog: %s\n", l8.c_str()); fclose(lf); } } }
 	return TVPAddLog(line);
 }
 static void STDCALL TVP_Stub_4bf80e9bac16b9e3f9bf385b2fbce657(const ttstr & line)

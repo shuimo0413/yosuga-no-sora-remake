@@ -321,8 +321,6 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 {
 	ttstr name(_name);
 	GetLocalName(name);
-	// OHOS debug: log the directory being enumerated.
-	{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { std::string n8; TVPUtf16ToUtf8(n8, name.AsStdString()); fprintf(lf, "engine: GetListAt dir=%s\n", n8.c_str()); fclose(lf); } } }
 #ifdef _WIN32
 	name += TJS_W("*.*");
 
@@ -397,9 +395,7 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 #endif
 					if (count < 0 || count >= 256) count = 255;
 					fname[count] = TJS_W('\0');
-					{ static int ohos_add_count = 0; if (++ohos_add_count % 200 == 0) { const char *dd1 = getenv("KRKR_OHOS_DATA_DIR"); if (dd1 && dd1[0]) { FILE *lf1 = fopen((std::string(dd1) + "/engine.log").c_str(), "a"); if (lf1) { fprintf(lf1, "engine: GetListAt add=%d name=%s\n", ohos_add_count, entry->d_name); fclose(lf1); } } } }
 					ttstr file(fname);
-					{ static int ohos_list_count = 0; if (++ohos_list_count <= 5 || ohos_list_count % 1000 == 0) { const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: GetListAt add=%d name=%s\n", ohos_list_count, entry->d_name); fclose(lf); } } } }
 					lister->Add(file);
 				}
 				// entry->d_type == DT_UNKNOWN
@@ -964,22 +960,7 @@ bool TVPCheckExistentLocalFile(const ttstr &name)
 	std::string filename;
 	if( TVPUtf16ToUtf8( filename, name.AsStdString() ) ) {
 
-#if defined(__OHOS__)
-	// OHOS debug: log why the check fails.
-	{
-		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-		if (dd && dd[0])
-		{
-			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-			if (lf)
-			{
-				struct stat st2;
-				int r = stat(filename.c_str(), &st2);
-				fprintf(lf, "engine: CheckExistentLocalFile name=%s stat=%d errno=%d\n", filename.c_str(), r, r==0?0:errno);
-				fclose(lf);
-			}
-		}
-	}
+
 #endif
 
 #if defined(__vita__)

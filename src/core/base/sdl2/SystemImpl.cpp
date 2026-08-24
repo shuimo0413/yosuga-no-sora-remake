@@ -887,7 +887,6 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/inform)
 	else
 		caption = TJS_W("Information");
 
-		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { std::string t; TVPUtf16ToUtf8(t, text.AsStdString()); fprintf(lf, "engine: System.inform: %s\n", t.c_str()); fclose(lf); } } }
 	TVPShowSimpleMessageBox(text, caption);
 
 	if(result) result->Clear();
@@ -1108,18 +1107,9 @@ TJS_BEGIN_NATIVE_PROP_DECL(dataPath)
 {
 	TJS_BEGIN_NATIVE_PROP_GETTER
 	{
-		/* OHOS debug: log the dataPath value. */
-		{
-			const char *dd4 = getenv("KRKR_OHOS_DATA_DIR");
-			if (dd4 && *dd4)
-			{
-				FILE *lf = fopen((std::string(dd4) + "/save-debug.log").c_str(), "a");
-				if (lf) { std::string dp8; TVPUtf16ToUtf8(dp8, TVPDataPath.AsStdString()); fprintf(lf, "System.dataPath=%s\n", dp8.c_str()); fclose(lf); }
-			}
-		}
 #if defined(__OHOS__)
 		/* OHOS: return the public save dir directly. */
-		{ const char *sv = getenv("KRKR_OHOS_SAVE_DIR"); FILE *lf = fopen("/data/local/tmp/yosuga-dp.log", "a"); if (lf) { fprintf(lf, "dataPath getter: sv=%s tvp=%s\n", sv ? sv : "(null)", ""); fclose(lf); } if (sv && *sv) { std::string save_str(sv); if (save_str.empty() || save_str[save_str.length() - 1] != '/') save_str += "/"; tjs_string p16; if (TVPUtf8ToUtf16(p16, save_str)) { *result = p16; return TJS_S_OK; } } }
+		{ const char *sv = getenv("KRKR_OHOS_SAVE_DIR"); if (sv && *sv) { std::string save_str(sv); if (save_str.empty() || save_str[save_str.length() - 1] != '/') save_str += "/"; tjs_string p16; if (TVPUtf8ToUtf16(p16, save_str)) { *result = p16; return TJS_S_OK; } } }
 #else
 		*result = TVPDataPath;
 #endif

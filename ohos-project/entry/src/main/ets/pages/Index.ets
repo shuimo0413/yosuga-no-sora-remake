@@ -1,5 +1,6 @@
 import entryNapi from 'libentry.so';
-import { common } from '@kit.AbilityKit';
+import { common, wantAgent } from '@kit.AbilityKit';
+import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
@@ -65,6 +66,10 @@ struct Index {
   // True while the AVPlayer renders video: the video XComponent is raised
   // above the game XComponent (polled from native, no NAPI callback needed).
   @State videoOnTop: boolean = false;
+  // Background keep-alive: a continuous audio-playback task keeps the game
+  // process (and BGM) alive while the user switches away from the app.
+  private keepAliveStarted: boolean = false;
+  private keepAliveWantAgent: wantAgent.WantAgent | null = null;
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
@@ -80,6 +85,7 @@ struct Index {
         // frozen black XComponent on screen.
         if (this.bootState === 6 && !entryNapi.isEngineRunning()) {
           this.log('engine finished; terminating the app');
+          this.stopKeepAlive();
           try {
             (getContext(this) as common.UIAbilityContext).terminateSelf();
           } catch (eTerm) {
@@ -101,8 +107,7 @@ struct Index {
     this.progressText = '需要下载或导入游戏数据';
   }
 
-  // Capture ArkTS page errors so UI-thread crashes can be diagnosed from
-  // debug.log (the native crash handler only sees native frames).
+  // Capture ArkTS page errors so UI-thread crashes do not wedge the page.
   onPageError(err: Error): void {
     try {
       this.log('PAGE_ERROR: ' + JSON.stringify(err));
@@ -119,10 +124,15 @@ struct Index {
       this.rotateToLandscape();
     }, 100);
     // Auto-run the data check / public-dir init shortly after the bootstrap
-    // page is visible (avoid stalling startup). Log every step to debug.log.
+    // page is visible (avoid stalling startup).
     setTimeout(() => {
       this.prepare();
     }, 600);
+    // Re-acquire the keep-alive task when returning from the background
+    // (the system may have cancelled it while the app was hidden).
+    if (this.bootState === 6) {
+      this.startKeepAlive();
+    }
   }
 
   async prepare(): Promise<void> {
@@ -143,28 +153,54 @@ struct Index {
 
   private log(msg: string): void {
     hilog.info(0x0000, 'YosugaOHOS', '%{public}s', msg);
-    // Mirror onto the on-screen debug area and append to a file so the flow
-    // can be traced even without a connected host.
+    // Mirror onto the on-screen debug area only.
     const line = Date.now() % 100000 + ': ' + msg;
     this.debugOut = (this.debugOut + '\n' + line).slice(-800);
-    // 1) sandbox debug.log (always writable)
-    this.appendLog(this.sandboxFiles + '/debug.log', line);
-    // 2) public Download app folder debug.log when granted (so it can be
-    //    opened from the file manager without a host connection)
-    if (this.baseDir !== '' && this.baseDir !== this.sandboxFiles) {
-      this.appendLog(this.baseDir + '/debug.log', line);
-    }
-    // 3) /data/local/tmp mirror for hdc shell debugging
-    this.appendLog('/data/local/tmp/yosuga.log', line);
   }
 
-  private appendLog(path: string, line: string): void {
+  /**
+   * Start the background keep-alive task (continuous audio playback) so the
+   * game keeps running while the user switches away from the app.
+   */
+  private async startKeepAlive(): Promise<void> {
     try {
-      const fd = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
-      fs.writeSync(fd.fd, line + '\n');
-      fs.closeSync(fd);
+      if (this.keepAliveStarted) {
+        return;
+      }
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const wantAgentInfo: wantAgent.WantAgentInfo = {
+        wants: [{
+          bundleName: ctx.abilityInfo.bundleName,
+          abilityName: 'EntryAbility'
+        }],
+        operationType: wantAgent.OperationType.START_ABILITY,
+        requestCode: 0,
+        wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+      };
+      this.keepAliveWantAgent = await wantAgent.getWantAgent(wantAgentInfo);
+      await backgroundTaskManager.startBackgroundRunning(
+        ctx,
+        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK,
+        this.keepAliveWantAgent
+      );
+      this.keepAliveStarted = true;
     } catch (e) {
-      // logging must never break the app
+      // Keep-alive is best effort: the app must never die over it.
+      this.log('startBackgroundRunning failed: ' + JSON.stringify(e));
+    }
+  }
+
+  private async stopKeepAlive(): Promise<void> {
+    try {
+      if (!this.keepAliveStarted) {
+        return;
+      }
+      await backgroundTaskManager.stopBackgroundRunning(
+        getContext(this) as common.UIAbilityContext
+      );
+      this.keepAliveStarted = false;
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -806,6 +842,8 @@ struct Index {
                 const ok: boolean = entryNapi.onLoad(context) as boolean;
                 if (ok) {
                   entryNapi.startEngine();
+                  // Keep the game (and its BGM) alive in the background.
+                  this.startKeepAlive();
                 } else {
                   this.log('onLoad failed to attach the XComponent');
                 }
