@@ -187,6 +187,17 @@ BLOCK5_NEW = """\t} catch(...) {
 \t}
 """
 
+BLOCK6_OLD = """#include "PrerenderedFont.h"
+#include "BinaryStream.h"
+#include "MsgIntf.h"
+"""
+
+BLOCK6_NEW = """#include "PrerenderedFont.h"
+#include "BinaryStream.h"
+#include "MsgIntf.h"
+#include "DebugIntf.h" /* TVPAddLog for OHOS diagnostics */
+"""
+
 BLOCKS = [
     (
         KRKRZ / "base" / "StorageIntf.cpp",
@@ -212,6 +223,11 @@ BLOCKS = [
         KRKRZ / "visual" / "PrerenderedFont.cpp",
         "font-ctor-trace", BLOCK5_OLD, BLOCK5_NEW,
         "OHOS prerendered font ctor FAILED:",
+    ),
+    (
+        KRKRZ / "visual" / "PrerenderedFont.cpp",
+        "font-debugintf-include", BLOCK6_OLD, BLOCK6_NEW,
+        "DebugIntf.h\" /* TVPAddLog",
     ),
 ]
 
