@@ -1008,10 +1008,14 @@ struct Index {
                 const ok: boolean = entryNapi.onLoad(context) as boolean;
                 if (ok) {
                   entryNapi.startEngine();
-                  // Keep the game (and its BGM) alive in the background.
-                  this.startKeepAlive();
-                  // Keep the screen on while playing.
-                  this.setScreenOn(true);
+                  // Defer the keep-alive and screen-on system IPCs: calling
+                  // them right here awaited BackgroundTaskManager/WMS on the
+                  // UI thread and occasionally froze a first launch
+                  // (appfreeze - the system killed the app).
+                  setTimeout(() => {
+                    this.startKeepAlive();
+                    this.setScreenOn(true);
+                  }, 2000);
                 } else {
                   this.log('onLoad failed to attach the XComponent');
                 }

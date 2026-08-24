@@ -34,12 +34,45 @@
 #include <ucontext.h>
 #include <dlfcn.h>
 
-/* Catch fatal signals and exit cleanly so a crashed engine does not
- * leave the app wedged on a dead frame. */
+/* Catch fatal signals, record a short backtrace into the sandbox
+ * files dir (hdc-readable) for diagnosis, and exit cleanly. */
 static void OHOS_CrashHandler(int sig, siginfo_t *si, void *uc)
 {
-	(void)si;
-	(void)uc;
+	const char *sandbox = SDL_OHOS_GetFilesDir();
+	if (sandbox && sandbox[0])
+	{
+		char path[512];
+		snprintf(path, sizeof(path), "%s/crash.txt", sandbox);
+		FILE *lf = fopen(path, "a");
+		if (lf)
+		{
+			fprintf(lf, "===== CRASH signal=%d (%s) tid=%lu =====\n",
+				sig, strsignal(sig), (unsigned long)syscall(__NR_gettid));
+			if (si) fprintf(lf, "  fault addr = %p\n", si->si_addr);
+#if defined(__aarch64__)
+			if (uc)
+			{
+				const unsigned char *b = (const unsigned char *)uc;
+				unsigned long pc = 0, sp = 0, lr = 0;
+				memcpy(&pc, b + 440, 8);
+				memcpy(&sp, b + 432, 8);
+				memcpy(&lr, b + 424, 8); /* regs[30] = LR */
+				fprintf(lf, "  pc=%p sp=%p lr(x30)=%p\n",
+					(void *)pc, (void *)sp, (void *)lr);
+				Dl_info info;
+				memset(&info, 0, sizeof(info));
+				if (pc && dladdr((void *)pc, &info) && info.dli_fname)
+					fprintf(lf, "  pc in: %s +0x%lx\n", info.dli_fname,
+						(unsigned long)(pc - (unsigned long)info.dli_fbase));
+				if (lr && dladdr((void *)lr, &info) && info.dli_fname)
+					fprintf(lf, "  lr in: %s +0x%lx\n", info.dli_fname,
+						(unsigned long)(lr - (unsigned long)info.dli_fbase));
+			}
+#endif
+			fflush(lf);
+			fclose(lf);
+		}
+	}
 	_exit(128 + sig);
 }
 
