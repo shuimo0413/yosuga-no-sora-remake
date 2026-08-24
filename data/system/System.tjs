@@ -159,7 +159,7 @@ class SystemRegister{
 		["debugSupExp", 1]
 	];
 
-	function SystemRegister(file){		try { var _f = new File("data/save-debug.log", "a"); _f.write("SystemRegister DATA_PATH=" + DATA_PATH + "\n"); _f.close(); } catch(e7) {}
+	function SystemRegister(file){
 
 		_file = file;
 
