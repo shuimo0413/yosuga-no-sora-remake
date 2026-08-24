@@ -822,9 +822,11 @@ struct Index {
               }
             })
             // Video XComponent: the AVPlayer renders the OP/logo movies into
-            // THIS surface. It sits below the game XComponent normally and is
-            // raised above it (zIndex) while the video plays, so the engine
-            // framebuffer and the video never share a buffer queue.
+            // THIS surface. The native surface layer ignores zIndex/offset,
+            // so the ONLY reliable way to hide it is to unmount the component
+            // entirely when idle (the AVPlayer releases it, else its black
+            // frame covers the engine forever).
+            if (this.videoOnTop) {
             XComponent({
               id: 'videoview',
               type: XComponentType.SURFACE,
@@ -847,8 +849,8 @@ struct Index {
               })
               .height('100%')
               .aspectRatio(16 / 9)
-              .zIndex(this.videoOnTop ? 3 : -1)
-              .offset(this.videoOnTop ? { x: 0, y: 0 } : { x: 100000, y: 0 })
+              .zIndex(3)
+            }
             // No .onTouch here: libace_compatible crashes the UI thread while
             // processing touches on the XComponent node itself (before any
             // ArkTS callback runs). Touches are captured by the transparent
