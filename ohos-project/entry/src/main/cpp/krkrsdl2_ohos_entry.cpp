@@ -620,7 +620,6 @@ static void EngineMain()
 			}
 		}
 	}
-	}
 	else
 	{
 		OHOS_Entry_LogNative("engine: base_dir is EMPTY");
