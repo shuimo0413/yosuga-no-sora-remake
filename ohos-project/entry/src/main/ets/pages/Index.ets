@@ -1,5 +1,6 @@
 import entryNapi from 'libentry.so';
 import { common, wantAgent } from '@kit.AbilityKit';
+import type { WantAgent, WantAgentInfo } from '@ohos.app.ability.wantAgent';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
@@ -69,7 +70,7 @@ struct Index {
   // Background keep-alive: a continuous audio-playback task keeps the game
   // process (and BGM) alive while the user switches away from the app.
   private keepAliveStarted: boolean = false;
-  private keepAliveWantAgent: wantAgent.WantAgent | null = null;
+  private keepAliveWantAgent: WantAgent | null = null;
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
@@ -86,6 +87,7 @@ struct Index {
         if (this.bootState === 6 && !entryNapi.isEngineRunning()) {
           this.log('engine finished; terminating the app');
           this.stopKeepAlive();
+          this.setScreenOn(false);
           try {
             (getContext(this) as common.UIAbilityContext).terminateSelf();
           } catch (eTerm) {
@@ -168,7 +170,7 @@ struct Index {
         return;
       }
       const ctx = getContext(this) as common.UIAbilityContext;
-      const wantAgentInfo: wantAgent.WantAgentInfo = {
+      const wantAgentInfo: WantAgentInfo = {
         wants: [{
           bundleName: ctx.abilityInfo.bundleName,
           abilityName: 'EntryAbility'
@@ -177,11 +179,12 @@ struct Index {
         requestCode: 0,
         wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
       };
-      this.keepAliveWantAgent = await wantAgent.getWantAgent(wantAgentInfo);
+      const agent: WantAgent = await wantAgent.getWantAgent(wantAgentInfo);
+      this.keepAliveWantAgent = agent;
       await backgroundTaskManager.startBackgroundRunning(
         ctx,
         backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK,
-        this.keepAliveWantAgent
+        agent
       );
       this.keepAliveStarted = true;
     } catch (e) {
@@ -201,6 +204,17 @@ struct Index {
       this.keepAliveStarted = false;
     } catch (e) {
       // ignore
+    }
+  }
+
+  /** Keep the screen on while the game runs (no permission needed). */
+  private async setScreenOn(keep: boolean): Promise<void> {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const win = await window.getLastWindow(ctx);
+      await win.setWindowKeepScreenOn(keep);
+    } catch (e) {
+      // best effort
     }
   }
 
@@ -844,6 +858,8 @@ struct Index {
                   entryNapi.startEngine();
                   // Keep the game (and its BGM) alive in the background.
                   this.startKeepAlive();
+                  // Keep the screen on while playing.
+                  this.setScreenOn(true);
                 } else {
                   this.log('onLoad failed to attach the XComponent');
                 }
