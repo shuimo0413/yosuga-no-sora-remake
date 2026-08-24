@@ -38,7 +38,9 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		hitType = htMask;
 		hitThreshold = 0;
 		setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
-		fillRect(0, 0, width, height, 0x0);
+		// OHOS: 0x0 (transparent) leaves the layer buffer uninitialised, which
+		// shows as white garbage before the movie; paint opaque black instead.
+		fillRect(0, 0, width, height, 0xff000000);
 		absolute = LAYER_LOGO;
 
 		_spr["BASE"] = new global.Sprite(win, this);
@@ -64,8 +66,9 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		CreateSprCover();
 		with(SPR_COVER){
-			// OHOS: opening the native video takes ~0.5-1s (video XComponent mount + AVPlayer prepare); during that wait this cover is the only thing on screen. Paint it black so the wait looks like a normal fade-in instead of a harsh white flash.
+			// OHOS: opening the native video takes ~0.5-1s (video XComponent mount + AVPlayer prepare); during that wait this cover is the only thing on screen. Paint it black so the wait looks like a normal fade-in instead of a harsh white flash. Layers are hidden by default, so it must be shown explicitly.
 			.fillRect(0, 0, SPR_COVER.width, SPR_COVER.height, 0xff000000);
+			.visible = true;
 		}
 
 		visible = true;

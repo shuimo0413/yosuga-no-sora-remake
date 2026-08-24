@@ -130,6 +130,14 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
     {
         return AUDIOSTREAM_SUCCESS;
     }
+    {
+        /* Periodic trace: is the service still requesting PCM? */
+        static int cb_count = 0;
+        if (++cb_count <= 5 || cb_count % 500 == 1)
+        {
+            OHOSAUDIO_Log("write callback #%d len=%d", cb_count, (int)length);
+        }
+    }
 
     int copied = 0;
     int used;
@@ -152,6 +160,14 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
     {
         /* S16 silence is 0; fill the missing tail. */
         SDL_memset((Uint8 *)buffer + copied, 0, length - copied);
+        {
+            static int under_count = 0;
+            if (++under_count <= 5 || under_count % 200 == 1)
+            {
+                OHOSAUDIO_Log("UNDERRUN #%d need=%d got=%d",
+                    under_count, (int)length, copied);
+            }
+        }
     }
     SDL_CondSignal(hidden->cond); /* space was freed */
     SDL_UnlockMutex(hidden->lock);
@@ -256,8 +272,13 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     }
     SDL_memset(hidden->mixbuf, 0, hidden->mixlen);
     SDL_memset(hidden->ring, 0, hidden->ring_size);
+    /* Pre-fill 3/4 of the ring with silence: the OHAudio service starts
+     * requesting PCM the moment Start() runs, before the SDL mixer thread
+     * has produced its first period. Without prefill the ring starts empty
+     * and every early callback underruns (silence), which can make the
+     * service's first request patterns stall playback. */
     hidden->ring_read = 0;
-    hidden->ring_write = 0;
+    hidden->ring_write = (hidden->ring_size * 3) / 4;
     hidden->shutdown = 0;
 
     OHOSAUDIO_Log("opened %d Hz %d ch %d bytes/period",
@@ -291,9 +312,18 @@ static void OHOSAUDIO_PlayDevice(_THIS)
     /* Block while the ring cannot take a whole period: the audio service
      * consumes data in its own callback and signals us, which paces the
      * SDL mixer thread to the hardware. */
-    while (OHOSAUDIO_RingSpace(hidden) < size && !hidden->shutdown)
     {
-        SDL_CondWaitTimeout(hidden->cond, hidden->lock, 200);
+        static int wait_count = 0;
+        int waits = 0;
+        while (OHOSAUDIO_RingSpace(hidden) < size && !hidden->shutdown)
+        {
+            SDL_CondWaitTimeout(hidden->cond, hidden->lock, 200);
+            waits++;
+        }
+        if (waits > 0 && (++wait_count <= 5 || wait_count % 50 == 1))
+        {
+            OHOSAUDIO_Log("PlayDevice waited %d x 200ms (ring full?)", waits);
+        }
     }
     if (!hidden->shutdown)
     {
