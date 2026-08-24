@@ -96,16 +96,6 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
  * it) and /data/local/tmp is not writable by the app, so the sandbox files
  * dir is the only hdc-readable log destination on device. SDL_OHOS_GetFilesDir
  * is exported by libentry.so and resolved once via dlsym. */
-/* Also redirect every SDL_Log line (krkrz TJS exceptions, FAudio errors,
- * video errors) into engine.log: hilog is unreadable from hdc on the
- * target device. */
-static void OHOSSDLLogOutput(void *userdata, int category, SDL_LogPriority priority, const char *message)
-{
-	(void)userdata;
-	(void)category;
-	(void)priority;
-	OHOS_LogToFile("sdl: %s", message);
-}
 static const char *OHOS_GetSandboxFilesDir(void)
 {
 	static const char *(*ohos_get_files_dir)(void) = nullptr;
@@ -161,6 +151,16 @@ static void OHOS_LogToFile(const char *fmt, ...)
 		}
 	}
 	va_end(args);
+}
+/* Redirect every SDL_Log line (krkrz TJS exceptions, FAudio errors, video
+ * errors) into engine.log: hilog is unreadable from hdc on the target
+ * device. */
+static void OHOSSDLLogOutput(void *userdata, int category, SDL_LogPriority priority, const char *message)
+{
+	(void)userdata;
+	(void)category;
+	(void)priority;
+	OHOS_LogToFile("sdl: %s", message);
 }
 #else
 /* Non-OHOS builds: OHOS_LogToFile is a no-op. */
