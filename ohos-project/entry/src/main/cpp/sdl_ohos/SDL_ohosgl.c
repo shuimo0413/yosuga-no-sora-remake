@@ -175,6 +175,15 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 	 * what SDL would do when the dummy context is torn down. */
 	if (data->egl_surface == EGL_NO_SURFACE)
 	{
+		/* Size the native window to the SDL window (logical game size):
+		 * EGL adopts the native window geometry as the surface size, and
+		 * SDL sets its GL viewport from the window size - a mismatch makes
+		 * the game picture occupy only a corner of the surface. The
+		 * software path re-sets the physical geometry every frame, so this
+		 * does not disturb the fallback. */
+		int gw = window->w > 0 ? window->w : 1920;
+		int gh = window->h > 0 ? window->h : 1080;
+		OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, gw, gh);
 		EGLint config_attribs[] = {
 			EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
 			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
