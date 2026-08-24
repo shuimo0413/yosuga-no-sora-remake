@@ -490,9 +490,15 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	if(!Window) TVPThrowExceptionMessage(TVPWindowAlreadyMissing);
 
 	ttstr placedName = TVPGetPlacedPath(_name);
-	if(placedName.IsEmpty())
-		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
-	ttstr localName = TVPGetLocallyAccessibleName(placedName);
+	/* NOTE: for a movie inside data.xp3, TVPGetPlacedPath can come back
+	 * EMPTY even though the storage exists: the auto-path table only
+	 * activates a fixed extension list (tjs/ks/png/ogg/...) and mp4 is not
+	 * in it. Fall back to opening the member directly through the krkrz
+	 * stream search, which does search the archives. */
+	ttstr streamName = placedName;
+	if (streamName.IsEmpty())
+		streamName = _name;
+	ttstr localName = TVPGetLocallyAccessibleName(streamName);
 	/* The AVPlayer needs a real file descriptor. Files that exist on the
 	 * filesystem are used directly; a member INSIDE data.xp3 resolves to a
 	 * virtual path that stat() cannot see, so copy it into a temporary
@@ -510,10 +516,10 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 		if (!isRealFile)
 		{
 			OHOSTempFolder = TVPGetTemporaryName();
-			OHOSTempFile = OHOSTempFolder + TJS_W("/") + TVPExtractStorageName(placedName);
+			OHOSTempFile = OHOSTempFolder + TJS_W("/") + TVPExtractStorageName(streamName);
 			TVPCreateFolders(OHOSTempFolder);
 			{
-				tTVPStreamHolder src(placedName);
+				tTVPStreamHolder src(streamName);
 				tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
 				tjs_uint8 buffer[65536 * 2];
 				tjs_uint read;
