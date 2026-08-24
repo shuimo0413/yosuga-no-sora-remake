@@ -95,13 +95,22 @@ struct Index {
   private keepAliveStarted: boolean = false;
   // True while startGame waits for the landscape rotation to settle.
   private startingGame: boolean = false;
+  // Heartbeat counter for the UI-thread liveness probe (diagnostic).
+  private hbTick: number = 0;
+  private hbStart: number = 0;
 
   aboutToAppear(): void {
+    this.hbStart = Date.now();
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
+    this.log('appear t=0');
     // Raise the video XComponent above the game XComponent while the AVPlayer
     // plays; poll the native flag (100ms) instead of a NAPI callback thread.
     setInterval(() => {
       try {
+        // UI-thread liveness probe: every ~5s log the tick + engine state.
+        if (++this.hbTick % 50 === 0) {
+          this.log('ui alive t=' + (Date.now() - this.hbStart) + ' boot=' + this.bootState);
+        }
         this.videoOnTop = entryNapi.isVideoPlaying();
         // The in-game exit button finishes the engine thread; the native
         // side reports "running" until the engine has actually started, so
@@ -130,8 +139,10 @@ struct Index {
     // already present goes STRAIGHT into the game: no bootstrap background,
     // no setup buttons, no flicker of the setup page on launch.
     this.probeData();
+    this.log('probeData done t=' + (Date.now() - this.hbStart));
     if (this.dataReady()) {
       this.readyForGame = true;
+      this.log('ready -> startGame');
       this.startGame();
     } else {
       this.bootState = 2;
@@ -936,6 +947,7 @@ struct Index {
       return; // already running / already starting
     }
     this.startingGame = true;
+    this.log('startGame begin t=' + (Date.now() - this.hbStart));
     this.cleanKrkrTmp();
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
     // Rotate to landscape FIRST and wait ~1s on a black screen for the
@@ -945,6 +957,7 @@ struct Index {
     this.rotateToLandscape();
     this.bootState = 5; // black transition screen
     setTimeout(() => {
+      this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
       this.bootState = 6;
       this.startingGame = false;
     }, 1000);
@@ -994,6 +1007,7 @@ struct Index {
           })
             .onLoad((context: object) => {
               try {
+                this.log('XComponent onLoad begin t=' + (Date.now() - this.hbStart));
                 // Try to hand the engine a surfaceId so it can create the
                 // native window directly (the legacy surface callbacks do not
                 // fire on this system).
@@ -1005,9 +1019,12 @@ struct Index {
                 }
                 this.log('onLoad surfaceId=' + sid);
                 entryNapi.setSurfaceId(sid);
+                this.log('XComponent onLoad native-attach done');
                 const ok: boolean = entryNapi.onLoad(context) as boolean;
+                this.log('XComponent onLoad attached=' + ok);
                 if (ok) {
                   entryNapi.startEngine();
+                  this.log('startEngine called');
                   // Defer the keep-alive and screen-on system IPCs: calling
                   // them right here awaited BackgroundTaskManager/WMS on the
                   // UI thread and occasionally froze a first launch
