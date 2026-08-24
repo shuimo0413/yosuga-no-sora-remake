@@ -489,13 +489,18 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	ttstr placedName = TVPGetPlacedPath(_name);
 	if(placedName.IsEmpty())
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
-	ttstr localName = TVPGetLocallyAccessibleName(placedName);
-	if(localName.IsEmpty())
-		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
-
+	/* tTVPLocalTempStorageHolder resolves the real local file: files that
+	 * already exist on the filesystem are passed through, while archive
+	 * members (data.xp3) are copied into a temporary folder that is removed
+	 * when the holder is destroyed - the AVPlayer needs a real fd. */
+	LocalTempStorageHolder = new tTVPLocalTempStorageHolder(placedName);
 	std::string filename;
-	if(!TVPUtf16ToUtf8(filename, localName.AsStdString()))
+	if(!TVPUtf16ToUtf8(filename,
+		LocalTempStorageHolder->GetLocalName().AsStdString()))
+	{
+		Close();
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	}
 
 	OHOSVideoResolveBridge();
 	OHOSVideoActiveOverlay = this;
@@ -557,6 +562,8 @@ void tTJSNI_VideoOverlay::Close()
 	OHOSVideoResolveBridge();
 	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
 	if(OHOSVideoActiveOverlay == this) OHOSVideoActiveOverlay = nullptr;
+	if(LocalTempStorageHolder)
+		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
@@ -611,6 +618,8 @@ void tTJSNI_VideoOverlay::Shutdown()
 #elif defined(__OHOS__)
 	OHOSVideoResolveBridge();
 	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
+	if(LocalTempStorageHolder)
+		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
