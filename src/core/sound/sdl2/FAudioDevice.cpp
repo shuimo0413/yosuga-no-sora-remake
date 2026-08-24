@@ -13,6 +13,9 @@
 
 #ifdef TVP_FAUDIO_IMPLEMENT
 #include <FAudio.h>
+#ifdef __OHOS__
+#include <SDL.h>
+#endif
 
 #ifdef __OHOS__
 #include <dlfcn.h>
@@ -125,6 +128,18 @@ public:
 		}
 #ifdef __OHOS__
 		OHOSFAudioLog("FAudioCreate ok obj=%p", (void *)FAudioObj);
+		{
+			/* Which SDL audio drivers are actually registered? If the OHAudio
+			 * driver is missing from this list the bootstrap registration or
+			 * the SDL_AUDIO_DRIVER_OHOS define did not take effect. */
+			int ndrv = SDL_GetNumAudioDrivers();
+			OHOSFAudioLog("SDL audio drivers=%d", ndrv);
+			for (int i = 0; i < ndrv; ++i)
+				OHOSFAudioLog("SDL audio driver[%d]=%s", i, SDL_GetAudioDriver(i));
+			OHOSFAudioLog("SDL current audio driver=%s",
+				SDL_GetCurrentAudioDriver());
+			OHOSFAudioLog("SDL audio devices=%d", SDL_GetNumAudioDevices(0));
+		}
 #endif
 		hr = FAudio_CreateMasteringVoice(
 			FAudioObj,

@@ -86,6 +86,11 @@ static int OHOS_CreateWindowFramebuffer(_THIS, SDL_Window *window,
 	{
 		return SDL_OutOfMemory();
 	}
+	/* The pixel memory is uninitialised and the engine presents it before
+	 * the first script-painted frame: it flashed white garbage on startup.
+	 * Clear it to black. */
+	SDL_memset(data->framebuffer->pixels, 0,
+		(size_t)data->framebuffer->h * (size_t)data->framebuffer->pitch);
 	*format = data->framebuffer->format->format;
 	*pixels = data->framebuffer->pixels;
 	*pitch = data->framebuffer->pitch;
