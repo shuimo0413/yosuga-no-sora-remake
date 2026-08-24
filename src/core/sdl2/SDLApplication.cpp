@@ -1267,6 +1267,18 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			TVPThrowExceptionMessage(TJS_W("Cannot create surface: %1"), ttstr(SDL_GetError()));
 		}
 		this->bitmapCompletion->surface = this->surface;
+		/* SDL_CreateRGBSurface leaves the pixel memory uninitialised. Until
+		 * the game script paints its first frame the TickBeat render path
+		 * uploads whatever garbage sits in the buffer and RenderCopy draws
+		 * the WHOLE texture (FULL_UPDATES) - on OHOS this flashed a white
+		 * frame right after starting the game, before the logo movie. Clear
+		 * both the drawing surface and the renderer texture so the first
+		 * presented frame is black. */
+		SDL_memset(this->surface->pixels, 0, (size_t)this->surface->h * (size_t)this->surface->pitch);
+		if (this->texture)
+		{
+			SDL_UpdateTexture(this->texture, NULL, this->surface->pixels, this->surface->pitch);
+		}
 	}
 #ifndef KRKRSDL2_ENABLE_ZOOM
 	SDL_Rect cliprect;

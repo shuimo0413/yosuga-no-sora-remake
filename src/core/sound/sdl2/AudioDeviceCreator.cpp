@@ -5,6 +5,9 @@
 
 #include "SysInitIntf.h"
 #include "AudioDevice.h"
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 
 // Defined in NullAudioDevice.cpp
 extern iTVPAudioDevice* TVPCreateAudioDevice_Null();
@@ -55,11 +58,44 @@ iTVPAudioDevice* TVPCreateAudioDevice()
 	if ((device == nullptr) && (TVPAudioDeviceChoice == adcFAudio || TVPAudioDeviceChoice == adcAuto))
 	{
 		device = TVPCreateAudioDevice_FAudio();
+#ifdef __OHOS__
+		{
+			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+			if (pub && pub[0])
+			{
+				std::string lpath = std::string(pub) + "/engine.log";
+				FILE *lf = fopen(lpath.c_str(), "a");
+				if (lf)
+				{
+					fprintf(lf, "audio: TVPCreateAudioDevice_FAudio -> %s
+",
+						device ? "device created" : "NULL");
+					fclose(lf);
+				}
+			}
+		}
+#endif
 	}
 #endif
 	if ((device == nullptr) && (TVPAudioDeviceChoice == adcNull || TVPAudioDeviceChoice == adcAuto))
 	{
 		device = TVPCreateAudioDevice_Null();
+#ifdef __OHOS__
+		{
+			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+			if (pub && pub[0])
+			{
+				std::string lpath = std::string(pub) + "/engine.log";
+				FILE *lf = fopen(lpath.c_str(), "a");
+				if (lf)
+				{
+					fprintf(lf, "audio: falling back to NULL audio device (no sound)
+");
+					fclose(lf);
+				}
+			}
+		}
+#endif
 	}
 	return device;
 }

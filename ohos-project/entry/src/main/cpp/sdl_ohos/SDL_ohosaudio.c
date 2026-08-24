@@ -57,6 +57,8 @@
 #include <ohaudio/native_audiostream_base.h>
 #include <hilog/log.h>
 
+#include "sdl_ohos_bridge.h" /* SDL_OHOS_GetFilesDir for file logging */
+
 /* The ring holds this many SDL mixing periods. Enough headroom for the
  * callback burst pattern of the audio service while keeping latency low. */
 #define OHOSAUDIO_RING_PERIODS 8
@@ -84,6 +86,27 @@ static void OHOSAUDIO_Log(const char *fmt, ...)
     SDL_vsnprintf(line, sizeof(line), fmt, ap);
     va_end(ap);
     OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", "audio: %{public}s", line);
+    /* hilog is not readable from hdc on this device; mirror into the
+     * engine.log files so the audio driver can be diagnosed live. */
+    {
+        const char *dirs[2];
+        int ndirs = 0;
+        const char *sandbox = SDL_OHOS_GetFilesDir();
+        const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+        if (sandbox && sandbox[0]) dirs[ndirs++] = sandbox;
+        if (pub && pub[0]) dirs[ndirs++] = pub;
+        for (int i = 0; i < ndirs; ++i)
+        {
+            char lpath[640];
+            snprintf(lpath, sizeof(lpath), "%s/engine.log", dirs[i]);
+            FILE *lf = fopen(lpath, "a");
+            if (lf)
+            {
+                fprintf(lf, "audio: %s\n", line);
+                fclose(lf);
+            }
+        }
+    }
 }
 
 static int OHOSAUDIO_RingUsed(struct SDL_PrivateAudioData *hidden)
@@ -177,9 +200,11 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     _this->hidden = hidden;
 
     OH_AudioStreamBuilder *builder = NULL;
+    OHOSAUDIO_Log("OpenDevice enter freq=%d ch=%d", _this->spec.freq, _this->spec.channels);
     res = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
     if (res != AUDIOSTREAM_SUCCESS || builder == NULL)
     {
+        OHOSAUDIO_Log("OH_AudioStreamBuilder_Create failed (%d)", (int)res);
         SDL_free(hidden);
         _this->hidden = NULL;
         return SDL_SetError("OHOS: OH_AudioStreamBuilder_Create failed (%d)", (int)res);
@@ -207,6 +232,7 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     res = OH_AudioStreamBuilder_GenerateRenderer(builder, &hidden->renderer);
     if (res != AUDIOSTREAM_SUCCESS || hidden->renderer == NULL)
     {
+        OHOSAUDIO_Log("OH_AudioStreamBuilder_GenerateRenderer failed (%d)", (int)res);
         OH_AudioStreamBuilder_Destroy(builder);
         hidden->builder = NULL;
         SDL_free(hidden);
@@ -330,6 +356,7 @@ static SDL_bool OHOSAUDIO_Init(SDL_AudioDriverImpl *impl)
     impl->OnlyHasDefaultOutputDevice = SDL_TRUE;
     impl->HasCaptureSupport = SDL_FALSE;
 
+    OHOSAUDIO_Log("driver init: OHAudio audio driver registered");
     return SDL_TRUE; /* this audio target is available. */
 }
 

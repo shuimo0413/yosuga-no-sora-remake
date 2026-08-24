@@ -14,6 +14,27 @@
 #ifdef TVP_FAUDIO_IMPLEMENT
 #include <FAudio.h>
 
+#ifdef __OHOS__
+/* hilog is not readable from hdc on the target device; mirror audio init
+ * progress into engine.log so device-side diagnosis is possible. */
+static void OHOSFAudioLog(const char *fmt, ...)
+{
+	char line[512];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+	if (pub && pub[0])
+	{
+		std::string lpath = std::string(pub) + "/engine.log";
+		FILE *lf = fopen(lpath.c_str(), "a");
+		if (lf) { fprintf(lf, "audio: %s
+", line); fclose(lf); }
+	}
+}
+#endif
+
 class FAudioStream;
 class FAudioDevice : public iTVPAudioDevice
 {
@@ -59,13 +80,22 @@ public:
 			TVPThrowExceptionMessage(TJS_W("Channel parameter is out of range"));
 		}
 		TVPAddLog(TJS_W("FAudio initializing..."));
+#ifdef __OHOS__
+		OHOSFAudioLog("FAudio Initialize enter rate=%d ch=%d", (int)param.SampleRate, (int)param.Channels);
+#endif
 
 		uint32_t flags = 0;
 		uint32_t hr = FAudioCreate(&FAudioObj, flags, FAUDIO_DEFAULT_PROCESSOR);
 		if (hr != 0)
 		{
+#ifdef __OHOS__
+			OHOSFAudioLog("FAudioCreate FAILED hr=0x%08x", (unsigned)hr);
+#endif
 			TVPThrowExceptionMessage(TJS_W("Failed to call FAudioCreate"));
 		}
+#ifdef __OHOS__
+		OHOSFAudioLog("FAudioCreate ok obj=%p", (void *)FAudioObj);
+#endif
 		hr = FAudio_CreateMasteringVoice(
 			FAudioObj,
 			&MasteringVoiceObj,
@@ -77,8 +107,14 @@ public:
 		);
 		if (hr != 0)
 		{
+#ifdef __OHOS__
+			OHOSFAudioLog("FAudio_CreateMasteringVoice FAILED hr=0x%08x", (unsigned)hr);
+#endif
 			TVPThrowExceptionMessage(TJS_W("Failed to call FAudio_CreateMasteringVoice"));
 		}
+#ifdef __OHOS__
+		OHOSFAudioLog("FAudio mastering voice ok");
+#endif
 
 		FAudioVoiceDetails details;
 		FAudioVoice_GetVoiceDetails(MasteringVoiceObj, &details);
