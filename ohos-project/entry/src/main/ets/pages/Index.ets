@@ -939,7 +939,13 @@ struct Index {
   }
 
   build() {
-    Column() {
+    Stack({ alignContent: Alignment.Center }) {
+      // Title background image shipped inside the HAP (rawfile).
+      Image($rawfile('Background.png'))
+        .width('100%')
+        .height('100%')
+        .objectFit(ImageFit.Cover)
+      Column() {
       if (this.bootState === 0) {
         Text(this.progressText).fontSize(16).fontColor(Color.Gray)
       } else if (this.bootState === 6) {
@@ -1153,6 +1159,8 @@ struct Index {
           })
         }
       }
+      .width('100%')
+      .height('100%')
     }
     .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')
