@@ -317,14 +317,32 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		 * reach the screen (source has colour, screen stays black). */
 		if (fb_count % 100 == 1)
 		{
+			/* Sample five points and count non-black pixels of the SOURCE
+			 * framebuffer: tells whether the whole frame is black or just
+			 * the centre. */
 			const Uint8 *sp = (const Uint8 *)data->framebuffer->pixels;
-			int sx = w / 2, sy = h / 2;
-			const Uint8 *spx = sp + (size_t)sy * (size_t)data->framebuffer->pitch + (size_t)sx * 4;
-			const Uint8 *dp = (const Uint8 *)fb_dst;
-			int dx = bw / 2, dy = bh / 2;
-			const Uint8 *dpx = dp + (size_t)dy * (size_t)dst_stride + (size_t)dx * 4;
-			if (fb) { fprintf(fb, "  src px(%d,%d)=[%d %d %d %d] dst px(%d,%d)=[%d %d %d %d]\n",
-				sx, sy, spx[0], spx[1], spx[2], spx[3], dx, dy, dpx[0], dpx[1], dpx[2], dpx[3]); fclose(fb); }
+			int pitch = data->framebuffer->pitch;
+			int pts[5][2] = { {100,100}, {w-100,100}, {100,h-100}, {w-100,h-100}, {w/2,h/2} };
+			long nonblack = 0;
+			int stride4 = pitch / 4;
+			for (int y = 0; y < h; y += 8)
+			{
+				const Uint32 *row = (const Uint32 *)(sp + (size_t)y * (size_t)pitch);
+				for (int x = 0; x < w; x += 8)
+				{
+					if ((row[x] & 0x00FFFFFFu) != 0) nonblack++;
+				}
+			}
+			if (fb)
+			{
+				fprintf(fb, "  src samples: nonblack=%ld", nonblack);
+				for (int k = 0; k < 5; k++)
+				{
+					const Uint8 *px = sp + (size_t)pts[k][1] * (size_t)pitch + (size_t)pts[k][0] * 4;
+					fprintf(fb, " (%d,%d)=[%d %d %d %d]", pts[k][0], pts[k][1], px[0], px[1], px[2], px[3]);
+				}
+				fprintf(fb, "\n");
+			}
 		}
 			/* Also mirror into the public Download app dir. */
 			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
