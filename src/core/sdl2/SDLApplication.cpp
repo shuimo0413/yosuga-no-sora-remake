@@ -2098,20 +2098,30 @@ void TVPWindowWindow::TickBeat()
 	 * FULLSCREEN_DESKTOP window recreation clears surface_valid, after
 	 * which SDL_UpdateWindowSurface silently no-ops (UpdateWindowFramebuffer
 	 * never runs) and the software-rendered menu never reaches the screen.
-	 * SDL_GetWindowSurface recreates it cheaply when invalid. */
+	 * SDL_GetWindowSurface recreates it cheaply when invalid.
+	 *
+	 * IMPORTANT: only CHECK the window surface here - never assign it to
+	 * this->surface. When a renderer exists, this->surface is the engine's
+	 * OWN drawing surface (allocated in SetPaintBoxSize and painted by
+	 * bitmapCompletion); TickBeat uploads it into the renderer texture.
+	 * Reassigning this->surface to the SDL window surface made every
+	 * SDL_UpdateTexture upload the engine-untouched (black) window
+	 * framebuffer instead of the game picture, so after the logo video
+	 * ended the screen stayed black even though the engine kept rendering
+	 * (src samples nonblack=0 in the framebuffer diagnostics). */
 	if (this->window)
 	{
 		SDL_Surface *ws = SDL_GetWindowSurface(this->window);
-		if (ws)
+		if (!ws)
 		{
-			this->surface = ws;
-			/* do NOT reassign bitmapCompletion->surface (engine drawing surface) */
+			OHOS_LogToFile("engine: TickBeat SDL_GetWindowSurface failed: %s", SDL_GetError());
 		}
 		{
 			static int wscount = 0;
 			if (++wscount % 300 == 1)
 			{
-				OHOS_LogToFile("engine: TickBeat window surface=%p", (void *)ws);
+				OHOS_LogToFile("engine: TickBeat window surface=%p engine surface=%p",
+					(void *)ws, (void *)this->surface);
 			}
 		}
 	}
@@ -2125,6 +2135,34 @@ void TVPWindowWindow::TickBeat()
 			rect.y = this->bitmapCompletion->update_rect.top;
 			rect.w = this->bitmapCompletion->update_rect.get_width();
 			rect.h = this->bitmapCompletion->update_rect.get_height();
+#if defined(__OHOS__)
+			{
+				/* Verify the ENGINE drawing surface (the texture upload
+				 * source) really carries the game picture: count non-black
+				 * pixels so a black screen can be told apart from a broken
+				 * upload path. */
+				static int upcount = 0;
+				if (++upcount % 300 == 1)
+				{
+					SDL_Surface *ks = this->surface;
+					long nonblack = 0;
+					if (ks && ks->pixels)
+					{
+						for (int yy = 0; yy < ks->h; yy += 8)
+						{
+							const Uint32 *row = (const Uint32 *)((const Uint8 *)ks->pixels + (size_t)yy * (size_t)ks->pitch);
+							for (int xx = 0; xx < ks->w; xx += 8)
+							{
+								if ((row[xx] & 0x00FFFFFFu) != 0) nonblack++;
+							}
+						}
+					}
+					OHOS_LogToFile("engine: TickBeat upload src=%p %dx%d nonblack=%ld update_rect=%dx%d@%d,%d",
+						(void *)ks, ks ? ks->w : 0, ks ? ks->h : 0, nonblack,
+						rect.w, rect.h, rect.x, rect.y);
+				}
+			}
+#endif
 			if (this->renderer)
 			{
 #if defined(KRKRSDL2_ENABLE_ZOOM) || defined(KRKRSDL2_RENDERER_FULL_UPDATES)
