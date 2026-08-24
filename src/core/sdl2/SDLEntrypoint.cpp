@@ -6,6 +6,9 @@
 #ifdef USE_SDL_MAIN
 #include <SDL_main.h>
 #endif
+#if defined(__IPHONEOS__)
+#include <cstdlib>
+#endif
 
 #if defined(USE_SDL_MAIN)
 extern "C" int SDL_main(int argc, char **argv)
@@ -35,6 +38,13 @@ extern "C" int main(int argc, char **argv)
 
 #ifndef __EMSCRIPTEN__
 		krkrsdl2_cleanup();
+#endif
+
+#if defined(__IPHONEOS__)
+		/* iOS has no programmatic way to close an app except exit(): the
+		 * in-game exit button ends the engine loop, and returning here would
+		 * just leave a frozen SDL frame on screen. Terminate the process. */
+		exit(TVPTerminateCode);
 #endif
 	}
 	catch (...)
