@@ -157,6 +157,13 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	{
 		return SDL_SetError("No framebuffer");
 	}
+	/* Belt and braces: while the AVPlayer owns the surface (weak bridge
+	 * symbol resolves to libentry's implementation at run time) the engine
+	 * must not touch the native window at all. */
+	if (SDL_OHOS_IsVideoPlaying && SDL_OHOS_IsVideoPlaying())
+	{
+		return 0;
+	}
 	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
 	if (native_window == NULL)
 	{

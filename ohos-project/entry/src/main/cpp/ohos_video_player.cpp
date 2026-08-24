@@ -135,10 +135,21 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	}
 	Log("Open: SetFDSource ok, size=%lld", (long long)vst.st_size);
 
+	/* The AVPlayer and the SDL engine share the SAME XComponent native
+	 * window. Take the surface over IMMEDIATELY - before Prepare/Play -
+	 * so the engine TickBeat (SDL_OHOS_IsVideoPlaying) stops presenting
+	 * its framebuffer, and drop any engine buffers still queued on the
+	 * surface. Otherwise the engine keeps flushing frames while the
+	 * AVPlayer starts, the producers fight over buffer slots and the
+	 * video freezes on the first frame (audio keeps going). */
+	m_playing = true;
+	OH_NativeWindow_CleanCache(m_nativeWindow);
+
 	ret = OH_AVPlayer_SetVideoSurface(m_player, m_nativeWindow);
 	if (ret != AV_ERR_OK)
 	{
 		Log("Open: SetVideoSurface ret=%d", (int)ret);
+		m_playing = false;
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
@@ -161,6 +172,7 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	if (ret != AV_ERR_OK)
 	{
 		Log("Open: Prepare ret=%d", (int)ret);
+		m_playing = false;
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
@@ -172,6 +184,7 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	if (ret != AV_ERR_OK)
 	{
 		Log("Open: Play ret=%d", (int)ret);
+		m_playing = false;
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
