@@ -75,8 +75,16 @@ OHOS_EXPORT int SDL_OHOS_GetPhysicalSize(int *width, int *height) __attribute__(
  * is not covered by the engine framebuffer). */
 OHOS_EXPORT int SDL_OHOS_IsVideoPlaying(void) __attribute__((weak));
 
-/* Deliver an XComponent touch event. Called from the ACE UI thread. */
+/* Deliver an XComponent touch event. Called from the ACE UI thread.
+ * Touch coordinates are physical pixels; the backend scales them into the
+ * logical window space. */
 OHOS_EXPORT void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y) __attribute__((weak));
+
+/* Deliver one finger of an XComponent touch event as an SDL FINGER event.
+ * Multi-finger state is what lets the engine map a two-finger tap onto the
+ * right mouse button (skip movie / back out of menus). finger_id is the
+ * ArkTS TouchObject.id, x/y are physical pixels (normalised to 0..1 here). */
+OHOS_EXPORT void SDL_OHOS_OnFingerEvent(int finger_id, int touch_type, float x, float y) __attribute__((weak));
 
 /* Notify the SDL video driver that the surface size changed. */
 OHOS_EXPORT void SDL_OHOS_OnSurfaceChanged(int width, int height) __attribute__((weak));

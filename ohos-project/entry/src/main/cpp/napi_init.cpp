@@ -262,6 +262,35 @@ static napi_value SendTouch(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+/* sendFinger(type, fingerId, x, y): forward ONE finger of an ArkTS touch
+ * event as an SDL FINGER event. The engine turns a second finger press into
+ * the right mouse button (skip movie / back out of menus), so every finger
+ * must reach SDL - the old sendTouch only forwarded touches[0]. */
+static napi_value SendFinger(napi_env env, napi_callback_info info)
+{
+	size_t argc = 4;
+	napi_value args[4] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 4)
+	{
+		return nullptr;
+	}
+	int32_t type = 0;
+	int32_t fingerId = 0;
+	double x = 0.0;
+	double y = 0.0;
+	if (napi_get_value_int32(env, args[0], &type) != napi_ok ||
+		napi_get_value_int32(env, args[1], &fingerId) != napi_ok ||
+		napi_get_value_double(env, args[2], &x) != napi_ok ||
+		napi_get_value_double(env, args[3], &y) != napi_ok)
+	{
+		return nullptr;
+	}
+	SDL_OHOS_OnFingerEvent(static_cast<int>(fingerId), static_cast<int>(type),
+		static_cast<float>(x), static_cast<float>(y));
+	return nullptr;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
@@ -272,6 +301,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"setSurfaceId", nullptr, SetSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setExternalDirs", nullptr, SetExternalDirs, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"sendTouch", nullptr, SendTouch, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"sendFinger", nullptr, SendFinger, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

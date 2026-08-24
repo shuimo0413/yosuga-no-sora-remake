@@ -823,20 +823,30 @@ struct Index {
             .backgroundColor('#00000000')
             .onTouch((event: TouchEvent) => {
               try {
-                const t = event.touches[0];
-                if (!t) {
-                  this.log('overlay touch: no touches, type=' + event.type);
-                  return;
-                }
                 let type = 0; // SDL_OHOS_TOUCH_DOWN
                 if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
                   type = 1; // SDL_OHOS_TOUCH_UP
                 } else if (event.type === TouchType.Move) {
                   type = 2; // SDL_OHOS_TOUCH_MOVE
                 }
-                // onTouch reports vp (logical px); SDL window coords are px.
-                entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
-                this.log('overlay touch: type=' + type + ' x=' + t.x.toFixed(1) + ' y=' + t.y.toFixed(1));
+                // Primary finger drives the mouse simulation (single-tap
+                // advances text, skips the logo movie).
+                const t = event.touches[0];
+                if (t) {
+                  entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
+                }
+                // EVERY finger must reach SDL as a FINGER event: the engine
+                // maps a two-finger tap onto the right mouse button, which
+                // is how the OP movie is skipped and menus are backed out
+                // of. The old code only forwarded touches[0], so two-finger
+                // gestures never existed on OHOS.
+                const changed = event.changedTouches;
+                for (let i = 0; i < changed.length; i++) {
+                  const f = changed[i];
+                  entryNapi.sendFinger(type, f.id, vp2px(f.x), vp2px(f.y));
+                }
+                this.log('overlay touch: type=' + type + ' fingers=' + event.touches.length +
+                  ' changed=' + changed.length);
               } catch (e) {
                 this.log('overlay onTouch exception: ' + JSON.stringify(e));
               }

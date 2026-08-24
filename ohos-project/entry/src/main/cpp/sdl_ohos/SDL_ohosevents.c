@@ -163,6 +163,66 @@ void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 	}
 }
 
+void SDL_OHOS_OnFingerEvent(int finger_id, int touch_type, float x, float y)
+{
+	SDL_Window *window = SDL_GetKeyboardFocus();
+	if (window == NULL)
+	{
+		window = SDL_GetMouseFocus();
+	}
+	if (window == NULL)
+	{
+		SDL_VideoDevice *device = SDL_GetVideoDevice();
+		if (device != NULL && device->windows != NULL)
+		{
+			window = device->windows;
+		}
+	}
+	if (window == NULL)
+	{
+		return;
+	}
+
+	/* SDL finger coordinates are normalised to 0..1 of the window. */
+	float nx = x, ny = y;
+	{
+		int pw = 0, ph = 0;
+		SDL_OHOS_GetPhysicalSize(&pw, &ph);
+		if (pw > 0 && ph > 0)
+		{
+			nx = x / (float)pw;
+			ny = y / (float)ph;
+		}
+	}
+	if (nx < 0.0f) nx = 0.0f;
+	if (nx > 1.0f) nx = 1.0f;
+	if (ny < 0.0f) ny = 0.0f;
+	if (ny > 1.0f) ny = 1.0f;
+
+	SDL_Event ev;
+	SDL_zero(ev);
+	switch (touch_type)
+	{
+	case SDL_OHOS_TOUCH_DOWN:
+		ev.type = SDL_FINGERDOWN;
+		break;
+	case SDL_OHOS_TOUCH_UP:
+		ev.type = SDL_FINGERUP;
+		break;
+	default:
+		ev.type = SDL_FINGERMOTION;
+		break;
+	}
+	ev.tfinger.touchId = 0;
+	ev.tfinger.fingerId = (SDL_FingerID)(Sint64)finger_id;
+	ev.tfinger.x = nx;
+	ev.tfinger.y = ny;
+	ev.tfinger.dx = 0.0f;
+	ev.tfinger.dy = 0.0f;
+	ev.tfinger.pressure = 1.0f;
+	SDL_PushEvent(&ev);
+}
+
 void SDL_OHOS_OnSurfaceChanged(int width, int height)
 {
 	SDL_VideoDevice *device = SDL_GetVideoDevice();
