@@ -2071,7 +2071,7 @@ void TVPWindowWindow::Show()
 }
 void TVPWindowWindow::TickBeat()
 {
-	{ static int tb = 0; if (++tb <= 5 || tb % 600 == 0) { OHOS_LogToFile("engine: TickBeat #%d needsGraphicUpdate=%d renderer=%s surface=%s", tb, this->needsGraphicUpdate ? 1 : 0, this->renderer ? "Y" : "N", this->surface ? "Y" : "N"); } }
+	{ static int tb = 0; if (++tb <= 5 || tb % 60 == 0) { OHOS_LogToFile("engine: TickBeat #%d needsGraphicUpdate=%d renderer=%s surface=%s", tb, this->needsGraphicUpdate ? 1 : 0, this->renderer ? "Y" : "N", this->surface ? "Y" : "N"); } }
 	if (!this->visibilityHasInitialized)
 	{
 		this->visibilityHasInitialized = true;

@@ -291,7 +291,14 @@ int OHOS_GL_SwapWindow(_THIS, SDL_Window *window)
 			OHOS_EglLog("swap #%d egl_surface=%p", swap_count, (void *)data->egl_surface);
 		}
 	}
-	return eglSwapBuffers(g_ohos_egl_display, data->egl_surface) ? 0 : SDL_SetError("OHOS: eglSwapBuffers failed");
+	{
+		EGLBoolean ok = eglSwapBuffers(g_ohos_egl_display, data->egl_surface);
+		if (!ok)
+		{
+			OHOS_EglLog("eglSwapBuffers failed err=%#x", (unsigned)eglGetError());
+		}
+		return ok ? 0 : SDL_SetError("OHOS: eglSwapBuffers failed");
+	}
 }
 
 void OHOS_GL_DeleteContext(_THIS, SDL_GLContext context)
