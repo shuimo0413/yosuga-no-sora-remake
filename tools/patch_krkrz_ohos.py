@@ -16,15 +16,16 @@ Changes:
   3. For the archive root entry the placed path keeps the full member name
      (the table key remains the basename); otherwise "archive>basename"
      paths that do not exist in the archive index would be produced.
+  4. Trace archive member opens (TVPCreateStream archive branch) so xp3
+     video/font failures are visible in engine.log.
+  5. Trace prerendered font mapping (storage + placed path + ctor failure).
 """
 
 import sys
 from pathlib import Path
 
-TARGET = (
-    Path(__file__).resolve().parent.parent
-    / "external" / "krkrz" / "base" / "StorageIntf.cpp"
-)
+REPO = Path(__file__).resolve().parent.parent
+KRKRZ = REPO / "external" / "krkrz"
 
 BLOCK1_OLD = """\t\t\t\t// get first index which the item has 'in_arc_name' as its start
 \t\t\t\t// of the string.
@@ -110,36 +111,129 @@ BLOCK2_NEW = """\t\t\t\t\t\t\t{
 \t\t\t\t\t\t\t}
 """
 
+BLOCK3_OLD = """\t\tarc = TVPArchiveCache.Get(arcname);
+\t\ttry
+\t\t{
+\t\t\tttstr in_arc_name(sharp_pos + 1);
+\t\t\ttTVPArchive::NormalizeInArchiveStorageName(in_arc_name);
+\t\t\tstream = arc->CreateStream(in_arc_name);
+\t\t}
+\t\tcatch(...)
+\t\t{
+\t\t\tarc->Release();
+\t\t\tif(access >= 1) TVPClearStorageCaches();
+\t\t\tthrow;
+\t\t}
+"""
 
-def apply_block(text: str, name: str, old: str, new: str, marker: str):
-    if marker in text:
-        print(f"block '{name}' already applied, skipping")
-        return text, False
-    if old not in text:
-        print(
-            f"ERROR: pattern for block '{name}' not found in {TARGET}",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    return text.replace(old, new, 1), True
+BLOCK3_NEW = """\t\tarc = TVPArchiveCache.Get(arcname);
+\t\ttry
+\t\t{
+\t\t\tttstr in_arc_name(sharp_pos + 1);
+\t\t\ttTVPArchive::NormalizeInArchiveStorageName(in_arc_name);
+#if defined(__OHOS__)
+\t\t\tTVPAddLog(ttstr(TJS_W("(info) OHOS archive open: member=")) +
+\t\t\t\tin_arc_name + TJS_W(" arc=") + arcname);
+#endif
+\t\t\tstream = arc->CreateStream(in_arc_name);
+#if defined(__OHOS__)
+\t\t\tTVPAddLog(ttstr(TJS_W("(info) OHOS archive open: ok member=")) +
+\t\t\t\tin_arc_name);
+#endif
+\t\t}
+\t\tcatch(...)
+\t\t{
+#if defined(__OHOS__)
+\t\t\tTVPAddLog(TJS_W("(info) OHOS archive open: FAILED"));
+#endif
+\t\t\tarc->Release();
+\t\t\tif(access >= 1) TVPClearStorageCaches();
+\t\t\tthrow;
+\t\t}
+"""
+
+BLOCK4_OLD = """void TVPMapPrerenderedFont(const tTVPFont & font, const ttstr & storage)
+{
+\t// map specified font to specified prerendered font
+\tttstr fn = TVPSearchPlacedPath(storage);
+"""
+
+BLOCK4_NEW = """void TVPMapPrerenderedFont(const tTVPFont & font, const ttstr & storage)
+{
+\t// map specified font to specified prerendered font
+#if defined(__OHOS__)
+\tTVPAddLog(ttstr(TJS_W("(info) OHOS font map: storage=")) + storage);
+#endif
+\tttstr fn = TVPSearchPlacedPath(storage);
+#if defined(__OHOS__)
+\tTVPAddLog(ttstr(TJS_W("(info) OHOS font map: placed=")) + fn);
+#endif
+"""
+
+BLOCK5_OLD = """\t} catch(...) {
+\t\tif( stream ) delete stream;
+\t\tif( Image ) delete[] Image;
+\t\tthrow;
+\t}
+"""
+
+BLOCK5_NEW = """\t} catch(...) {
+#if defined(__OHOS__)
+\t\tTVPAddLog(ttstr(TJS_W("(info) OHOS prerendered font ctor FAILED: ")) + storage);
+#endif
+\t\tif( stream ) delete stream;
+\t\tif( Image ) delete[] Image;
+\t\tthrow;
+\t}
+"""
+
+BLOCKS = [
+    (
+        KRKRZ / "base" / "StorageIntf.cpp",
+        "root-activates-all", BLOCK1_OLD, BLOCK1_NEW,
+        "in_arc_name_len == 0 ||",
+    ),
+    (
+        KRKRZ / "base" / "StorageIntf.cpp",
+        "full-member-name", BLOCK2_OLD, BLOCK2_NEW,
+        "(in_arc_name_len == 0)",
+    ),
+    (
+        KRKRZ / "base" / "StorageIntf.cpp",
+        "archive-open-trace", BLOCK3_OLD, BLOCK3_NEW,
+        "OHOS archive open: member=",
+    ),
+    (
+        KRKRZ / "visual" / "LayerBitmapImpl.cpp",
+        "font-map-trace", BLOCK4_OLD, BLOCK4_NEW,
+        "OHOS font map: storage=",
+    ),
+    (
+        KRKRZ / "visual" / "PrerenderedFont.cpp",
+        "font-ctor-trace", BLOCK5_OLD, BLOCK5_NEW,
+        "OHOS prerendered font ctor FAILED:",
+    ),
+]
 
 
 def main() -> int:
-    text = TARGET.read_text(encoding="utf-8")
     applied = 0
-    text, changed = apply_block(
-        text, "root-activates-all",
-        BLOCK1_OLD, BLOCK1_NEW, "in_arc_name_len == 0 ||",
-    )
-    applied += 1 if changed else 0
-    text, changed = apply_block(
-        text, "full-member-name",
-        BLOCK2_OLD, BLOCK2_NEW, "(in_arc_name_len == 0)",
-    )
-    applied += 1 if changed else 0
+    for path, name, old, new, marker in BLOCKS:
+        text = path.read_text(encoding="utf-8")
+        if marker in text:
+            print(f"block '{name}' already applied, skipping")
+            continue
+        if old not in text:
+            print(
+                f"ERROR: pattern for block '{name}' not found in {path}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        applied += 1
+        print(f"applied block '{name}' to {path}")
     if applied:
-        TARGET.write_text(text, encoding="utf-8")
-        print(f"patched {TARGET} ({applied} block(s))")
+        print(f"patched {applied} block(s)")
     else:
         print("nothing to do, all blocks already applied")
     return 0

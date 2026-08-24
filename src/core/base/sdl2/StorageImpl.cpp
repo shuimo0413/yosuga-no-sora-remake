@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <cstdlib>
 
 #ifndef _WIN32
 #include <sys/types.h>
@@ -807,6 +808,18 @@ ttstr TVPGetTemporaryName()
 			tjs_char tmp[MAX_PATH+1];
 			::GetTempPath(MAX_PATH, tmp);
 			TVPTempPath = tmp;
+#elif defined(__OHOS__)
+			/* The app sandbox has no writable /tmp; use the public game
+			 * data folder (KRKR_OHOS_DATA_DIR, where savedata also lives)
+			 * so the AVPlayer can read the extracted movie files too. */
+			{
+				const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+				tjs_string tmp_utf16;
+				if (dd && dd[0] && TVPUtf8ToUtf16(tmp_utf16, dd))
+					TVPTempPath = ttstr(tmp_utf16) + TJS_W("/tmp/");
+				else
+					TVPTempPath = ttstr(TJS_W("/tmp/"));
+			}
 #else
 			TVPTempPath = ttstr( "/tmp/" );
 #endif

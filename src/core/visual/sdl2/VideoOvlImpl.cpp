@@ -531,12 +531,18 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 			OHOSTempFile = OHOSTempFolder + TJS_W("/") + TVPExtractStorageName(streamName);
 			TVPCreateFolders(OHOSTempFolder);
 			{
+				std::string dbgTemp;
+				TVPUtf16ToUtf8(dbgTemp, OHOSTempFolder.AsStdString());
+				OHOSVideoTrace(("video copy: temp=" + dbgTemp).c_str());
+				OHOSVideoTrace("video copy: opening source stream");
 				tTVPStreamHolder src(streamName);
+				OHOSVideoTrace("video copy: source stream opened, copying");
 				tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
 				tjs_uint8 buffer[65536 * 2];
 				tjs_uint read;
 				while ((read = src->Read(buffer, sizeof(buffer))) != 0)
 					dest->WriteBuffer(buffer, read);
+				OHOSVideoTrace("video copy: done");
 			}
 			localName = OHOSTempFile;
 		}
