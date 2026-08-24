@@ -679,6 +679,11 @@ void OHOS_VideoStop(void)
 	g_ohos_player.Stop();
 }
 
+void OHOS_VideoPause(void)
+{
+	g_ohos_player.Pause();
+}
+
 void OHOS_VideoResume(void)
 {
 	g_ohos_player.Resume();

@@ -94,6 +94,7 @@ typedef void (*OHOSVideoSetEndFnPtr)(OHOSVideoEndFn);
 static OHOSVideoSetEndFnPtr OHOSVideoSetEndFn = nullptr;
 static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
 static void (*OHOSVideoStopFn)(void) = nullptr;
+static void (*OHOSVideoPauseFn)(void) = nullptr;
 static void (*OHOSVideoCloseFn)(void) = nullptr;
 static void (*OHOSVideoResumeFn)(void) = nullptr;
 typedef void (*OHOSVideoCloseFnPtr)(void);
@@ -116,6 +117,7 @@ static void OHOSVideoResolveBridge()
 	if (!handle) handle = RTLD_DEFAULT;
 	OHOSVideoOpenFn = (int (*)(const char *, int))dlsym(handle, "OHOS_VideoOpen");
 	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
+	OHOSVideoPauseFn = (void (*)(void))dlsym(handle, "OHOS_VideoPause");
 	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
 	OHOSVideoResumeFn = (void (*)(void))dlsym(handle, "OHOS_VideoResume");
 	OHOSVideoSetEndFn = (OHOSVideoSetEndFnPtr)dlsym(handle, "OHOS_VideoSetEndCallback");
@@ -745,8 +747,16 @@ void tTJSNI_VideoOverlay::Pause()
 	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("pauseMovie"))
 		SetStatus(tTVPVideoOverlayStatus::Pause);
 #elif defined(__OHOS__)
+	/* The TJS layer pauses the movie right after open() to grab the
+	 * first frame (Movie.tjs: pause=true around start()). Pause must NOT
+	 * go through Stop(): OHOS_VideoStop drops m_playing, the engine
+	 * TickBeat resumes presenting its framebuffer IMMEDIATELY and the
+	 * engine and the AVPlayer start fighting over the shared XComponent
+	 * surface again - the video freezes on its first frame. Use the
+	 * real pause path, which suspends the AVPlayer but keeps the surface
+	 * owned by the video (m_playing stays 1, the engine keeps skipping). */
 	OHOSVideoResolveBridge();
-	if (OHOSVideoStopFn) OHOSVideoStopFn();
+	if (OHOSVideoPauseFn) OHOSVideoPauseFn();
 	SetStatus(tTVPVideoOverlayStatus::Pause);
 #endif
 }

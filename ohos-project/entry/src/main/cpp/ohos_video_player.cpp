@@ -330,6 +330,17 @@ void OHOSVideoPlayer::HandleInfo(OH_AVPlayer *player, int type)
 			Log("HandleInfo: stale STATE_CHANGE from old player ignored");
 			return;
 		}
+		if (st == AV_PREPARED)
+		{
+			/* Prepare is asynchronous: this is the first moment the media
+			 * info is valid. Log whether the VIDEO track really attached
+			 * to the surface (0x0 would mean audio-only playback). */
+			int32_t vw = 0, vh = 0, vdur = 0;
+			OH_AVPlayer_GetVideoWidth(player, &vw);
+			OH_AVPlayer_GetVideoHeight(player, &vh);
+			OH_AVPlayer_GetDuration(player, &vdur);
+			Log("HandleInfo: PREPARED video=%dx%d duration=%dms", (int)vw, (int)vh, (int)vdur);
+		}
 		if (st == AV_COMPLETED)
 		{
 			Log("HandleInfo: COMPLETED -> notify engine");
@@ -363,7 +374,14 @@ void OHOSVideoPlayer::Pause()
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	if (m_player != nullptr) OH_AVPlayer_Pause(m_player);
-	m_playing = false;
+	/* KEEP m_playing set: the TJS layer pauses the movie right after
+	 * open() to grab the first frame, then play() resumes it. If Pause
+	 * cleared m_playing the engine TickBeat would resume presenting its
+	 * framebuffer at once and the two producers would fight over the
+	 * shared XComponent surface, freezing the video on the first frame.
+	 * The surface stays owned by the video (the paused AVPlayer keeps its
+	 * last frame on screen); only Stop/Close/COMPLETED hand it back. */
+	Log("Pause: player paused, m_playing kept=%d", m_playing.load() ? 1 : 0);
 }
 
 void OHOSVideoPlayer::Resume()
