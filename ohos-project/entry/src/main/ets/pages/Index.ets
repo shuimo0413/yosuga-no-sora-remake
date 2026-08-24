@@ -61,9 +61,22 @@ struct Index {
   private assets: DataAsset[] = [];
   private manifest: DataManifest | null = null;
   private xcController: XComponentController = new XComponentController();
+  private xcVideoController: XComponentController = new XComponentController();
+  // True while the AVPlayer renders video: the video XComponent is raised
+  // above the game XComponent (polled from native, no NAPI callback needed).
+  @State videoOnTop: boolean = false;
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
+    // Raise the video XComponent above the game XComponent while the AVPlayer
+    // plays; poll the native flag (100ms) instead of a NAPI callback thread.
+    setInterval(() => {
+      try {
+        this.videoOnTop = entryNapi.isVideoPlaying();
+      } catch (e) {
+        // entryNapi not ready yet - keep the current value
+      }
+    }, 100);
     // Show the bootstrap screen immediately with ZERO filesystem or
     // permission work, so no platform call can stall the UI thread before
     // the user sees it. Data checks run on demand below.
@@ -808,6 +821,33 @@ struct Index {
                 this.log('onAreaChange exception: ' + JSON.stringify(e));
               }
             })
+            // Video XComponent: the AVPlayer renders the OP/logo movies into
+            // THIS surface. It sits below the game XComponent normally and is
+            // raised above it (zIndex) while the video plays, so the engine
+            // framebuffer and the video never share a buffer queue.
+            XComponent({
+              id: 'videoview',
+              type: XComponentType.SURFACE,
+              libraryname: 'entry',
+              controller: this.xcVideoController
+            })
+              .onLoad(() => {
+                try {
+                  let vsid = '';
+                  try {
+                    vsid = this.xcVideoController.getXComponentSurfaceId();
+                  } catch (e3) {
+                    this.log('getVideoXComponentSurfaceId failed: ' + JSON.stringify(e3));
+                  }
+                  this.log('video onLoad surfaceId=' + vsid);
+                  entryNapi.setVideoSurfaceId(vsid);
+                } catch (e) {
+                  this.log('video onLoad exception: ' + JSON.stringify(e));
+                }
+              })
+              .height('100%')
+              .aspectRatio(16 / 9)
+              .zIndex(this.videoOnTop ? 3 : 0)
             // No .onTouch here: libace_compatible crashes the UI thread while
             // processing touches on the XComponent node itself (before any
             // ArkTS callback runs). Touches are captured by the transparent
@@ -821,6 +861,7 @@ struct Index {
             .height('100%')
             .aspectRatio(16 / 9)
             .backgroundColor('#00000000')
+            .zIndex(4)
             .onTouch((event: TouchEvent) => {
               try {
                 let type = 0; // SDL_OHOS_TOUCH_DOWN

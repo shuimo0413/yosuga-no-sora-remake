@@ -146,6 +146,10 @@ pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
 OH_NativeXComponent *g_component = nullptr;
 OHNativeWindow *g_native_window = nullptr;
+/* Separate native window for the AVPlayer video: created from the video
+ * XComponent's surfaceId. The engine framebuffer and the video never share
+ * a buffer queue. */
+OHNativeWindow *g_video_native_window = nullptr;
 uint64_t g_surface_width = 0;
 uint64_t g_surface_height = 0;
 /* Physical XComponent pixel size reported from ArkTS; used only to scale
@@ -409,6 +413,48 @@ void OHOS_Entry_SetSurfaceId(const char *surface_id)
 }
 
 
+void OHOS_Entry_SetVideoSurfaceId(const char *surface_id)
+{
+	if (surface_id == nullptr || surface_id[0] == '\0')
+	{
+		OHOS_Entry_LogNative("engine: SetVideoSurfaceId called with empty id");
+		return;
+	}
+	uint64_t id = 0;
+	try
+	{
+		id = static_cast<uint64_t>(std::strtoull(surface_id, nullptr, 10));
+	}
+	catch (...)
+	{
+		OHOS_Entry_LogNative("engine: SetVideoSurfaceId parse failed");
+		return;
+	}
+	char msg[128];
+	snprintf(msg, sizeof(msg), "engine: SetVideoSurfaceId=%s parsed=%llu", surface_id, static_cast<unsigned long long>(id));
+	OHOS_Entry_LogNative(msg);
+
+	OHNativeWindow *window = nullptr;
+	int32_t ret = OH_NativeWindow_CreateNativeWindowFromSurfaceId(id, &window);
+	if (ret == 0 && window != nullptr)
+	{
+		pthread_mutex_lock(&g_lock);
+		if (g_video_native_window != nullptr)
+		{
+			OH_NativeWindow_DestroyNativeWindow(g_video_native_window);
+		}
+		g_video_native_window = window;
+		pthread_mutex_unlock(&g_lock);
+		OHOS_Entry_LogNative("engine: video native window created from surfaceId");
+	}
+	else
+	{
+		char fmsg[128];
+		snprintf(fmsg, sizeof(fmsg), "engine: CreateVideoNativeWindowFromSurfaceId failed ret=%d", static_cast<int>(ret));
+		OHOS_Entry_LogNative(fmsg);
+	}
+}
+
 void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height)
 {
 	if (width == 0 || height == 0) return;
@@ -667,8 +713,15 @@ static Yosuga::OHOSVideoPlayer g_ohos_player;
 
 int OHOS_VideoOpen(const char *path, int loop)
 {
-	OHNativeWindow *win = static_cast<OHNativeWindow *>(SDL_OHOS_GetNativeWindow());
-	if (win == nullptr) { OHOS_Entry_LogNative("video: no native window for playback"); return -1; }
+	/* The AVPlayer renders into its OWN video XComponent surface, never
+	 * into the game window: the engine framebuffer and the video would
+	 * otherwise fight over one shared buffer queue (LockBuffer puts the
+	 * window into CPU production mode and disturbs the AVPlayer's GPU
+	 * video rendering - video froze on its first frame). */
+	pthread_mutex_lock(&g_lock);
+	OHNativeWindow *win = g_video_native_window;
+	pthread_mutex_unlock(&g_lock);
+	if (win == nullptr) { OHOS_Entry_LogNative("video: no video native window for playback"); return -1; }
 	bool ok = g_ohos_player.Open(path ? path : "", win, loop != 0);
 	OHOS_Entry_LogNative(ok ? "video: opened (AVPlayer)" : "video: open FAILED");
 	return ok ? 0 : -1;
@@ -721,6 +774,13 @@ extern "C" int SDL_OHOS_GetPhysicalSize(int *width, int *height)
  * The SDL renderer must pause while video plays (they share the XComponent
  * native window; the last Present wins). */
 extern "C" int SDL_OHOS_IsVideoPlaying(void)
+{
+	return g_ohos_player.IsPlaying() ? 1 : 0;
+}
+
+/* Polled by the ArkTS shell to raise the video XComponent above the game
+ * XComponent while the AVPlayer renders. */
+int OHOS_Entry_IsVideoPlaying(void)
 {
 	return g_ohos_player.IsPlaying() ? 1 : 0;
 }

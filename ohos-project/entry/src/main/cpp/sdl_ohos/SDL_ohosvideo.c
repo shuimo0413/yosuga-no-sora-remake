@@ -206,30 +206,26 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
 	}
 
-	/* Prefer the classic RequestBuffer + mmap + FlushBuffer path. The
-	 * LockBuffer API switches the native window into a CPU production mode that
-	 * disturbs the AVPlayer's GPU video rendering on the shared surface (video
-	 * freezes on its first frame). RequestBuffer keeps the window in its normal
-	 * mode; the buffer memory is reached by mmap-ing the dma-buf fd when
-	 * handle->virAddr is NULL (XComponent surfaces). LockBuffer stays as a
-	 * fallback when RequestBuffer itself fails. */
+	/* LockBuffer is the only path whose buffers actually present on this
+	 * device; the AVPlayer video now renders into its OWN XComponent surface,
+	 * so the CPU production mode here can no longer disturb video playback.
+	 * RequestBuffer remains as a fallback. */
 	Region lock_region = { NULL, 0 };
 	int locked = 0;
 	buffer = NULL;
 	OHOS_ResolveNativeWindowCpuApi();
-	int req_ok = OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd);
-	if (req_ok == 0 && buffer != NULL)
-	{
-		locked = 0;
-	}
-	else if (OHOS_NW_LockBuffer != NULL && OHOS_NW_UnlockAndFlushBuffer != NULL &&
+	if (OHOS_NW_LockBuffer != NULL && OHOS_NW_UnlockAndFlushBuffer != NULL &&
 		OHOS_NW_LockBuffer(native_window, lock_region, &buffer) == 0 && buffer != NULL)
 	{
 		locked = 1;
 	}
+	else if (OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd) == 0 && buffer != NULL)
+	{
+		locked = 0;
+	}
 	else
 	{
-		if (fb) { fprintf(fb, "  RequestBuffer failed ret=%d\n", (int)req_ok); fclose(fb); }
+		if (fb) { fprintf(fb, "  RequestBuffer failed\n"); fclose(fb); }
 		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
 	}
 

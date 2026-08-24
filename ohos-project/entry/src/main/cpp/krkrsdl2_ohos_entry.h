@@ -32,6 +32,16 @@ void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir);
  * window from it, since the legacy surface callbacks do not fire here. */
 void OHOS_Entry_SetSurfaceId(const char *surface_id);
 
+/* Remember the VIDEO XComponent surfaceId and create a SEPARATE native
+ * window from it. The AVPlayer renders video into this dedicated surface so
+ * it never competes with the engine's software framebuffer on the game
+ * XComponent. */
+void OHOS_Entry_SetVideoSurfaceId(const char *surface_id);
+
+/* Return 1 while the AVPlayer is actively playing video (the ArkTS shell
+ * polls this to raise the video XComponent above the game XComponent). */
+int OHOS_Entry_IsVideoPlaying(void);
+
 /* Set the XComponent surface size in pixels. Called from ArkTS after the
  * component is laid out (the native OnSurfaceChanged callback never fires
  * on this system), so the SDL window size matches the real surface. */

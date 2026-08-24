@@ -5,6 +5,7 @@
  */
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <vector>
 #include <napi/native_api.h>
 
 #include <cstdio>
@@ -291,6 +292,34 @@ static napi_value SendFinger(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+/* setVideoSurfaceId(sid): create a SEPARATE native window from the video
+ * XComponent's surfaceId; the AVPlayer renders into it. */
+static napi_value SetVideoSurfaceId(napi_env env, napi_callback_info info)
+{
+	size_t argc = 1;
+	napi_value args[1] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 1)
+	{
+		return nullptr;
+	}
+	size_t len = 0;
+	napi_get_value_string_utf8(env, args[0], nullptr, 0, &len);
+	std::vector<char> buf(len + 1, 0);
+	napi_get_value_string_utf8(env, args[0], buf.data(), len + 1, &len);
+	OHOS_Entry_SetVideoSurfaceId(buf.data());
+	return nullptr;
+}
+
+/* isVideoPlaying(): polled by ArkTS to raise the video XComponent. */
+static napi_value IsVideoPlaying(napi_env env, napi_callback_info info)
+{
+	(void)info;
+	napi_value result;
+	napi_get_boolean(env, OHOS_Entry_IsVideoPlaying() != 0, &result);
+	return result;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
@@ -302,6 +331,8 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"setExternalDirs", nullptr, SetExternalDirs, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"sendTouch", nullptr, SendTouch, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"sendFinger", nullptr, SendFinger, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"setVideoSurfaceId", nullptr, SetVideoSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"isVideoPlaying", nullptr, IsVideoPlaying, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
