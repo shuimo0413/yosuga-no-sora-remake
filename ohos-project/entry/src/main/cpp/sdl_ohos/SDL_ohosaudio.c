@@ -59,9 +59,10 @@
 
 #include "sdl_ohos_bridge.h" /* SDL_OHOS_GetFilesDir for file logging */
 
-/* The ring holds this many SDL mixing periods. Enough headroom for the
- * callback burst pattern of the audio service while keeping latency low. */
-#define OHOSAUDIO_RING_PERIODS 8
+/* The ring holds this many SDL mixing periods. The service requests
+ * ~17.8KB per callback (93ms of 48kHz stereo S16), which exceeds 8 periods
+ * (16KB) - size it above one full callback request. */
+#define OHOSAUDIO_RING_PERIODS 16
 
 struct SDL_PrivateAudioData
 {
@@ -171,7 +172,13 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
     }
     SDL_CondSignal(hidden->cond); /* space was freed */
     SDL_UnlockMutex(hidden->lock);
-    return AUDIOSTREAM_SUCCESS;
+    /* The callback return value is the number of bytes actually written
+     * (the API 20+ OH_AudioRenderer_OnWriteData semantics): returning 0
+     * makes the audio service treat the callback as idle, sleep its
+     * callback thread and stall playback - the game then played the first
+     * burst and fell silent. We always fill the whole buffer (silence for
+     * the missing tail), so report the full length. */
+    return length;
 }
 
 static int32_t OHOSAUDIO_StreamEventCallback(OH_AudioRenderer *renderer, void *userData,
