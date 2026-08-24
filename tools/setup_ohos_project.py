@@ -251,13 +251,15 @@ def patch_sdl():
         sysaudio.write_text("".join(lines), encoding="utf-8")
 
     # Add the audio driver to the bootstrap table in SDL_audio.c.
+    # The table lines are indented with 4 spaces, so the anchor must
+    # include the indentation (insert_after uses startswith).
     audio_c = SDL_DEST / "src" / "audio" / "SDL_audio.c"
     text = audio_c.read_text(encoding="utf-8", errors="replace")
     if "&OHOSAUDIO_bootstrap," not in text:
         lines = text.splitlines(keepends=True)
         insert_after(
             lines,
-            "&ANDROIDAUDIO_bootstrap,",
+            "    &ANDROIDAUDIO_bootstrap,",
             ["#endif\n", "#ifdef SDL_AUDIO_DRIVER_OHOS\n", "    &OHOSAUDIO_bootstrap,\n"],
             "audio bootstrap table",
             audio_c,
