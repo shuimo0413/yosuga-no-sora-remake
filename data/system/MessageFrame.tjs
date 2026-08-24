@@ -312,7 +312,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 
 	var	FACE_IMG_PATH = "character_1920/";		// avatar path
 	var	FACE_IMG_X = 0;				// avatar X
-	var	FACE_IMG_Y = BASE_Y - 40;			// avatar Y
+	var	FACE_IMG_Y = BASE_Y - 35;			// avatar Y（原文-40，头像整体下移5px）
 	var	FACE_IMG_W = 500;				// avatar maxW
 	var	FACE_IMG_H = 360;				// avatar maxH
 	var	BTN_BASE_X1 = (WINDOW_WIDTH - MENU_WIDTH) -100;	// 菜单呼出热区 X
