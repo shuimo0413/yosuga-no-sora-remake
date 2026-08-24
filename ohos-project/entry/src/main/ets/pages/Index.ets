@@ -157,8 +157,12 @@ struct Index {
       this.rotateToLandscape();
     }, 100);
     // Auto-run the data check / public-dir init shortly after the bootstrap
-    // page is visible (avoid stalling startup).
+    // page is visible (avoid stalling startup). Never disturb a game that is
+    // already starting (black transition screen).
     setTimeout(() => {
+      if (this.bootState === 6 || this.bootState === 5 || this.startingGame) {
+        return;
+      }
       this.prepare();
     }, 600);
     // Re-acquire the keep-alive task when returning from the background
@@ -169,8 +173,8 @@ struct Index {
   }
 
   async prepare(): Promise<void> {
-    if (this.bootState === 6) {
-      return; // already running
+    if (this.bootState === 6 || this.bootState === 5 || this.startingGame) {
+      return; // already running / already starting
     }
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
@@ -378,6 +382,9 @@ struct Index {
     this.readyForGame = ready;
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
     if (ready) {
+      if (this.startingGame || this.bootState === 5) {
+        return; // startGame already waits for the rotation; keep the black screen
+      }
       this.bootState = 2;
       this.progressText = '游戏数据已就绪';
       this.message = '';
@@ -900,13 +907,15 @@ struct Index {
   finishData(): void {
     if (this.dataReady()) {
       this.readyForGame = true;
-      this.bootState = 2;
+      // Go straight to the black transition screen - never flash the setup
+      // page after a download/import finished.
+      this.bootState = 5;
       this.progressText = '游戏数据已就绪';
       this.message = '';
       this.uiEpoch++;
       this.log('import/download complete; auto-starting the game');
       setTimeout(() => {
-        if (this.bootState === 2 && this.readyForGame) {
+        if (this.bootState === 5 && this.readyForGame) {
           this.startGame();
         }
       }, 400);
@@ -1116,14 +1125,14 @@ struct Index {
         .width('100%')
         .height('100%')
       } else if (this.bootState === 2) {
-        Column({ space: 12 }) {
+        Column({ space: 8 }) {
           Text('').height(12)
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
             .textShadow({ radius: 3, color: '#000000', offsetX: 0, offsetY: 0 })
-          // Error messages show right below the title in reserved space, so
-          // the whole setup page fits one screen without scrolling.
-          Text(this.message === '' ? ' ' : this.message).fontSize(12).fontColor(Color.Red)
-            .maxLines(2).height(36).textAlign(TextAlign.Center)
+          // Error messages show right below the title in a slim reserved
+          // slot so the whole setup page fits one screen.
+          Text(this.message === '' ? ' ' : this.message).fontSize(11).fontColor(Color.Red)
+            .maxLines(1).height(18).textAlign(TextAlign.Center)
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Black)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })
             .width('86%')
