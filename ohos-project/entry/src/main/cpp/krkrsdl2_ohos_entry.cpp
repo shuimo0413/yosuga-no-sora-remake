@@ -839,6 +839,17 @@ int OHOS_Entry_IsVideoPlaying(void)
 	return (g_ohos_player.IsPlaying() || g_video_pending.load()) ? 1 : 0;
 }
 
+int OHOS_Entry_IsEngineRunning(void)
+{
+	/* Before the engine thread starts, report "running" so the ArkTS shell
+	 * does not bounce back to the bootstrap page during startup. */
+	if (!g_engine_started)
+	{
+		return 1;
+	}
+	return g_engine_running.load() ? 1 : 0;
+}
+
 void OHOS_Entry_StartEngine(void)
 {
 	if (g_engine_started || g_engine_running.load())

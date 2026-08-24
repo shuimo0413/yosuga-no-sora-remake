@@ -73,6 +73,23 @@ struct Index {
     setInterval(() => {
       try {
         this.videoOnTop = entryNapi.isVideoPlaying();
+        // The in-game exit button finishes the engine thread; the native
+        // side reports "running" until the engine has actually started, so
+        // a 0 here only ever means the game really quit. Terminate the app
+        // (mirrors the Windows exit-button behaviour) instead of leaving a
+        // frozen black XComponent on screen.
+        if (this.bootState === 6 && !entryNapi.isEngineRunning()) {
+          this.log('engine finished; terminating the app');
+          try {
+            (getContext(this) as common.UIAbilityContext).terminateSelf();
+          } catch (eTerm) {
+            // best effort: fall back to the bootstrap page
+            this.bootState = 2;
+            this.progressText = '游戏数据已就绪';
+            this.readyForGame = true;
+            this.uiEpoch++;
+          }
+        }
       } catch (e) {
         // entryNapi not ready yet - keep the current value
       }

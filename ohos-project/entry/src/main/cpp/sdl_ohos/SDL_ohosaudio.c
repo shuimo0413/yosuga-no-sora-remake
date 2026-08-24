@@ -173,12 +173,14 @@ static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *use
     SDL_CondSignal(hidden->cond); /* space was freed */
     SDL_UnlockMutex(hidden->lock);
     /* The callback return value is the number of bytes actually written
-     * (the API 20+ OH_AudioRenderer_OnWriteData semantics): returning 0
-     * makes the audio service treat the callback as idle, sleep its
-     * callback thread and stall playback - the game then played the first
-     * burst and fell silent. We always fill the whole buffer (silence for
-     * the missing tail), so report the full length. */
-    return length;
+     * (API 20+ semantics). Return the REAL amount consumed from the ring:
+     * returning the full length when we only had a partial period makes
+     * the service re-call immediately and drains the ring in bursts (the
+     * warbling), while returning 0 when the ring is empty lets the
+     * callback thread sleep until the mixer catches up. The missing tail
+     * is still zero-filled above for API 12 behaviour, where the service
+     * plays the whole buffer regardless of the return value. */
+    return copied;
 }
 
 static int32_t OHOSAUDIO_StreamEventCallback(OH_AudioRenderer *renderer, void *userData,
@@ -240,6 +242,18 @@ static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
     OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
     OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
     OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_GAME);
+    /* Ask the service for a fixed, small callback quantum (1024 frames,
+     * 21.3ms at 48kHz). Without it the service requests ~17.8KB bursts and
+     * immediately re-calls while data is available, which makes the ring
+     * drain in bursts and the playback warbles. A fixed quantum matches the
+     * hardware consumption cadence and keeps the data flow smooth. */
+    {
+        OH_AudioStream_Result fr = OH_AudioStreamBuilder_SetFrameSizeInCallback(builder, 1024);
+        if (fr != AUDIOSTREAM_SUCCESS)
+        {
+            OHOSAUDIO_Log("SetFrameSizeInCallback failed (%d)", (int)fr);
+        }
+    }
 
     OH_AudioRenderer_Callbacks callbacks;
     callbacks.OH_AudioRenderer_OnWriteData = OHOSAUDIO_WriteDataCallback;

@@ -320,6 +320,16 @@ static napi_value IsVideoPlaying(napi_env env, napi_callback_info info)
 	return result;
 }
 
+/* isEngineRunning(): polled by ArkTS so the shell can return to the
+ * bootstrap page after the game exits from its in-game menu. */
+static napi_value IsEngineRunning(napi_env env, napi_callback_info info)
+{
+	(void)info;
+	napi_value result;
+	napi_get_boolean(env, OHOS_Entry_IsEngineRunning() != 0, &result);
+	return result;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
@@ -333,6 +343,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"sendFinger", nullptr, SendFinger, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setVideoSurfaceId", nullptr, SetVideoSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"isVideoPlaying", nullptr, IsVideoPlaying, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"isEngineRunning", nullptr, IsEngineRunning, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

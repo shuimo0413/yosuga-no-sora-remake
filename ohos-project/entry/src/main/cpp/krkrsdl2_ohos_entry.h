@@ -42,6 +42,12 @@ void OHOS_Entry_SetVideoSurfaceId(const char *surface_id);
  * polls this to raise the video XComponent above the game XComponent). */
 int OHOS_Entry_IsVideoPlaying(void);
 
+/* 1 while the engine is expected to run: before StartEngine it reports 1
+ * (so the shell does not bounce back during startup) and after the engine
+ * thread finishes it reports 0, which the shell uses to return to the
+ * bootstrap page when the game exits from its in-game menu. */
+int OHOS_Entry_IsEngineRunning(void);
+
 /* Set the XComponent surface size in pixels. Called from ArkTS after the
  * component is laid out (the native OnSurfaceChanged callback never fires
  * on this system), so the SDL window size matches the real surface. */
