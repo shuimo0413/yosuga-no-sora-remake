@@ -96,6 +96,16 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
  * it) and /data/local/tmp is not writable by the app, so the sandbox files
  * dir is the only hdc-readable log destination on device. SDL_OHOS_GetFilesDir
  * is exported by libentry.so and resolved once via dlsym. */
+/* Also redirect every SDL_Log line (krkrz TJS exceptions, FAudio errors,
+ * video errors) into engine.log: hilog is unreadable from hdc on the
+ * target device. */
+static void OHOSSDLLogOutput(void *userdata, int category, SDL_LogPriority priority, const char *message)
+{
+	(void)userdata;
+	(void)category;
+	(void)priority;
+	OHOS_LogToFile("sdl: %s", message);
+}
 static const char *OHOS_GetSandboxFilesDir(void)
 {
 	static const char *(*ohos_get_files_dir)(void) = nullptr;
@@ -3601,6 +3611,10 @@ bool krkrsdl2_init_platform(void)
 	romfsInit();
 	socketInitializeDefault();
 	nxlinkStdio();
+#endif
+
+#if defined(__OHOS__)
+	SDL_LogSetOutputFunction(OHOSSDLLogOutput, nullptr);
 #endif
 
 	SDL_setenv("VITA_DISABLE_TOUCH_BACK", "1", 1);
