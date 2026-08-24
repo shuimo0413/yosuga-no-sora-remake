@@ -1059,7 +1059,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			}
 			with(_maMess){
 				var marginX = MESS_MSG_MARGIN_X;
-				var marginY = MESS_MSG_MARGIN_Y;
+				var marginY = MESS_MSG_MARGIN_Y - 3; // 文字を上に3px持ち上げる（テキスト位置調整）
 				.setSize(MESS_MSG_W, ADV_FONT_MESS_INDENT * MESS_MSG_LINES + marginY + 8);
 				.setPos(MESS_MSG_X, MESS_MSG_Y);
 				.setMargin(marginX, marginY, marginX + (.width - marginX * 2), marginY + .height - 4);
