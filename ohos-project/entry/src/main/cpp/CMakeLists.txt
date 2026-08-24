@@ -54,6 +54,12 @@ set(SDL_VIDEO_STATIC_ANGLE ON CACHE BOOL "" FORCE)
 set(SDL_VIDEO_DRIVER_DUMMY ON CACHE BOOL "" FORCE)
 set(SDL_AUDIO_DRIVER_DUMMY ON CACHE BOOL "" FORCE)
 set(SDL_LOADSO_DLOPEN ON CACHE BOOL "" FORCE)
+# hvigor/.cxx CMake caches persist across CI runs; a stale cache can leave
+# SDL_RENDER_DISABLED set, which makes SDL_config.h define the macro and
+# SDL_CreateRenderer() fail with "SDL not built with rendering support" even
+# though the GLES2/software render drivers are compiled in. FORCE it OFF so
+# the generated SDL_config.h always keeps the render subsystem enabled.
+set(SDL_RENDER_DISABLED OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${SDL2_ROOT} sdl2_ohos EXCLUDE_FROM_ALL)
 
