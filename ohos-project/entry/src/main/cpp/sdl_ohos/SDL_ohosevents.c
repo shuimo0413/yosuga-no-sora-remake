@@ -199,6 +199,68 @@ void SDL_OHOS_OnFingerEvent(int finger_id, int touch_type, float x, float y)
 	if (ny < 0.0f) ny = 0.0f;
 	if (ny > 1.0f) ny = 1.0f;
 
+	/* Window-space coords for the synthetic right-button events below
+	 * (same physical->logical scaling as SDL_OHOS_OnTouchEvent). */
+	int px = (int)(x + 0.5f);
+	int py = (int)(y + 0.5f);
+	{
+		int pw = 0, ph = 0, ww = 0, wh = 0;
+		SDL_OHOS_GetPhysicalSize(&pw, &ph);
+		if (window) { SDL_GetWindowSize(window, &ww, &wh); }
+		if (pw > 0 && ph > 0 && ww > 0 && wh > 0 && (pw != ww || ph != wh))
+		{
+			px = (int)(x * (float)ww / (float)pw + 0.5f);
+			py = (int)(y * (float)wh / (float)ph + 0.5f);
+		}
+	}
+
+	/* This backend pushes FINGER events directly without driving SDL's
+	 * touch-device state (SDL_SendTouch), so SDL_GetNumTouchFingers stays 0
+	 * and the engine's two-finger-tap -> right-mouse-button mapping in
+	 * SDLApplication.cpp never fires. Track the active finger count here and
+	 * synthesize the right button ourselves: the second finger going down
+	 * sends mbRight down, and the count dropping below two sends the up.
+	 * Right click is how movies are skipped and menus are backed out of. */
+	static int g_ohos_active_fingers = 0;
+	if (touch_type == SDL_OHOS_TOUCH_DOWN)
+	{
+		g_ohos_active_fingers++;
+		if (g_ohos_active_fingers == 2)
+		{
+			SDL_Event evr;
+			SDL_zero(evr);
+			evr.type = SDL_MOUSEBUTTONDOWN;
+			evr.button.windowID = SDL_GetWindowID(window);
+			evr.button.which = SDL_TOUCH_MOUSEID;
+			evr.button.button = SDL_BUTTON_RIGHT;
+			evr.button.state = SDL_PRESSED;
+			evr.button.clicks = 1;
+			evr.button.x = px;
+			evr.button.y = py;
+			SDL_PushEvent(&evr);
+		}
+	}
+	else if (touch_type == SDL_OHOS_TOUCH_UP)
+	{
+		int was_two_or_more = (g_ohos_active_fingers >= 2);
+		g_ohos_active_fingers--;
+		if (g_ohos_active_fingers < 0) g_ohos_active_fingers = 0;
+		if (was_two_or_more && g_ohos_active_fingers <= 1)
+		{
+			SDL_Event evr;
+			SDL_zero(evr);
+			evr.type = SDL_MOUSEBUTTONUP;
+			evr.button.windowID = SDL_GetWindowID(window);
+			evr.button.which = SDL_TOUCH_MOUSEID;
+			evr.button.button = SDL_BUTTON_RIGHT;
+			evr.button.state = SDL_RELEASED;
+			evr.button.clicks = 1;
+			evr.button.x = px;
+			evr.button.y = py;
+			SDL_PushEvent(&evr);
+		}
+	}
+
 	SDL_Event ev;
 	SDL_zero(ev);
 	switch (touch_type)

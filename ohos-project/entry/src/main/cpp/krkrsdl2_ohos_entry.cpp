@@ -727,7 +727,22 @@ int OHOS_VideoOpen(const char *path, int loop)
 	 * ArkTS shell drives from OHOS_Entry_IsVideoPlaying(). Set the pending
 	 * flag first so the view mounts, then wait for its surfaceId to turn
 	 * into a native window. */
+	/* ALWAYS drop the previous video window first. When the last video
+	 * ended, ArkUI unmounted the video XComponent and invalidated its
+	 * surface, but the pointer cached here survives. Binding the AVPlayer
+	 * to that stale window (or racing the fresh SetVideoSurfaceId with an
+	 * open on the old window) leaves the video surface without a
+	 * compositor consumer: the OP movie plays with audio but a black
+	 * picture. Waiting for the freshly mounted video view to deliver a
+	 * NEW surfaceId guarantees the AVPlayer binds to a live surface. */
 	g_video_pending = true;
+	pthread_mutex_lock(&g_lock);
+	if (g_video_native_window != nullptr)
+	{
+		OH_NativeWindow_DestroyNativeWindow(g_video_native_window);
+		g_video_native_window = nullptr;
+	}
+	pthread_mutex_unlock(&g_lock);
 	OHNativeWindow *win = nullptr;
 	for (int attempt = 0; attempt < 120; ++attempt)
 	{
