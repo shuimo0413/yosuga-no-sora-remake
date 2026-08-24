@@ -243,10 +243,21 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		if (dst_stride <= 0) dst_stride = bw * 4;
 		if (bw == w && bh == h)
 		{
-			/* same size: fast path */
+			/* same size. The SDL surface stores ARGB as B,G,R,A bytes in memory
+			 * (masks 0x00ff0000/0x0000ff00/0x000000ff/0xff000000) while the
+			 * XComponent buffer is RGBA_8888 - swap R and B or the picture
+			 * shows red/blue swapped. */
 			for (int y = 0; y < h; y++)
 			{
-				memcpy(dst + (size_t)y * (size_t)dst_stride, src + (size_t)y * (size_t)src_pitch, (size_t)w * 4);
+				const Uint8 *srow = src + (size_t)y * (size_t)src_pitch;
+				Uint8 *drow = dst + (size_t)y * (size_t)dst_stride;
+				for (int x = 0; x < w; x++)
+				{
+					drow[x * 4 + 0] = srow[x * 4 + 2];
+					drow[x * 4 + 1] = srow[x * 4 + 1];
+					drow[x * 4 + 2] = srow[x * 4 + 0];
+					drow[x * 4 + 3] = srow[x * 4 + 3];
+				}
 			}
 		}
 		else
@@ -261,9 +272,10 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 				{
 					int sx = dx * w / bw;
 					const Uint8 *p = srow + (size_t)sx * 4;
-					drow[dx * 4 + 0] = p[0];
+					/* same R/B swap as the fast path above */
+					drow[dx * 4 + 0] = p[2];
 					drow[dx * 4 + 1] = p[1];
-					drow[dx * 4 + 2] = p[2];
+					drow[dx * 4 + 2] = p[0];
 					drow[dx * 4 + 3] = p[3];
 				}
 			}
