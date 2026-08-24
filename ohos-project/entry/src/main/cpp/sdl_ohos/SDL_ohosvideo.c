@@ -311,6 +311,21 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 				FILE *lf = fopen(lpath, "a");
 				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
 			}
+		/* Sample the SOURCE framebuffer and the DESTINATION buffer centre
+		 * pixels every 100 frames: tells us whether the engine is drawing
+		 * black frames (source black) or the buffer content simply does not
+		 * reach the screen (source has colour, screen stays black). */
+		if (fb_count % 100 == 1)
+		{
+			const Uint8 *sp = (const Uint8 *)data->framebuffer->pixels;
+			int sx = w / 2, sy = h / 2;
+			const Uint8 *spx = sp + (size_t)sy * (size_t)data->framebuffer->pitch + (size_t)sx * 4;
+			const Uint8 *dp = (const Uint8 *)fb_dst;
+			int dx = bw / 2, dy = bh / 2;
+			const Uint8 *dpx = dp + (size_t)dy * (size_t)dst_stride + (size_t)dx * 4;
+			if (fb) { fprintf(fb, "  src px(%d,%d)=[%d %d %d %d] dst px(%d,%d)=[%d %d %d %d]\n",
+				sx, sy, spx[0], spx[1], spx[2], spx[3], dx, dy, dpx[0], dpx[1], dpx[2], dpx[3]); fclose(fb); }
+		}
 			/* Also mirror into the public Download app dir. */
 			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
 			if (pub && pub[0] && (!dd || strncmp(pub, dd, 512) != 0))
