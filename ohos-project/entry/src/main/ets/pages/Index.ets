@@ -847,7 +847,7 @@ struct Index {
               })
               .height('100%')
               .aspectRatio(16 / 9)
-              .zIndex(this.videoOnTop ? 3 : 0)
+              .zIndex(this.videoOnTop ? 3 : -1)
             // No .onTouch here: libace_compatible crashes the UI thread while
             // processing touches on the XComponent node itself (before any
             // ArkTS callback runs). Touches are captured by the transparent
