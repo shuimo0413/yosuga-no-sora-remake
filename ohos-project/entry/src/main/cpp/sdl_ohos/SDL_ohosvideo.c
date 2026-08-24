@@ -206,23 +206,30 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
 	}
 
-	/* API 23+ (HarmonyOS NEXT): OH_NativeWindow_LockBuffer makes the buffer
-	 * CPU-writable and must be paired with OH_NativeWindow_UnlockAndFlushBuffer.
-	 * The legacy RequestBuffer path leaves handle->virAddr NULL for XComponent
-	 * surfaces, so every software frame failed with "no virAddr" and the game
-	 * picture (and the opening movie around it) froze. */
+	/* Prefer the classic RequestBuffer + mmap + FlushBuffer path. The
+	 * LockBuffer API switches the native window into a CPU production mode that
+	 * disturbs the AVPlayer's GPU video rendering on the shared surface (video
+	 * freezes on its first frame). RequestBuffer keeps the window in its normal
+	 * mode; the buffer memory is reached by mmap-ing the dma-buf fd when
+	 * handle->virAddr is NULL (XComponent surfaces). LockBuffer stays as a
+	 * fallback when RequestBuffer itself fails. */
 	Region lock_region = { NULL, 0 };
 	int locked = 0;
 	buffer = NULL;
 	OHOS_ResolveNativeWindowCpuApi();
-	if (OHOS_NW_LockBuffer != NULL && OHOS_NW_UnlockAndFlushBuffer != NULL &&
+	int req_ok = OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd);
+	if (req_ok == 0 && buffer != NULL)
+	{
+		locked = 0;
+	}
+	else if (OHOS_NW_LockBuffer != NULL && OHOS_NW_UnlockAndFlushBuffer != NULL &&
 		OHOS_NW_LockBuffer(native_window, lock_region, &buffer) == 0 && buffer != NULL)
 	{
 		locked = 1;
 	}
-	else if (OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd) != 0 || buffer == NULL)
+	else
 	{
-		if (fb) { fprintf(fb, "  RequestBuffer failed\n"); fclose(fb); }
+		if (fb) { fprintf(fb, "  RequestBuffer failed ret=%d\n", (int)req_ok); fclose(fb); }
 		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
 	}
 
@@ -454,14 +461,22 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->HideWindow = OHOS_HideWindow;
 	device->SetWindowFullscreen = OHOS_SetWindowFullscreen;
 
-	/* Do NOT register the GL entry points on OHOS. The XComponent native
-	 * window is shared between the software framebuffer and the AVPlayer
-	 * video renderer: once an EGL window surface is created on it, software
-	 * framebuffer flushes stop reaching the screen (black screen) and the
-	 * AVPlayer video freezes on its first frame. Leaving every GL_* callback
-	 * NULL makes SDL_CreateRenderer(ACCELERATED)/SDL_GL_CreateContext fail
-	 * cleanly WITHOUT creating any EGL surface, and the window is created
-	 * without SDL_WINDOW_OPENGL (SDLApplication.cpp) so no GL probe runs. */
+	/* Register the OpenGLES backend so SDL_CreateRenderer(SDL_RENDERER_ACCELERATED)
+	 * uses the hardware GLES render driver (EGL via OH_NativeWindow) instead of
+	 * falling back to the software surface renderer. OHOS_GL_* (SDL_ohosgl.c)
+	 * uses eglCreateWindowSurface/eglCreateContext on the GAME XComponent native
+	 * window - the AVPlayer video now renders into its own separate XComponent
+	 * surface (see ohos_video_player), so EGL on the game window no longer
+	 * disturbs video playback. */
+	device->GL_LoadLibrary = OHOS_GL_LoadLibrary;
+	device->GL_GetProcAddress = OHOS_GL_GetProcAddress;
+	device->GL_UnloadLibrary = OHOS_GL_UnloadLibrary;
+	device->GL_CreateContext = OHOS_GL_CreateContext;
+	device->GL_MakeCurrent = OHOS_GL_MakeCurrent;
+	device->GL_SetSwapInterval = OHOS_GL_SetSwapInterval;
+	device->GL_GetSwapInterval = OHOS_GL_GetSwapInterval;
+	device->GL_SwapWindow = OHOS_GL_SwapWindow;
+	device->GL_DeleteContext = OHOS_GL_DeleteContext;
 
 	device->free = OHOS_DestroyDevice;
 	return device;

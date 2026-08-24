@@ -1004,13 +1004,25 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #endif
 #if defined(__OHOS__)
-	/* OHOS: the window stays a PURE software window - no SDL_WINDOW_OPENGL
-	 * and no GL attributes. The XComponent native window is shared with the
-	 * AVPlayer video renderer, and once an EGL window surface has been
-	 * created on it the software framebuffer flushes stop reaching the
-	 * screen (black screen) and the AVPlayer video freezes. The OHOS video
-	 * backend registers no GL entry points either (see SDL_ohosvideo.c), so
-	 * any GL probe fails cleanly without touching the surface. */
+	/* OHOS: the OpenGLES render driver requires an OpenGL window. Without
+	 * SDL_WINDOW_OPENGL, SDL_GL_CreateContext() returns "window isn't an
+	 * OpenGL window" and GLES2_CreateRenderer() has to SDL_RecreateWindow()
+	 * to add the flag, which on this backend fails - so no accelerated
+	 * render driver is created and SDL_CreateRenderer(ACCELERATED) reports
+	 * "Couldn't find matching render driver". Flag the window OpenGL up
+	 * front so the GLES2 context is created directly. */
+	window_flags |= SDL_WINDOW_OPENGL;
+	/* Request an ES2 context. The block above that normally sets these
+	 * attributes sits inside KRKRZ_ENABLE_CANVAS, which the OHOS build
+	 * does not define (OPTION_ENABLE_CANVAS=OFF); set them here so SDL's
+	 * GL state carries the ES profile into SDL_GL_CreateContext. */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 #endif
 	new_window_w = 0;
 	new_window_h = 0;
@@ -1090,18 +1102,19 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 #if defined(__OHOS__)
-		/* OHOS: use the SOFTWARE renderer directly. The GLES2 probe is NOT
-		 * attempted: GLES2_CreateRenderer recreates the window, and the
-		 * EGL surface it created for the first attempt is never released -
-		 * the second eglCreateWindowSurface on the same XComponent window
-		 * fails with EGL_BAD_ALLOC (0x3003), and the orphaned surface then
-		 * breaks the shared native-window buffer queue. That corrupts BOTH
-		 * the AVPlayer video rendering (video freezes on its first frame)
-		 * and the later software framebuffer flush (black screen after the
-		 * logo). The software renderer paints through the LockBuffer path
-		 * and TickBeat pauses it while the AVPlayer owns the surface. */
-		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
-		{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE-direct) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+		/* OHOS: prefer the hardware GLES2 renderer (eglSwapBuffers into the
+		 * XComponent window). The GLES2 probe's EGL initialization is also
+		 * what makes the window's buffer queue present software frames, so
+		 * keep it even when it falls back to software. The software renderer
+		 * paints through the LockBuffer path and TickBeat pauses whichever
+		 * renderer is active while the AVPlayer owns the surface. */
+		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+		{ OHOS_LogToFile("engine: SDL_CreateRenderer(ACCELERATED) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+		if (!this->renderer)
+		{
+			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
+			{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE-fallback) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
+		}
 #else
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		{ OHOS_LogToFile("engine: SDL_CreateRenderer -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
