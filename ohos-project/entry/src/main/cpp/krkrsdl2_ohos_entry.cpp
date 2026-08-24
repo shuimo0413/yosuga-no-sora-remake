@@ -25,6 +25,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <thread>
+#include <chrono>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <csignal>
@@ -710,6 +711,10 @@ EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display, cons
 }
 
 static Yosuga::OHOSVideoPlayer g_ohos_player;
+/* True while a video open is waiting for the video XComponent to mount and
+ * deliver its surfaceId: OHOS_Entry_IsVideoPlaying() reports it so the ArkTS
+ * shell raises/creates the video view BEFORE the window is needed. */
+static std::atomic<bool> g_video_pending{false};
 
 int OHOS_VideoOpen(const char *path, int loop)
 {
@@ -718,10 +723,23 @@ int OHOS_VideoOpen(const char *path, int loop)
 	 * otherwise fight over one shared buffer queue (LockBuffer puts the
 	 * window into CPU production mode and disturbs the AVPlayer's GPU
 	 * video rendering - video froze on its first frame). */
-	pthread_mutex_lock(&g_lock);
-	OHNativeWindow *win = g_video_native_window;
-	pthread_mutex_unlock(&g_lock);
-	if (win == nullptr) { OHOS_Entry_LogNative("video: no video native window for playback"); return -1; }
+	/* The video XComponent only mounts while videoOnTop is true, which the
+	 * ArkTS shell drives from OHOS_Entry_IsVideoPlaying(). Set the pending
+	 * flag first so the view mounts, then wait for its surfaceId to turn
+	 * into a native window. */
+	g_video_pending = true;
+	OHNativeWindow *win = nullptr;
+	for (int attempt = 0; attempt < 120; ++attempt)
+	{
+		pthread_mutex_lock(&g_lock);
+		win = g_video_native_window;
+		pthread_mutex_unlock(&g_lock);
+		if (win != nullptr)
+			break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	}
+	g_video_pending = false;
+	if (win == nullptr) { OHOS_Entry_LogNative("video: no video native window for playback (timeout)"); return -1; }
 	bool ok = g_ohos_player.Open(path ? path : "", win, loop != 0);
 	OHOS_Entry_LogNative(ok ? "video: opened (AVPlayer)" : "video: open FAILED");
 	return ok ? 0 : -1;
@@ -778,11 +796,12 @@ extern "C" int SDL_OHOS_IsVideoPlaying(void)
 	return g_ohos_player.IsPlaying() ? 1 : 0;
 }
 
-/* Polled by the ArkTS shell to raise the video XComponent above the game
- * XComponent while the AVPlayer renders. */
+/* Polled by the ArkTS shell to mount the video XComponent. True while the
+ * AVPlayer renders AND while an open is waiting for the video surface, so
+ * the view is created before the native window is needed. */
 int OHOS_Entry_IsVideoPlaying(void)
 {
-	return g_ohos_player.IsPlaying() ? 1 : 0;
+	return (g_ohos_player.IsPlaying() || g_video_pending.load()) ? 1 : 0;
 }
 
 void OHOS_Entry_StartEngine(void)
