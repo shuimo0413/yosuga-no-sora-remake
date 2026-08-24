@@ -306,7 +306,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var	MESS_MSG_W = WINDOW_WIDTH - MESS_MSG_X - 300;	// 正文区域宽（右留 300）
 	var	MESS_MSG_LINES = 4;			// 正文可见行数
 	var	MESS_MSG_MARGIN_X = 12;		// 正文左右内边距
-	var	MESS_MSG_MARGIN_Y = 14;		// 正文上下内边距（原文22，文字整体上移8px）
+	var	MESS_MSG_MARGIN_Y = 7;		// 正文上下内边距（原文22，文字整体上移15px）
 	var	NAME_MSG_W = FRAME_WIDTH - 80;	// 说话人 PNG 区域宽
 	var	NAME_MSG_H = 60;			// 说话人 PNG 区域高
 
