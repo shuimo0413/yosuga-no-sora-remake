@@ -1,6 +1,5 @@
 import entryNapi from 'libentry.so';
-import { common, wantAgent } from '@kit.AbilityKit';
-import type { WantAgent, WantAgentInfo } from '@ohos.app.ability.wantAgent';
+import { common, wantAgent, Want } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
@@ -70,7 +69,6 @@ struct Index {
   // Background keep-alive: a continuous audio-playback task keeps the game
   // process (and BGM) alive while the user switches away from the app.
   private keepAliveStarted: boolean = false;
-  private keepAliveWantAgent: WantAgent | null = null;
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
@@ -170,17 +168,17 @@ struct Index {
         return;
       }
       const ctx = getContext(this) as common.UIAbilityContext;
-      const wantAgentInfo: WantAgentInfo = {
-        wants: [{
-          bundleName: ctx.abilityInfo.bundleName,
-          abilityName: 'EntryAbility'
-        }],
+      const want: Want = {
+        bundleName: ctx.abilityInfo.bundleName,
+        abilityName: 'EntryAbility'
+      };
+      const wantAgentInfo = {
+        wants: [want],
         operationType: wantAgent.OperationType.START_ABILITY,
         requestCode: 0,
         wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
       };
-      const agent: WantAgent = await wantAgent.getWantAgent(wantAgentInfo);
-      this.keepAliveWantAgent = agent;
+      const agent = await wantAgent.getWantAgent(wantAgentInfo);
       await backgroundTaskManager.startBackgroundRunning(
         ctx,
         backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK,
