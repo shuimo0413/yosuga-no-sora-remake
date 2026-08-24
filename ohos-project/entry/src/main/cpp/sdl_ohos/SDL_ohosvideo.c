@@ -454,20 +454,14 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->HideWindow = OHOS_HideWindow;
 	device->SetWindowFullscreen = OHOS_SetWindowFullscreen;
 
-	/* Register the OpenGLES backend so SDL_CreateRenderer(SDL_RENDERER_ACCELERATED)
-	 * uses the hardware GLES render driver (EGL via OH_NativeWindow) instead of
-	 * falling back to the software surface renderer. OHOS_GL_* (SDL_ohosgl.c)
-	 * uses eglCreateWindowSurface/eglCreateContext on the XComponent native
-	 * window - it does NOT depend on eglQueryDevicesEXT. */
-	device->GL_LoadLibrary = OHOS_GL_LoadLibrary;
-	device->GL_GetProcAddress = OHOS_GL_GetProcAddress;
-	device->GL_UnloadLibrary = OHOS_GL_UnloadLibrary;
-	device->GL_CreateContext = OHOS_GL_CreateContext;
-	device->GL_MakeCurrent = OHOS_GL_MakeCurrent;
-	device->GL_SetSwapInterval = OHOS_GL_SetSwapInterval;
-	device->GL_GetSwapInterval = OHOS_GL_GetSwapInterval;
-	device->GL_SwapWindow = OHOS_GL_SwapWindow;
-	device->GL_DeleteContext = OHOS_GL_DeleteContext;
+	/* Do NOT register the GL entry points on OHOS. The XComponent native
+	 * window is shared between the software framebuffer and the AVPlayer
+	 * video renderer: once an EGL window surface is created on it, software
+	 * framebuffer flushes stop reaching the screen (black screen) and the
+	 * AVPlayer video freezes on its first frame. Leaving every GL_* callback
+	 * NULL makes SDL_CreateRenderer(ACCELERATED)/SDL_GL_CreateContext fail
+	 * cleanly WITHOUT creating any EGL surface, and the window is created
+	 * without SDL_WINDOW_OPENGL (SDLApplication.cpp) so no GL probe runs. */
 
 	device->free = OHOS_DestroyDevice;
 	return device;
