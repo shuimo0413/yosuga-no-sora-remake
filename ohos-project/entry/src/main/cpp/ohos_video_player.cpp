@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <thread>
 #include <chrono>
+#include <dlfcn.h>
 
 namespace Yosuga
 {
@@ -43,6 +44,26 @@ static void OHOS_VPlayerErrorCallback(OH_AVPlayer */*player*/, int32_t errorCode
 }
 
 static OHOSVideoPlayer::EndCallback g_ohos_end_callback = nullptr;
+
+/* OH_NativeWindow_CleanCache is @since 19; the API 12 CI sysroot headers may
+ * not declare it (a plain call then breaks the build). Resolve it at run
+ * time through libnative_window.so instead. */
+typedef int32_t (*OHNW_CleanCacheFn)(OHNativeWindow *);
+static int OHOS_NW_CleanCache(OHNativeWindow *window)
+{
+	static OHNW_CleanCacheFn fn = nullptr;
+	static int resolved = 0;
+	if (!resolved)
+	{
+		resolved = 1;
+		void *handle = dlopen("libnative_window.so", RTLD_NOW);
+		if (handle != nullptr)
+			fn = (OHNW_CleanCacheFn)dlsym(handle, "OH_NativeWindow_CleanCache");
+	}
+	if (fn == nullptr || window == nullptr)
+		return -1;
+	return fn(window);
+}
 
 void OHOSVideoPlayer::SetEndCallback(EndCallback cb)
 {
@@ -143,7 +164,7 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	 * AVPlayer starts, the producers fight over buffer slots and the
 	 * video freezes on the first frame (audio keeps going). */
 	m_playing = true;
-	OH_NativeWindow_CleanCache(m_nativeWindow);
+	OHOS_NW_CleanCache(m_nativeWindow);
 
 	ret = OH_AVPlayer_SetVideoSurface(m_player, m_nativeWindow);
 	if (ret != AV_ERR_OK)
