@@ -64,7 +64,8 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		CreateSprCover();
 		with(SPR_COVER){
-			.fillRect(0, 0, SPR_COVER.width, SPR_COVER.height, 0xffffffff);
+			// OHOS: opening the native video takes ~0.5-1s (video XComponent mount + AVPlayer prepare); during that wait this cover is the only thing on screen. Paint it black so the wait looks like a normal fade-in instead of a harsh white flash.
+			.fillRect(0, 0, SPR_COVER.width, SPR_COVER.height, 0xff000000);
 		}
 
 		visible = true;
