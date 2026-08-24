@@ -489,18 +489,40 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	ttstr placedName = TVPGetPlacedPath(_name);
 	if(placedName.IsEmpty())
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
-	/* tTVPLocalTempStorageHolder resolves the real local file: files that
-	 * already exist on the filesystem are passed through, while archive
-	 * members (data.xp3) are copied into a temporary folder that is removed
-	 * when the holder is destroyed - the AVPlayer needs a real fd. */
-	LocalTempStorageHolder = new tTVPLocalTempStorageHolder(placedName);
-	std::string filename;
-	if(!TVPUtf16ToUtf8(filename,
-		LocalTempStorageHolder->GetLocalName().AsStdString()))
+	ttstr localName = TVPGetLocallyAccessibleName(placedName);
+	/* The AVPlayer needs a real file descriptor. Files that exist on the
+	 * filesystem are used directly; a member INSIDE data.xp3 resolves to a
+	 * virtual path that stat() cannot see, so copy it into a temporary
+	 * folder first (tTVPLocalTempStorageHolder cannot be used here because
+	 * the OHOS GetLocallyAccessibleName passes virtual paths through, which
+	 * would make the holder skip the copy). */
 	{
-		Close();
-		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+		std::string checkPath;
+		bool isRealFile = false;
+		if (TVPUtf16ToUtf8(checkPath, localName.AsStdString()) && !checkPath.empty())
+		{
+			struct stat st;
+			isRealFile = (stat(checkPath.c_str(), &st) == 0);
+		}
+		if (!isRealFile)
+		{
+			OHOSTempFolder = TVPGetTemporaryName();
+			OHOSTempFile = OHOSTempFolder + TJS_W("/") + TVPExtractStorageName(placedName);
+			TVPCreateFolders(OHOSTempFolder);
+			{
+				tTVPStreamHolder src(placedName);
+				tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
+				tjs_uint8 buffer[65536 * 2];
+				tjs_uint read;
+				while ((read = src->Read(buffer, sizeof(buffer))) != 0)
+					dest->WriteBuffer(buffer, read);
+			}
+			localName = OHOSTempFile;
+		}
 	}
+	std::string filename;
+	if(!TVPUtf16ToUtf8(filename, localName.AsStdString()))
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
 
 	OHOSVideoResolveBridge();
 	OHOSVideoActiveOverlay = this;
@@ -564,6 +586,8 @@ void tTJSNI_VideoOverlay::Close()
 	if(OHOSVideoActiveOverlay == this) OHOSVideoActiveOverlay = nullptr;
 	if(LocalTempStorageHolder)
 		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
+	if(!OHOSTempFile.IsEmpty()) TVPRemoveFile(OHOSTempFile), OHOSTempFile.Clear();
+	if(!OHOSTempFolder.IsEmpty()) TVPRemoveFolder(OHOSTempFolder), OHOSTempFolder.Clear();
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
@@ -620,6 +644,8 @@ void tTJSNI_VideoOverlay::Shutdown()
 	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
 	if(LocalTempStorageHolder)
 		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
+	if(!OHOSTempFile.IsEmpty()) TVPRemoveFile(OHOSTempFile), OHOSTempFile.Clear();
+	if(!OHOSTempFolder.IsEmpty()) TVPRemoveFolder(OHOSTempFolder), OHOSTempFolder.Clear();
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }

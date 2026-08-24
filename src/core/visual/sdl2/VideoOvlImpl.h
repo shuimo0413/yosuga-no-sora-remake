@@ -54,6 +54,12 @@ class tTJSNI_VideoOverlay : public tTJSNI_BaseVideoOverlay
 	NativeEventQueue<tTJSNI_VideoOverlay> EventQueue;
 
 	tTVPLocalTempStorageHolder *LocalTempStorageHolder;
+#ifdef __OHOS__
+	/* Temp folder/file used when a movie member is extracted from data.xp3;
+	 * removed again in Close()/Shutdown(). */
+	ttstr	OHOSTempFolder;
+	ttstr	OHOSTempFile;
+#endif
 	class tTJSNI_BaseLayer	*Layer1;
 	class tTJSNI_BaseLayer	*Layer2;
 	tTVPVideoOverlayMode	Mode;	//!< Modeの動的な変更は出来ない。open前にセットしておくこと
