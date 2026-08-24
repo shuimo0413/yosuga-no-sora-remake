@@ -209,14 +209,17 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		EGL_CONTEXT_CLIENT_VERSION, 2,
 		EGL_NONE
 	};
-	g_ohos_egl_context = eglCreateContext(g_ohos_egl_display, config, EGL_NO_CONTEXT, ctx_attribs);
-	if (g_ohos_egl_context == EGL_NO_CONTEXT)
 	{
-		OHOS_EglLog("eglCreateContext failed err=%#x", (unsigned)eglGetError());
-		SDL_SetError("OHOS: eglCreateContext failed");
-		return NULL;
+		static int ctx_serial = 0;
+		g_ohos_egl_context = eglCreateContext(g_ohos_egl_display, config, EGL_NO_CONTEXT, ctx_attribs);
+		if (g_ohos_egl_context == EGL_NO_CONTEXT)
+		{
+			OHOS_EglLog("eglCreateContext failed err=%#x", (unsigned)eglGetError());
+			SDL_SetError("OHOS: eglCreateContext failed");
+			return NULL;
+		}
+		OHOS_EglLog("context[%d]=%p", ++ctx_serial, (void *)g_ohos_egl_context);
 	}
-	OHOS_EglLog("context=%p", (void *)g_ohos_egl_context);
 	return (SDL_GLContext)g_ohos_egl_context;
 }
 
@@ -275,6 +278,7 @@ int OHOS_GL_SwapWindow(_THIS, SDL_Window *window)
 void OHOS_GL_DeleteContext(_THIS, SDL_GLContext context)
 {
 	(void)_this;
+	OHOS_EglLog("DeleteContext ctx=%p (current=%p)", (void *)context, (void *)g_ohos_egl_context);
 	if (context)
 	{
 		eglDestroyContext(g_ohos_egl_display, (EGLContext)context);
