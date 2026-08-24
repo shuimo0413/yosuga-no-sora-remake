@@ -61,7 +61,7 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
-#ifdef __linux__
+#if defined(__linux__) || defined(__OHOS__)
 #include <sys/stat.h>
 #endif
 #ifdef __EMSCRIPTEN__
@@ -483,6 +483,51 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #endif
 
 		TVPSystemInit();
+
+#if defined(__OHOS__)
+		/* data.xp3 mode: register archive-scoped auto paths natively once
+		 * the storage system is fully initialized. Doing this in
+		 * krkrsdl2_pre_init_platform crashes with SIGSEGV: there the current
+		 * media name is still empty and the message table is not loaded yet,
+		 * so normalizing "data.xp3>system/" throws through
+		 * TVPThrowExceptionMessage which dereferences the unloaded message
+		 * map. This point is equally early: no game script has run yet, and
+		 * the startup script's own TVPAddAutoPath calls rebuild the auto
+		 * path table afterwards (TVPAddAutoPath clears AutoPathTableInit).
+		 * The archive root entry ("data.xp3>") does not depend on the xp3
+		 * index being sorted, so it alone guarantees that GetPlacedPath can
+		 * resolve any archive member (prerendered fonts, root-level mp4). */
+		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0])
+			{
+				std::string xp3 = std::string(dd) + "/data.xp3";
+				struct stat st;
+				if (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode))
+				{
+					SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+						"(info) OHOS: registering archive auto paths for %s",
+						xp3.c_str());
+					std::string prefix = xp3 + ">";
+					const char *subs[] = {
+						"system/", "scenario/", "bg_1920/", "event_1920/",
+						"character_1920/", "char/", "font/", "frame/",
+						"frame_m2/", "rule/", "thumb/", "ui_1920/"
+					};
+					for (size_t i = 0;
+						i < sizeof(subs) / sizeof(subs[0]); ++i)
+					{
+						tjs_string path;
+						if (TVPUtf8ToUtf16(path, prefix + subs[i]))
+							TVPAddAutoPath(ttstr(path));
+					}
+					tjs_string root;
+					if (TVPUtf8ToUtf16(root, prefix))
+						TVPAddAutoPath(ttstr(root));
+				}
+			}
+		}
+#endif
 
 		// Load external patch archives (patch.xp3, ...) from the public game
 		// data folder once SDL/JNI is fully initialized, so users can apply
