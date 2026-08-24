@@ -29,8 +29,7 @@ static void OHOSFAudioLog(const char *fmt, ...)
 	{
 		std::string lpath = std::string(pub) + "/engine.log";
 		FILE *lf = fopen(lpath.c_str(), "a");
-		if (lf) { fprintf(lf, "audio: %s
-", line); fclose(lf); }
+		if (lf) { fprintf(lf, "audio: %s\n", line); fclose(lf); }
 	}
 }
 #endif

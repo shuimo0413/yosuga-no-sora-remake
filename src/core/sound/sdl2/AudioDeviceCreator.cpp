@@ -67,8 +67,7 @@ iTVPAudioDevice* TVPCreateAudioDevice()
 				FILE *lf = fopen(lpath.c_str(), "a");
 				if (lf)
 				{
-					fprintf(lf, "audio: TVPCreateAudioDevice_FAudio -> %s
-",
+					fprintf(lf, "audio: TVPCreateAudioDevice_FAudio -> %s\n",
 						device ? "device created" : "NULL");
 					fclose(lf);
 				}
@@ -89,8 +88,7 @@ iTVPAudioDevice* TVPCreateAudioDevice()
 				FILE *lf = fopen(lpath.c_str(), "a");
 				if (lf)
 				{
-					fprintf(lf, "audio: falling back to NULL audio device (no sound)
-");
+					fprintf(lf, "audio: falling back to NULL audio device (no sound)\n");
 					fclose(lf);
 				}
 			}
