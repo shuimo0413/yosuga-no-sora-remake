@@ -221,6 +221,30 @@ void SDL_OHOS_OnFingerEvent(int finger_id, int touch_type, float x, float y)
 	ev.tfinger.dy = 0.0f;
 	ev.tfinger.pressure = 1.0f;
 	SDL_PushEvent(&ev);
+
+	/* Trace every DOWN/UP (and a sampling of MOTIONs) into engine.log so the
+	 * multi-finger state reaching SDL can be verified on device. */
+	{
+		static int motion_count = 0;
+		int log_it = (touch_type != SDL_OHOS_TOUCH_MOVE) || (++motion_count % 120 == 1);
+		if (log_it)
+		{
+			const char *dd = SDL_OHOS_GetFilesDir();
+			if (dd && dd[0])
+			{
+				char lpath[512];
+				snprintf(lpath, sizeof(lpath), "%s/engine.log", dd);
+				FILE *lf = fopen(lpath, "a");
+				if (lf)
+				{
+					fprintf(lf, "engine: OnFingerEvent type=%d finger=%d x=%.3f y=%.3f num=%d\n",
+						touch_type, finger_id, nx, ny,
+						(int)SDL_GetNumTouchFingers(0));
+					fclose(lf);
+				}
+			}
+		}
+	}
 }
 
 void SDL_OHOS_OnSurfaceChanged(int width, int height)

@@ -73,6 +73,13 @@ if(OHOS)
     ${OHOS_HAPTIC_DUMMY_SOURCES}
     ${OHOS_POWER_DUMMY_SOURCES}
   )
+  # NOTE: do NOT define SDL_RENDER_DISABLED here - not even as 0. This SDL
+  # version guards the whole render subsystem with "#ifndef SDL_RENDER_DISABLED",
+  # so merely DEFINING the macro disables SDL_CreateRenderer entirely (it
+  # returns "SDL not built with rendering support" and even the software
+  # renderer is gone). Leave the macro undefined; SDL_RENDER_DISABLED is forced
+  # OFF as a CMake variable in the entry CMakeLists, which turns the
+  # corresponding SDL_config.h cmakedefine into a comment.
   add_definitions(
     -DSDL_VIDEO_DRIVER_OHOS=1
     -DSDL_JOYSTICK_DISABLED=1
@@ -86,7 +93,6 @@ if(OHOS)
     -DSDL_VIDEO_RENDER_OGL=1
     -DSDL_VIDEO_RENDER_OGL_ES=1
     -DSDL_VIDEO_RENDER_OGL_ES2=1
-    -DSDL_RENDER_DISABLED=0
   )
   set(SDL_VIDEO_OPENGL_ES 1 CACHE BOOL "" FORCE)
   set(SDL_VIDEO_OPENGL_ES2 1 CACHE BOOL "" FORCE)
