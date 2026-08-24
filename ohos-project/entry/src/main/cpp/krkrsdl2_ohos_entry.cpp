@@ -11,6 +11,7 @@
 #include "krkrsdl2_ohos_entry.h"
 #include "ohos_data_extract.h"
 #include "sdl_ohos_bridge.h"
+#include "StorageIntf.h" /* TVPAddAutoPath for archive-scoped auto paths */
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <hilog/log.h>
@@ -618,6 +619,30 @@ static void EngineMain()
 			{
 				OHOS_Entry_LogNative("engine: Title.tjs stat FAILED");
 			}
+		}
+		if (!has_startup && has_xp3)
+		{
+			/* data.xp3 mode: the startup script registers plain directory
+			 * auto paths (system/, font/, ...) whose filesystem enumeration
+			 * finds nothing when the data ships as an archive, so
+			 * GetPlacedPath cannot resolve archive members (prerendered
+			 * fonts, root-level mp4 movies). Register the archive-scoped
+			 * forms here, natively, so it does not depend on the user's
+			 * repacked xp3 containing the updated startup.tjs. */
+			OHOS_Entry_LogNative("engine: registering archive auto paths for data.xp3");
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>system/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>scenario/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>bg_1920/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>event_1920/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>character_1920/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>char/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>font/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>frame/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>frame_m2/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>rule/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>thumb/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>ui_1920/")));
+			TVPAddAutoPath(ttstr(TJS_W("data.xp3>"))); // archive root (movies)
 		}
 	}
 	else
