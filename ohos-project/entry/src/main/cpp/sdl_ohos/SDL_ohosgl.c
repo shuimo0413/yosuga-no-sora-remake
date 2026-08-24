@@ -155,16 +155,13 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		return NULL;
 	}
 
-	/* A previous failed attempt may have left an EGL surface alive on this
-	 * window data (the XComponent window allows only ONE EGL window surface;
-	 * a second eglCreateWindowSurface then fails with EGL_BAD_ALLOC 0x3003).
-	 * Tear any stale surface down before creating a new one. */
-	if (data->egl_surface != EGL_NO_SURFACE)
-	{
-		OHOS_EglLog("CreateContext: destroying stale egl_surface=%p", (void *)data->egl_surface);
-		eglDestroySurface(g_ohos_egl_display, data->egl_surface);
-		data->egl_surface = EGL_NO_SURFACE;
-	}
+	/* NOTE: keep any existing surface alive. The game picture on this device
+	 * presents only while the FIRST EGL surface created on the XComponent
+	 * window survives; destroying it (even to rebuild a fresh one) makes the
+	 * software framebuffer flushes stop reaching the screen (black screen).
+	 * A second eglCreateWindowSurface on the same window then fails with
+	 * EGL_BAD_ALLOC, which is harmless for the software rendering path. */
+	(void)data;
 
 	EGLint config_attribs[] = {
 		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
