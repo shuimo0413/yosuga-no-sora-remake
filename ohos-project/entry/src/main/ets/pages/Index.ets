@@ -848,6 +848,10 @@ struct Index {
               .height('100%')
               .aspectRatio(16 / 9)
               .zIndex(this.videoOnTop ? 3 : -1)
+              // zIndex alone does not affect the native XComponent surface
+              // layer, so physically slide the video view off screen while
+              // idle (the surface stays alive for the next playback).
+              .offset(this.videoOnTop ? { x: 0, y: 0 } : { x: 100000, y: 0 })
             // No .onTouch here: libace_compatible crashes the UI thread while
             // processing touches on the XComponent node itself (before any
             // ArkTS callback runs). Touches are captured by the transparent
