@@ -93,6 +93,8 @@ struct Index {
   // Background keep-alive: a continuous audio-playback task keeps the game
   // process (and BGM) alive while the user switches away from the app.
   private keepAliveStarted: boolean = false;
+  // True while startGame waits for the landscape rotation to settle.
+  private startingGame: boolean = false;
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
@@ -921,16 +923,22 @@ struct Index {
   }
 
   startGame(): void {
-    if (this.bootState === 6) {
-      return; // already running
+    if (this.bootState === 6 || this.startingGame) {
+      return; // already running / already starting
     }
+    this.startingGame = true;
     this.cleanKrkrTmp();
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
-    this.bootState = 6;
-    // NOTE: window rotation is deferred until the engine has started
-    // (rotateToLandscape() called from onLoad) - rotating the window at the
-    // same moment the XComponent is created crashed libace_compatible on the
-    // UI thread (clicking "start game" occasionally crashed).
+    // Rotate to landscape FIRST and wait ~1s on a black screen for the
+    // window system to settle before mounting the XComponent and starting
+    // the engine: starting the game while the orientation was still
+    // changing crashed libace_compatible on the UI thread.
+    this.rotateToLandscape();
+    this.bootState = 5; // black transition screen
+    setTimeout(() => {
+      this.bootState = 6;
+      this.startingGame = false;
+    }, 1000);
   }
 
   private rotateToLandscape(): void {
@@ -954,7 +962,7 @@ struct Index {
     Stack({ alignContent: Alignment.Center }) {
       // Title background image shipped inside the HAP (rawfile); only on
       // the bootstrap page - the running game sits on plain black.
-      if (this.bootState !== 6) {
+      if (this.bootState !== 6 && this.bootState !== 5) {
         Image($rawfile('Background.png'))
           .width('100%')
           .height('100%')
@@ -963,6 +971,10 @@ struct Index {
       Column() {
       if (this.bootState === 0) {
         Text(this.progressText).fontSize(16).fontColor(Color.Gray)
+      } else if (this.bootState === 5) {
+        // Black screen while the window settles in landscape before the
+        // engine starts.
+        Column() {}
       } else if (this.bootState === 6) {
         Stack() {
           XComponent({
@@ -1104,11 +1116,14 @@ struct Index {
         .width('100%')
         .height('100%')
       } else if (this.bootState === 2) {
-        Scroll() {
-          Column({ space: 12 }) {
-          Text('').height(24)
+        Column({ space: 12 }) {
+          Text('').height(12)
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
             .textShadow({ radius: 3, color: '#000000', offsetX: 0, offsetY: 0 })
+          // Error messages show right below the title in reserved space, so
+          // the whole setup page fits one screen without scrolling.
+          Text(this.message === '' ? ' ' : this.message).fontSize(12).fontColor(Color.Red)
+            .maxLines(2).height(36).textAlign(TextAlign.Center)
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Black)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })
             .width('86%')
@@ -1150,9 +1165,7 @@ struct Index {
               this.importLocal();
             })
           }
-          Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(4)
           }
-        }
         .width('100%')
         .padding({ top: 20, bottom: 40 })
       } else if (this.bootState === 3 || this.bootState === 4) {
