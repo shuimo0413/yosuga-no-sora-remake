@@ -345,6 +345,29 @@ static void OHOSAUDIO_PlayDevice(_THIS)
     SDL_UnlockMutex(hidden->lock);
 }
 
+/* Pace the SDL mixer thread against the hardware consumption clock.
+ * When the ring is above half full, wait until the audio service has
+ * consumed it back below the watermark; when it is below (e.g. right after
+ * an underrun burst) return immediately so the mixer refills the ring much
+ * faster than real time. This keeps the ring hovering around the watermark
+ * and absorbs clock drift between the SDL timer and the OHAudio hardware
+ * clock - without it the ring slowly drains until every callback underruns
+ * and the game falls silent after a while. */
+static void OHOSAUDIO_WaitDevice(_THIS)
+{
+    struct SDL_PrivateAudioData *hidden = _this->hidden;
+    if (hidden == NULL)
+    {
+        return;
+    }
+    SDL_LockMutex(hidden->lock);
+    while (OHOSAUDIO_RingUsed(hidden) >= hidden->ring_size / 2 && !hidden->shutdown)
+    {
+        SDL_CondWaitTimeout(hidden->cond, hidden->lock, 100);
+    }
+    SDL_UnlockMutex(hidden->lock);
+}
+
 static void OHOSAUDIO_CloseDevice(_THIS)
 {
     struct SDL_PrivateAudioData *hidden = _this->hidden;
@@ -389,6 +412,7 @@ static SDL_bool OHOSAUDIO_Init(SDL_AudioDriverImpl *impl)
     impl->CloseDevice = OHOSAUDIO_CloseDevice;
     impl->GetDeviceBuf = OHOSAUDIO_GetDeviceBuf;
     impl->PlayDevice = OHOSAUDIO_PlayDevice;
+    impl->WaitDevice = OHOSAUDIO_WaitDevice;
 
     impl->OnlyHasDefaultOutputDevice = SDL_TRUE;
     impl->HasCaptureSupport = SDL_FALSE;

@@ -750,6 +750,9 @@ struct Index {
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
         mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
         mainWindow.setWindowLayoutFullScreen(true);
+        // Hide both system bars so the navigation gesture pill is
+        // immersed too (game runs fullscreen edge to edge).
+        mainWindow.setWindowSystemBarEnable([]);
       }).catch(() => {
         // best effort
       });
