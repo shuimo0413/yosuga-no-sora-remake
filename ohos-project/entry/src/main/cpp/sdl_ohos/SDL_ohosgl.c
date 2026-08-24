@@ -155,38 +155,48 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		return NULL;
 	}
 
-	/* NOTE: keep any existing surface alive. The game picture on this device
-	 * presents only while the FIRST EGL surface created on the XComponent
-	 * window survives; destroying it (even to rebuild a fresh one) makes the
-	 * software framebuffer flushes stop reaching the screen (black screen).
-	 * A second eglCreateWindowSurface on the same window then fails with
-	 * EGL_BAD_ALLOC, which is harmless for the software rendering path. */
-	(void)data;
-
-	EGLint config_attribs[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-		EGL_RED_SIZE, 8,
-		EGL_GREEN_SIZE, 8,
-		EGL_BLUE_SIZE, 8,
-		EGL_ALPHA_SIZE, 8,
-		EGL_NONE
-	};
-	if (!eglChooseConfig(g_ohos_egl_display, config_attribs, &config, 1, &num_configs) || num_configs < 1)
-	{
-		OHOS_EglLog("eglChooseConfig failed err=%#x n=%d", (unsigned)eglGetError(), num_configs);
-		SDL_SetError("OHOS: eglChooseConfig failed");
-		return NULL;
-	}
-
-	data->egl_surface = eglCreateWindowSurface(g_ohos_egl_display, config, (EGLNativeWindowType)(uintptr_t)native_window, NULL);
+	/* The XComponent native window accepts only ONE EGL surface:
+	 * a second eglCreateWindowSurface on the same window fails with
+	 * EGL_BAD_ALLOC (0x3003). SDL's GLES2 renderer probe first creates a
+	 * dummy context (surface #1) and later requests the real context on
+	 * the same window - that second call used to fail, so SDL fell back to
+	 * the software renderer. REUSE the existing surface for later contexts
+	 * instead of creating a new one.
+	 *
+	 * The surface must also stay alive: destroying it (even to rebuild a
+	 * fresh one) makes the window stop presenting (black screen), which is
+	 * what SDL would do when the dummy context is torn down. */
 	if (data->egl_surface == EGL_NO_SURFACE)
 	{
-		OHOS_EglLog("eglCreateWindowSurface failed err=%#x", (unsigned)eglGetError());
-		SDL_SetError("OHOS: eglCreateWindowSurface failed");
-		return NULL;
+		EGLint config_attribs[] = {
+			EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+			EGL_RED_SIZE, 8,
+			EGL_GREEN_SIZE, 8,
+			EGL_BLUE_SIZE, 8,
+			EGL_ALPHA_SIZE, 8,
+			EGL_NONE
+		};
+		if (!eglChooseConfig(g_ohos_egl_display, config_attribs, &config, 1, &num_configs) || num_configs < 1)
+		{
+			OHOS_EglLog("eglChooseConfig failed err=%#x n=%d", (unsigned)eglGetError(), num_configs);
+			SDL_SetError("OHOS: eglChooseConfig failed");
+			return NULL;
+		}
+
+		data->egl_surface = eglCreateWindowSurface(g_ohos_egl_display, config, (EGLNativeWindowType)(uintptr_t)native_window, NULL);
+		if (data->egl_surface == EGL_NO_SURFACE)
+		{
+			OHOS_EglLog("eglCreateWindowSurface failed err=%#x", (unsigned)eglGetError());
+			SDL_SetError("OHOS: eglCreateWindowSurface failed");
+			return NULL;
+		}
+		OHOS_EglLog("egl_surface=%p created", (void *)data->egl_surface);
 	}
-	OHOS_EglLog("egl_surface=%p", (void *)data->egl_surface);
+	else
+	{
+		OHOS_EglLog("egl_surface=%p reused for a second context", (void *)data->egl_surface);
+	}
 
 	EGLint ctx_attribs[] = {
 		EGL_CONTEXT_CLIENT_VERSION, 2,
