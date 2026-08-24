@@ -370,7 +370,16 @@ static void OHOS_DestroyWindow(_THIS, SDL_Window *window)
 	}
 	if (data->egl_surface != EGL_NO_SURFACE)
 	{
+		/* Destroy the surface on the SAME display that created it.
+		 * eglGetCurrentDisplay() can return EGL_NO_DISPLAY when no context
+		 * is current (e.g. after a failed GLES2_CreateRenderer attempt),
+		 * which leaks the surface and corrupts the shared XComponent
+		 * buffer queue for the AVPlayer and the software framebuffer. */
 		EGLDisplay dpy = eglGetCurrentDisplay();
+		if (dpy == EGL_NO_DISPLAY)
+		{
+			dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+		}
 		if (dpy != EGL_NO_DISPLAY)
 		{
 			eglDestroySurface(dpy, data->egl_surface);
