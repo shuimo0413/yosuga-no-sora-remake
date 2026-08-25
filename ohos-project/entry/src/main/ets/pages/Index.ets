@@ -434,9 +434,8 @@ struct Index {
       this.startingGame || this.confirming) {
       return; // already running / starting / extracting / asking
     }
-    // Back on the setup page: restore the status bar strip and stop
-    // keeping the screen on.
-    this.showStatusBar();
+    // Back on the setup page: stop keeping the screen on (the bars stay
+    // hidden - the whole app is immersive now).
     await this.setScreenOn(false);
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
@@ -570,18 +569,13 @@ struct Index {
 
   /** Restore the status bar strip on the setup page (white bar on top, no
    *  black bottom strip). */
-  private showStatusBar(): void {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
         mainWindow.setWindowLayoutFullScreen(true);
         mainWindow.setWindowSystemBarEnable(['status']);
-      }).catch(() => {
         // best effort
-      });
-    } catch (e) {
       // best effort
-    }
   }
 
   /** Keep the screen on while the game runs (no permission needed). */
@@ -920,7 +914,6 @@ struct Index {
       // The manifest could not be fetched (or is empty): tell the user and
       // return to the setup page.
       await this.setScreenOn(false);
-      this.showStatusBar();
       this.bootState = 2;
       this.progressValue = 0;
       this.message = '无法读取下载清单（data-assets.json），请检查网络后重试';
@@ -970,7 +963,6 @@ struct Index {
       } catch (e) {
         this.bootState = 5;
         await this.setScreenOn(false);
-        this.showStatusBar();
         this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）\n' +
           '若为网络问题，请返回引导页点击「gh-proxy」或「我的代理」切换加速后再下载';
         return;
@@ -1466,7 +1458,6 @@ struct Index {
         this.bootState = 2;
         const detail = JSON.stringify(e);
         await this.setScreenOn(false);
-        this.showStatusBar();
         this.message = '导入失败：' + name + '\n' + detail + '\nuri: ' + uri;
         await this.showNotice('导入失败', detail);
         return;
@@ -1490,7 +1481,6 @@ struct Index {
         } catch (eZ) {
           this.bootState = 2;
         await this.setScreenOn(false);
-        this.showStatusBar();
           this.message = '导入失败：' + name + ' 不是有效的 zip 压缩包，请重新选择';
           await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
           return;
@@ -1601,7 +1591,6 @@ struct Index {
       if (!started) {
         this.bootState = 2;
         await this.setScreenOn(false);
-        this.showStatusBar();
         this.progressText = '解包失败，可重新导入或下载';
         this.message = '解包失败：无法启动解包线程';
         this.uiEpoch++;
@@ -1634,7 +1623,6 @@ struct Index {
           this.log('extract diag: ' + (diagText !== '' ? diagText.slice(-2000) : '(empty)'));
           this.bootState = 2;
         await this.setScreenOn(false);
-        this.showStatusBar();
           this.progressText = '解包失败，可重新导入或下载';
           this.message = '解包失败：' + (errMsg !== '' ? errMsg : '未知错误');
           this.uiEpoch++;
@@ -1704,7 +1692,6 @@ struct Index {
     } catch (e) {
       this.bootState = 2;
         await this.setScreenOn(false);
-        this.showStatusBar();
       this.progressText = '解包失败，可重新导入或下载';
       this.message = '解包失败：' + this.errText(e);
       this.uiEpoch++;

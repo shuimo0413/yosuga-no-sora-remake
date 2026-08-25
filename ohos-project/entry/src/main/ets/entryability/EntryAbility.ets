@@ -31,12 +31,10 @@ export default class EntryAbility extends UIAbility {
       // The ability is declared landscape in module.json5, so no runtime
       // rotation is needed (runtime rotation froze the UI thread on first
       // launches with the screen locked).
-      // Layout the content edge-to-edge and keep ONLY the status bar: the
-      // bootstrap background image must reach the screen bottom - with the
-      // navigation bar enabled the system reserves a black strip at the
-      // bottom that pushes the image up.
+      // Fully immersive on every page: edge-to-edge layout with BOTH bars
+      // hidden (no white status strip, no bottom black strip).
       mainWindow.setWindowLayoutFullScreen(true);
-      mainWindow.setWindowSystemBarEnable(['status']);
+      mainWindow.setWindowSystemBarEnable([]);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'Failed to configure main window: %{public}s', JSON.stringify(err));
     });

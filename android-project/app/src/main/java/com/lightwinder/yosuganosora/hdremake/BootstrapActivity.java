@@ -849,8 +849,17 @@ public class BootstrapActivity extends Activity {
     static {
         // "SDL2" first (its symbols are needed by the engine), then the
         // engine library itself - the native methods of this class live in
-        // libmain.so.
-        System.loadLibrary("SDL2");
-        System.loadLibrary("main");
+        // libmain.so. Best-effort: a library problem must never crash the
+        // bootstrap page itself.
+        try {
+            System.loadLibrary("SDL2");
+        } catch (Throwable ignored) {
+            Log.e(TAG, "SDL2 library missing", ignored);
+        }
+        try {
+            System.loadLibrary("main");
+        } catch (Throwable ignored) {
+            Log.e(TAG, "main library missing", ignored);
+        }
     }
 }
