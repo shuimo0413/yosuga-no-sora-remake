@@ -123,8 +123,6 @@ add_library(entry SHARED
 	ohos_video_player.cpp
 	ohos_data_extract.cpp
 	${REPO_ROOT}/src/core/sdl2/xp3_extract.cpp
-	ohos_xp3_extract.cpp
-	ohos_xp3_extract.cpp
 	# Compiled here as well so the touch/surface bridge symbols are provided
 	# by libentry.so itself (the SDL static archive is consumed by the
 	# libkrkrsdl2.so link and its members are not pulled in a second time).
@@ -134,9 +132,11 @@ add_library(entry SHARED
 target_include_directories(entry PRIVATE
 	${ENTRY_DIR}
 	${ENTRY_DIR}/sdl_ohos
-	# zlib.h for ohos_xp3_extract.cpp; the zlib objects themselves live
-	# inside libkrkrsdl2.so (compiled from external/krkrz/external/zlib),
-	# so the inflate/uncompress symbols resolve through the krkrsdl2 link.
+	# xp3_extract.h for the shared extractor (src/core/sdl2) and zlib.h for
+	# it; the zlib objects themselves live inside libkrkrsdl2.so (compiled
+	# from external/krkrz/external/zlib), so the inflate/uncompress symbols
+	# resolve through the krkrsdl2 link.
+	${REPO_ROOT}/src/core/sdl2
 	${REPO_ROOT}/external/krkrz/external/zlib
 )
 
