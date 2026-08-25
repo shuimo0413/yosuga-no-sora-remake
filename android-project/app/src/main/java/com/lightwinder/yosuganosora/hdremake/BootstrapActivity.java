@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -71,12 +72,15 @@ public class BootstrapActivity extends Activity {
     private Button importButton;
     private boolean busy = false;
 
+    private static final int STORAGE_PERMISSION_REQUEST = 9001;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         applyImmersive();
         buildUi();
+        requestStoragePermissionIfNeeded();
         probeData();
     }
 
@@ -84,6 +88,41 @@ public class BootstrapActivity extends Activity {
     protected void onResume() {
         super.onResume();
         applyImmersive();
+        // Returning from the system Settings screen (MANAGE_EXTERNAL_STORAGE
+        // on Android 11+) may have just granted public storage: re-probe so
+        // a ready data tree starts the game directly.
+        if (!busy) probeData();
+    }
+
+    /** Storage permission for the public Downloads write (mirrors the engine
+     * activity): WRITE/READ pair on Android 10-, MANAGE_EXTERNAL_STORAGE via
+     * system Settings on Android 11+. chooseDataParent() probes the actual
+     * writability and falls back to Android/data/<pkg> when it is missing. */
+    private void requestStoragePermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    startActivity(new Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:" + getPackageName())));
+                } catch (Exception ignored) {
+                    try {
+                        startActivity(new Intent(
+                                Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                    } catch (Exception ignored2) {
+                        // No settings screen available; stay in the private dir.
+                    }
+                }
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{
+                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        android.Manifest.permission.READ_EXTERNAL_STORAGE
+                }, STORAGE_PERMISSION_REQUEST);
+            }
+        }
     }
 
     /** Fullscreen immersive: hide the status/navigation bars (including the
