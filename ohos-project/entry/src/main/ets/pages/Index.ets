@@ -915,8 +915,9 @@ struct Index {
       this.uiEpoch++;
       const reimport = await this.showConfirm(
         '检测到已有游戏数据',
-        '是否重新导入游戏包？
-“重新导入”将删除现有数据并跳转到导入页面；“使用旧数据”将直接启动。',
+        '是否重新导入游戏包？' + String.fromCharCode(10) +
+          '“重新导入”将删除现有数据并跳转到导入页面；' + String.fromCharCode(10) +
+          '“使用旧数据”将直接启动。',
         '重新导入', '使用旧数据');
       if (reimport) {
         this.log('user chose re-import; dropping sandbox data');
