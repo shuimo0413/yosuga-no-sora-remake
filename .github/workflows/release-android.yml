@@ -106,13 +106,6 @@ jobs:
             ${{ env.ANDROID_HOME }}/platforms/android-37
           key: android-sdk-components-37.0-36.0.0-3.22-ndk28.2
 
-      - name: Install packaging tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y p7zip-full
-
       - name: Resolve release metadata
         id: release
         shell: bash
@@ -257,7 +250,7 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace :app:assembleRelease -Parm64-v8a
 
-      - name: Verify and package multipart APK
+      - name: Verify and package the APK
         id: package
         shell: bash
         env:
@@ -273,49 +266,24 @@ jobs:
 
           package_name="Yosuga-no-Sora-HD-Remake-Android-arm64-$RELEASE_TAG.apk"
           asset_dir="$RUNNER_TEMP/release-assets"
-          package_dir="$RUNNER_TEMP/android-package"
-          mkdir -p "$asset_dir" "$package_dir"
-          mv "$source_apk" "$package_dir/$package_name"
+          mkdir -p "$asset_dir"
+          cp "$source_apk" "$asset_dir/$package_name"
 
-          unzip -t "$package_dir/$package_name"
+          unzip -t "$asset_dir/$package_name"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
-            --verbose --print-certs "$package_dir/$package_name"
+            --verbose --print-certs "$asset_dir/$package_name"
           package_info=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging \
-            "$package_dir/$package_name" | head -n 1)
+            "$asset_dir/$package_name" | head -n 1)
           [[ "$package_info" == *"versionCode='${{ steps.release.outputs.version-code }}'"* ]]
           [[ "$package_info" == *"versionName='${{ steps.release.outputs.version-name }}'"* ]]
-          mapfile -t packaged_abis < <(unzip -Z1 "$package_dir/$package_name" | \
+          mapfile -t packaged_abis < <(unzip -Z1 "$asset_dir/$package_name" | \
             sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
           if [[ "${#packaged_abis[@]}" -ne 1 || "${packaged_abis[0]}" != 'arm64-v8a' ]]; then
             printf 'Unexpected APK ABIs: %s\n' "${packaged_abis[*]}" >&2
             exit 1
           fi
 
-          # The APK is safely outside the build tree. Removing intermediates
-          # leaves enough room to split the 3+ GiB package on hosted runners.
           rm -rf android-project/app/build android-project/app/.cxx build
-
-          archive="$asset_dir/$package_name.7z"
-          (
-            cd "$package_dir"
-            7z a -t7z -mx=0 -mmt=on -v1900m "$archive" "$package_name"
-          )
-
-          mapfile -t volumes < <(find "$asset_dir" -maxdepth 1 \
-            -type f -name "$package_name.7z.*" -print | sort)
-          if [[ "${#volumes[@]}" -eq 0 ]]; then
-            echo 'No multipart APK volumes were generated.' >&2
-            exit 1
-          fi
-          7z t "${volumes[0]}"
-
-          for volume in "${volumes[@]}"; do
-            size=$(stat --printf='%s' "$volume")
-            if ((size >= 2147483648)); then
-              echo "Release asset exceeds GitHub's 2 GiB limit: $volume" >&2
-              exit 1
-            fi
-          done
 
           cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
@@ -352,9 +320,9 @@ jobs:
           notes=$(cat <<EOF
           Yosuga no Sora: HD Remake release packages.
 
-          For each package, download every \`.7z.NNN\` volume into the same
-          directory, then open \`.7z.001\` with 7-Zip. Verify the downloads
-          with the matching SHA-256 file.
+          Install the APK directly; the game data is downloaded by the app
+          on first launch (or imported from the data zips / data.xp3).
+
 
           Android signing mode: **$SIGNING_MODE**.
           EOF
