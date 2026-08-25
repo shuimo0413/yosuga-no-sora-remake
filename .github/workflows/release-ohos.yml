@@ -335,18 +335,18 @@ jobs:
           mapfile -t contents < <(unzip -Z1 "$hap")
           content_list="$(printf '%s\n' "${contents[@]}")"
           if [[ "$DATA_MODE" == 'bundled' ]]; then
-            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'resources/rawfile/data/startup.tjs')
+            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so' 'resources/rawfile/data/startup.tjs')
           else
-            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so')
+            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so')
           fi
           for required in "${required_list[@]}"; do
             grep -Fxq "$required" <<<"$content_list" || { echo "HAP missing $required" >&2; exit 1; }
           done
           if [[ "$DATA_MODE" == 'mini' ]]; then data_suffix="-mini"; else data_suffix=""; fi
           if [[ -n "$SIGNED" ]]; then
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-$RELEASE_TAG.hap"
+            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-x86_64${data_suffix}-$RELEASE_TAG.hap"
           else
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-unsigned-$RELEASE_TAG.hap"
+            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-x86_64${data_suffix}-unsigned-$RELEASE_TAG.hap"
           fi
           asset_dir="$RUNNER_TEMP/release-assets"
           mkdir -p "$asset_dir"
@@ -354,7 +354,7 @@ jobs:
           rm -rf ohos-project/entry/build ohos-project/.hvigor ohos-project/entry/src/main/cpp/third_party
           cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
-          Runtime: Kirikiri SDL2 for OpenHarmony 5.0 (API 12, ARM64)
+          Runtime: Kirikiri SDL2 for OpenHarmony 5.0 (API 12, ARM64 + x86_64)
           Release: $RELEASE_TAG
           Commit: $GITHUB_SHA
           Signing: ${SIGNED:-unsigned}
