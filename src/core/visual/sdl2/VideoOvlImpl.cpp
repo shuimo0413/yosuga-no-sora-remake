@@ -466,16 +466,47 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 		}
 		if (!isRealFile)
 		{
-			OHOSTempFolder = TVPGetTemporaryName();
-			OHOSTempFile = OHOSTempFolder + TJS_W("/") + TVPExtractStorageName(streamName);
-			TVPCreateFolders(OHOSTempFolder);
+			/* Fixed per-movie cache directory. The member name inside
+			 * data.xp3 is stable, so extract each mp4 exactly once and
+			 * reuse the cached copy on every later playback (and across
+			 * launches) instead of re-copying it into a fresh random
+			 * krkr_* folder every time. Re-extract only when the cached
+			 * copy's size does not match the stream size (interrupted
+			 * copy or a re-packed archive with different content). */
+			tjs_string tmp_utf16;
+			ttstr cacheFolder;
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0] && TVPUtf8ToUtf16(tmp_utf16, dd))
+				cacheFolder = ttstr(tmp_utf16) + TJS_W("/tmp/krkr_movie_cache");
+			else
+				cacheFolder = ttstr(TJS_W("/tmp/krkr_movie_cache"));
+
+			OHOSTempFolder = cacheFolder;
+			OHOSTempFile = cacheFolder + TJS_W("/") + TVPExtractStorageName(streamName);
+
 			{
+				static tTJSCriticalSection movieCacheCS;
+				tTJSCriticalSectionHolder holder(movieCacheCS);
+
 				tTVPStreamHolder src(streamName);
-				tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
-				tjs_uint8 buffer[65536 * 2];
-				tjs_uint read;
-				while ((read = src->Read(buffer, sizeof(buffer))) != 0)
-					dest->WriteBuffer(buffer, read);
+				tjs_uint64 srcSize = src->GetSize();
+				bool needCopy = true;
+				std::string cachePath;
+				if (TVPUtf16ToUtf8(cachePath, OHOSTempFile.AsStdString()) && !cachePath.empty())
+				{
+					struct stat st;
+					if (stat(cachePath.c_str(), &st) == 0 && (tjs_uint64)st.st_size == srcSize)
+						needCopy = false;
+				}
+				if (needCopy)
+				{
+					TVPCreateFolders(cacheFolder);
+					tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
+					tjs_uint8 buffer[65536 * 2];
+					tjs_uint read;
+					while ((read = src->Read(buffer, sizeof(buffer))) != 0)
+						dest->WriteBuffer(buffer, read);
+				}
 			}
 			localName = OHOSTempFile;
 		}
@@ -546,8 +577,10 @@ void tTJSNI_VideoOverlay::Close()
 	if(OHOSVideoActiveOverlay == this) OHOSVideoActiveOverlay = nullptr;
 	if(LocalTempStorageHolder)
 		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
-	if(!OHOSTempFile.IsEmpty()) TVPRemoveFile(OHOSTempFile), OHOSTempFile.Clear();
-	if(!OHOSTempFolder.IsEmpty()) TVPRemoveFolder(OHOSTempFolder), OHOSTempFolder.Clear();
+	/* keep the extracted movie in the fixed krkr_movie_cache folder so
+	 * the next playback (and next launch) reuses it without re-copying */
+	if(!OHOSTempFile.IsEmpty()) OHOSTempFile.Clear();
+	if(!OHOSTempFolder.IsEmpty()) OHOSTempFolder.Clear();
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
@@ -601,8 +634,10 @@ void tTJSNI_VideoOverlay::Shutdown()
 	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
 	if(LocalTempStorageHolder)
 		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
-	if(!OHOSTempFile.IsEmpty()) TVPRemoveFile(OHOSTempFile), OHOSTempFile.Clear();
-	if(!OHOSTempFolder.IsEmpty()) TVPRemoveFolder(OHOSTempFolder), OHOSTempFolder.Clear();
+	/* keep the extracted movie in the fixed krkr_movie_cache folder so
+	 * the next playback (and next launch) reuses it without re-copying */
+	if(!OHOSTempFile.IsEmpty()) OHOSTempFile.Clear();
+	if(!OHOSTempFolder.IsEmpty()) OHOSTempFolder.Clear();
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }

@@ -323,10 +323,13 @@ struct Index {
     }
   }
 
-  /** Remove leftover krkr_* video temp dirs from previous runs. The
-   *  removal runs on a TaskPool worker: the dirs can hold hundreds of MB
-   *  and deleting them synchronously on the UI thread froze the first
-   *  launch after an import (appfreeze). */
+  /** Remove leftover random krkr_* video temp dirs from previous runs
+   *  (older builds extracted every movie into a fresh random folder).
+   *  The fixed krkr_movie_cache folder is skipped: it is the reusable
+   *  movie cache that the engine refills on demand. The removal runs on a
+   *  TaskPool worker: the dirs can hold hundreds of MB and deleting them
+   *  synchronously on the UI thread froze the first launch after an
+   *  import (appfreeze). */
   private cleanKrkrTmp(): void {
     const tmpDir = this.baseDir + '/tmp';
     let entries: string[] = [];
@@ -336,7 +339,7 @@ struct Index {
       return;
     }
     for (const name of entries) {
-      if (name.startsWith('krkr_')) {
+      if (name.startsWith('krkr_') && name !== 'krkr_movie_cache') {
         taskpool.execute(removeTreeTask, tmpDir + '/' + name);
       }
     }
