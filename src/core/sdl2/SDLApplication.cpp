@@ -1018,13 +1018,15 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 	{
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
-#if defined(__ANDROID__) || defined(__OHOS__)
-		/* Android/OHOS: prefer the hardware GLES2 renderer. On OHOS the
-		 * GLES2 probe's EGL initialization is also what makes the window's
-		 * buffer queue present software frames, so keep it even when it
-		 * falls back to software. The software renderer paints through the
-		 * LockBuffer path and TickBeat pauses whichever renderer is active
-		 * while the AVPlayer owns the surface. */
+#if defined(__ANDROID__) || defined(__OHOS__) || defined(__IPHONEOS__)
+		/* Mobile platforms: prefer the hardware renderer - GLES2 on
+		 * Android/OHOS, Metal on iOS (Apple deprecated OpenGL ES and SDL2
+		 * removed its iOS GLES backend). On OHOS the GLES2 probe's EGL
+		 * initialization is also what makes the window's buffer queue
+		 * present software frames, so keep it even when it falls back to
+		 * software. The software renderer paints through the LockBuffer
+		 * path and TickBeat pauses whichever renderer is active while the
+		 * AVPlayer owns the surface. */
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		if (!this->renderer)
 		{
@@ -1151,7 +1153,13 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			SDL_DestroyTexture(this->texture);
 			this->texture = nullptr;
 		}
+#if defined(__IPHONEOS__)
+		/* The Metal renderer has no RGB888 texture format; ARGB8888 maps to
+		 * MTLPixelFormatBGRA8Unorm. */
+		this->texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+#else
 		this->texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, w, h);
+#endif
 		if (!this->texture)
 		{
 			TVPThrowExceptionMessage(TJS_W("Cannot create texture texture: %1"), ttstr(SDL_GetError()));
@@ -1168,7 +1176,12 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			SDL_FreeSurface(this->surface);
 			this->surface = nullptr;
 		}
+#if defined(__IPHONEOS__)
+		/* Match the ARGB8888 texture: R=0x00ff0000 G=0x0000ff00 B=0x000000ff A=0xff000000. */
+		this->surface = SDL_CreateRGBSurface(0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+#else
 		this->surface = SDL_CreateRGBSurface(0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0);
+#endif
 		if (!this->surface)
 		{
 			TVPThrowExceptionMessage(TJS_W("Cannot create surface: %1"), ttstr(SDL_GetError()));
