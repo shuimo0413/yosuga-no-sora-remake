@@ -134,7 +134,7 @@ def main() -> int:
     compression = zipfile.ZIP_DEFLATED if args.compress_level > 0 else zipfile.ZIP_STORED
     assets = []
     for index, batch in enumerate(batches, start=1):
-        name = "Yosuga-no-Sora-HD-Remake-OpenHarmony-data-%02d-%s.zip" % (index, args.tag)
+        name = "Yosuga-no-Sora-HD-Remake-data-%02d-%s.zip" % (index, args.tag)
         archive = args.out / name
         file_count = 0
         for pack_id, files in batch:

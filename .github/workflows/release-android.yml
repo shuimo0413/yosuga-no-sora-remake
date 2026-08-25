@@ -255,6 +255,14 @@ jobs:
           path: ${{ runner.temp }}/krkrsdl2-development.jks
           key: krkrsdl2-android-signing-v1
 
+      - name: Strip bundled game data from the APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The game data is published separately by the release-data
+          # workflow; the APK ships only the engine and the bootstrap UI.
+          rm -rf android-project/app/src/main/assets/data
+
       - name: Build optimized ARM64 release APK
         working-directory: android-project
         shell: bash

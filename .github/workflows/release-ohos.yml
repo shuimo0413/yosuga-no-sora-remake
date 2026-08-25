@@ -47,101 +47,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  package-data:
-    name: Package game data
-    # Package and publish the downloadable data assets. Only external mode
-    # needs them (the HAP fetches data-assets.json from the Release at
-    # runtime); bundled/mini builds embed the data instead. Runs on manual
-    # dispatch unless the user ticks "Skip the data" (fast HAP iteration).
-    # Tag pushes never run this job so a plain push does not pull the
-    # multi-GB LFS content.
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      inputs.skip_data != true &&
-      inputs.data_mode == 'external'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 360
-    outputs:
-      release-tag: ${{ steps.meta.outputs.tag }}
-      external: ${{ steps.meta.outputs.external }}
-    steps:
-      - name: Check out repository, submodules, and LFS content
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-          lfs: false
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-      - name: Resolve release metadata
-        id: meta
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
-          INPUT_DATA_MODE: ${{ inputs.data_mode }}
-        run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" == 'push' ]]; then
-            release_tag="$REF_NAME"
-          else
-            release_tag="${INPUT_RELEASE_TAG//[[:space:]]/}"
-          fi
-          if [[ ! "$release_tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
-            echo "Invalid release tag: $release_tag" >&2
-            exit 1
-          fi
-          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
-          if [[ "$INPUT_DATA_MODE" == 'external' ]]; then
-            echo "external=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "external=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Verify Git LFS content
-        shell: bash
-        run: |
-          set -euo pipefail
-          git lfs pull
-          git lfs fsck
-      - name: Package game data assets
-        id: data
-        if: steps.meta.outputs.external == 'true'
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-          out_dir="$RUNNER_TEMP/data-assets"
-          mkdir -p "$out_dir"
-          python3 tools/package_data_release.py             --root data --config content-packs.json             --tag "$RELEASE_TAG" --out "$out_dir"
-          echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
-          ls -lh "$out_dir"
-      - name: Publish data assets to Release
-        if: steps.meta.outputs.external == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
-          DATA_DIR: ${{ steps.data.outputs.assets-dir }}
-          GH_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # The HAP build job (usually faster) creates the draft release; wait
-          # for it to exist, then upload the data assets onto it.
-          ok=0
-          for ((attempt=1; attempt<=40; attempt++)); do
-            if gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" >/dev/null 2>&1; then ok=1; break; fi
-            sleep 10
-          done
-          [[ "$ok" == '1' ]] || { echo 'Release not created in time' >&2; exit 1; }
-          up=("$DATA_DIR"/*.zip "$DATA_DIR"/data-assets.json)
-          gh release upload "$RELEASE_TAG" "${up[@]}" --repo "$GH_REPOSITORY" --clobber
   build-app:
     name: Build OpenHarmony HAP
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    outputs:
+      release-tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Check out repository, submodules, and LFS content
         uses: actions/checkout@v6
@@ -483,7 +394,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [package-data, build-app]
+    needs: [build-app]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -491,7 +402,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.package-data.outputs.release-tag }}
+          RELEASE_TAG: ${{ needs.build-app.outputs.release-tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
           EVENT_NAME: ${{ github.event_name }}
           GH_REPOSITORY: ${{ github.repository }}
