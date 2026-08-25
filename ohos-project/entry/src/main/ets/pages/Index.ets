@@ -312,6 +312,8 @@ struct Index {
   private folderTried: boolean = false;
   // Last direct-write failure detail (shown in the UI for diagnosis).
   private lastDirectError: string = '';
+  // HarmonyOS only: auto-init the Download folder once at startup.
+  private autoInitTried: boolean = false;
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
@@ -694,6 +696,14 @@ struct Index {
       this.needInit = false;
       this.message = '数据暂存于应用私有目录';
       this.log('data dir: sandbox (public not granted)');
+      // HarmonyOS only: the picker save DOWNLOAD route silently creates
+      // Download/<bundleName> (v0.0.0-action-test.225 behavior). Other
+      // platforms never auto-pop dialogs at startup.
+      if (!this.autoInitTried && this.isHarmony()) {
+        this.autoInitTried = true;
+        this.log('HarmonyOS: auto-initing public dir once');
+        this.initPublicDir();
+      }
     }
     try {
       fs.mkdirSync(this.saveDir, true);
@@ -813,8 +823,10 @@ struct Index {
    *  detail is kept in lastDirectError for the UI. */
   private tryDirectAt(dir: string): boolean {
     try {
-      fs.mkdirSync(dir, true);
-      fs.mkdirSync(dir + '/savedata', true);
+      // Do NOT mkdir the directory itself: a picker grant covers file
+      // writes inside the folder, but mkdir on the (already existing)
+      // folder throws 13900012 - the original working flow never did
+      // this. Prove write access with a marker file write + read-back.
       const marker = fs.openSync(dir + '/.granted',
         fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       fs.writeSync(marker.fd, 'granted-ok');
@@ -824,6 +836,11 @@ struct Index {
         this.lastDirectError = 'read-back mismatch: ' + readBack;
         this.log('tryDirectAt: ' + this.lastDirectError);
         return false;
+      }
+      try {
+        fs.mkdirSync(dir + '/savedata', true);
+      } catch (e) {
+        // may already exist
       }
       this.writeNomedia(dir);
       this.lastDirectError = '';
@@ -1073,10 +1090,32 @@ struct Index {
         return false;
       }
       this.log('initPublicDir: save returned (user confirmed)');
-      // Prefer the real directory from the URI the picker returned: the
-      // system may create the folder at a path different from the
-      // constructed Download/<bundleName> (file managers show a virtual
-      // view), and only the real path carries the write grant.
+      if (this.isHarmony()) {
+        // HarmonyOS: keep the exact original flow. The DOWNLOAD-mode save
+        // silently creates Download/<bundleName> and grants write access;
+        // adopt it unconditionally (marker errors are only logged) - a
+        // read-back check or a mkdir on the folder itself fails with
+        // 13900012 even though file writes inside are allowed.
+        try {
+          fs.mkdirSync(this.appDir + '/savedata', true);
+        } catch (e) {
+          // may already exist
+        }
+        this.writeNomedia(this.appDir);
+        try {
+          const marker = fs.openSync(this.appDir + '/.granted',
+            fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+          fs.writeSync(marker.fd, 'granted');
+          fs.closeSync(marker);
+        } catch (e) {
+          this.log('marker write failed: ' + JSON.stringify(e));
+        }
+        this.adoptPublicDir();
+        this.log('public dir initialised: ' + this.appDir);
+        return true;
+      }
+      // Other platforms: resolve the real directory from the returned URI
+      // and adopt only when the marker round-trip proves write access.
       if (savedUris.length > 0) {
         const filePath = this.uriToPath(savedUris[0]);
         this.log('initPublicDir: saved uri=' + savedUris[0] + ' path=' + filePath);
@@ -1086,7 +1125,6 @@ struct Index {
           this.log('initPublicDir: resolved appDir=' + this.appDir);
         }
       }
-      // Adopt it only when the marker round-trip proves real write access.
       if (!this.tryPublicDirect()) {
         this.log('initPublicDir: folder still unusable after picker');
         this.message = '下载目录仍不可写：' + this.lastDirectError + '\nappDir=' + this.appDir;
