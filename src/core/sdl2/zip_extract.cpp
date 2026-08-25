@@ -15,6 +15,11 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
+
 namespace {
 
 struct EndRecord {
@@ -256,7 +261,7 @@ bool IsSafeEntryName(const std::string &name, std::string *clean)
 {
   clean->clear();
   if (name.empty()) return false;
-  if (name[0] == '/' || name[0] == '\') return false;
+  if (name[0] == '/' || name[0] == '\\') return false;
   if (name.size() >= 2 && name[1] == ':') return false;
   std::vector<std::string> parts;
   size_t start = 0;

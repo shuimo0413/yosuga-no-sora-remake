@@ -230,8 +230,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 
 - (NSString *)effectiveBaseUrl
 {
-    NSString *text = _urlField.text.stringByTrimmingCharactersInSet:
-        NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSString *text = [_urlField.text stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (text.length > 0)
         return text;
     return [self defaultBaseUrl];
@@ -239,8 +239,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 
 - (NSString *)proxyPrefix
 {
-    NSString *text = _proxyField.text.stringByTrimmingCharactersInSet:
-        NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSString *text = [_proxyField.text stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet];
     return text ?: @"";
 }
 
@@ -701,6 +701,7 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
                 (__bridge void *)self, err, sizeof(err));
         }
         NSString *errMsg = nil;
+        NSString *cErr = rc != 0 ? [NSString stringWithUTF8String:err] : nil;
         BOOL ok = (rc == 0) && [self mergeOnMain:staging err:&errMsg];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (ok)
@@ -713,7 +714,7 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
             else
             {
                 NSString *detail = errMsg.length > 0 ? errMsg
-                    : [NSString stringWithUTF8String:err];
+                    : (cErr ?: @"");
                 [self downloadFailed:[NSString stringWithFormat:
                     @"解压失败（%@）：%@", name, detail]];
             }
@@ -881,13 +882,14 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
                 (__bridge void *)self, err, sizeof(err));
         }
         NSString *mergeErr = nil;
+        NSString *cErr = rc != 0 ? [NSString stringWithUTF8String:err] : nil;
         BOOL ok = (rc == 0) && [self mergeOnMain:staging err:&mergeErr];
         RemoveTree(staging);
         RemoveTree(path);
         if (!ok)
         {
             NSString *detail = mergeErr.length > 0 ? mergeErr
-                : [NSString stringWithUTF8String:err];
+                : (cErr ?: @"");
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self downloadFailed:[NSString stringWithFormat:
                     @"导入失败：%@", detail]];
