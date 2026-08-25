@@ -144,18 +144,21 @@ bool mkdirs(const std::string &path) {
   return true;
 }
 
-/* Locate a chunk tagged with the given 4-byte tag inside
- * data[start, start+size). On a match sets start to the content start and
- * size to the content size; otherwise scans forward (mirrors
+/* Locate a chunk tagged with the given 4-byte tag inside the absolute
+ * range data[start, start+size). On a match sets start to the content
+ * start and size to the content size; otherwise scans forward (mirrors
  * tTVPXP3Archive::FindChunk). */
 bool findChunk(const unsigned char *data, uint32_t indexSize,
   const unsigned char tag[4], uint32_t &start, uint32_t &size) {
+  uint32_t end = start + size;   /* absolute end of the search range */
   uint32_t pos = start;
-  while (pos < size) {
-    if (pos + 12 > size) return false;
+  while (pos < end) {
+    if (pos + 12 > end) return false;
     bool match = memcmp(data + pos, tag, 4) == 0;
     uint64_t chunkSize = rd64(data + pos + 4);
     if (chunkSize > 0x7FFFFFFFULL) return false;
+    /* the chunk body must stay inside the search range */
+    if ((uint64_t)pos + 12 + chunkSize > end) return false;
     if (match) {
       start = pos + 12;
       size = (uint32_t)chunkSize;
