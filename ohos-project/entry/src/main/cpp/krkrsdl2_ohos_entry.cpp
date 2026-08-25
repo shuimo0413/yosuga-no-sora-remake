@@ -112,6 +112,28 @@ static void Log(LogLevel level, const char *fmt, ...)
 	OH_LOG_Print(LOG_APP, level, LOG_DOMAIN, LOG_TAG, "%{public}s", buffer);
 }
 
+/* Diagnostic trace into the sandbox diag.txt (hdc-readable). */
+static void OHOS_DiagLog(const char *fmt, ...)
+{
+	const char *sandbox = SDL_OHOS_GetFilesDir();
+	if (!sandbox || !sandbox[0])
+		return;
+	char path[512];
+	snprintf(path, sizeof(path), "%s/diag.txt", sandbox);
+	FILE *lf = fopen(path, "a");
+	if (!lf)
+		return;
+	char line[512];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+	long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+	fprintf(lf, "%lld: %s\n", ms % 100000, line);
+	fclose(lf);
+}
+
 namespace
 {
 
@@ -164,7 +186,9 @@ void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
 
 	if (g_window_ready)
 	{
+		OHOS_DiagLog("OnSurfaceChanged(ui) before SDL_OHOS_OnSurfaceChanged");
 		SDL_OHOS_OnSurfaceChanged(static_cast<int>(width), static_cast<int>(height));
+		OHOS_DiagLog("OnSurfaceChanged(ui) after SDL_OHOS_OnSurfaceChanged");
 	}
 }
 
@@ -440,28 +464,6 @@ void OHOS_Entry_AttachXComponent(void *component)
 	// NOTE: do NOT call OH_NativeXComponent_GetXComponentSize with a null
 	// window here: on this system that triggers SIGBUS on the UI thread.
 	// The surface callbacks deliver the window; we wait for them instead.
-}
-
-/* Diagnostic trace into the sandbox diag.txt (hdc-readable). */
-static void OHOS_DiagLog(const char *fmt, ...)
-{
-	const char *sandbox = SDL_OHOS_GetFilesDir();
-	if (!sandbox || !sandbox[0])
-		return;
-	char path[512];
-	snprintf(path, sizeof(path), "%s/diag.txt", sandbox);
-	FILE *lf = fopen(path, "a");
-	if (!lf)
-		return;
-	char line[512];
-	va_list ap;
-	va_start(ap, fmt);
-	vsnprintf(line, sizeof(line), fmt, ap);
-	va_end(ap);
-	long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::chrono::steady_clock::now().time_since_epoch()).count();
-	fprintf(lf, "%lld: %s\n", ms % 100000, line);
-	fclose(lf);
 }
 
 static void EngineMain()

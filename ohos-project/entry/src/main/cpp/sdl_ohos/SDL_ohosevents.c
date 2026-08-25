@@ -276,6 +276,17 @@ void SDL_OHOS_OnFingerEvent(int finger_id, int touch_type, float x, float y)
 
 void SDL_OHOS_OnSurfaceChanged(int width, int height)
 {
+	/* diagnostic: prove this UI-thread callback does not stall */
+	{
+		const char *dd = SDL_OHOS_GetFilesDir();
+		if (dd && dd[0])
+		{
+			char lpath[512];
+			snprintf(lpath, sizeof(lpath), "%s/diag.txt", dd);
+			FILE *lf = fopen(lpath, "a");
+			if (lf) { fprintf(lf, "ev: OnSurfaceChanged enter %dx%d\n", width, height); fclose(lf); }
+		}
+	}
 	SDL_VideoDevice *device = SDL_GetVideoDevice();
 	OHOS_VideoData *videodata;
 	SDL_Window *window;
