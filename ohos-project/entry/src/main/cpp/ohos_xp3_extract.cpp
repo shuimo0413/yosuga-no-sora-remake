@@ -689,6 +689,12 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
         rc = -2;
         break;
       }
+      /* Throttle: pause briefly every 256 files so the extraction does
+       * not look like an IO storm to the system resource scheduler
+       * (23017 files -> ~2.7 s of extra time total). */
+      if ((i & 255) == 255) {
+        usleep(30 * 1000);
+      }
     }
     if (rc == 0) {
       result->ok = 1;

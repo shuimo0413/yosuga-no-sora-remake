@@ -137,6 +137,7 @@ struct Index {
   private autoInitTried: boolean = false;
   private extracting: boolean = false;
   private confirming: boolean = false;
+  private extractTaskStarted: boolean = false;
   @State readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
@@ -324,6 +325,52 @@ struct Index {
     } catch (e) {
       // Keep-alive is best effort: the app must never die over it.
       this.log('startBackgroundRunning failed: ' + JSON.stringify(e));
+    }
+  }
+
+  /** Continuous task for the extraction phase (data transfer mode):
+   *  the system exempts the app from resource reclamation while a long
+   *  extraction runs. Stops automatically when the extraction ends. */
+  private async startExtractTask(): Promise<void> {
+    try {
+      if (this.extractTaskStarted) {
+        return;
+      }
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const want: Want = {
+        bundleName: ctx.abilityInfo.bundleName,
+        abilityName: 'EntryAbility'
+      };
+      const wantAgentInfo: KeepAliveAgentInfo = {
+        wants: [want],
+        operationType: wantAgent.OperationType.START_ABILITY,
+        requestCode: 0,
+        wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+      };
+      const agent = await wantAgent.getWantAgent(wantAgentInfo);
+      await backgroundTaskManager.startBackgroundRunning(
+        ctx,
+        backgroundTaskManager.BackgroundMode.DATA_TRANSFER,
+        agent
+      );
+      this.extractTaskStarted = true;
+      this.log('extract continuous task started');
+    } catch (e) {
+      this.log('startExtractTask failed: ' + JSON.stringify(e));
+    }
+  }
+
+  private async stopExtractTask(): Promise<void> {
+    try {
+      if (!this.extractTaskStarted) {
+        return;
+      }
+      await backgroundTaskManager.stopBackgroundRunning(
+        getContext(this) as common.UIAbilityContext
+      );
+      this.extractTaskStarted = false;
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -1240,6 +1287,9 @@ struct Index {
       // KEEP any partial temp tree: the extractor skips files whose size
       // already matches, so a killed run resumes from where it stopped.
       this.log('extract step: resuming in ' + outTmp);
+      // Ask the system for a DATA_TRANSFER continuous task: it exempts
+      // this long extraction from resource reclamation.
+      await this.startExtractTask();
       this.log('extract step: calling native extractXp3Start');
       const started = entryNapi.extractXp3Start(xp3Path, outTmp) as boolean;
       this.log('extract step: started=' + started);
@@ -1349,6 +1399,7 @@ struct Index {
       this.uiEpoch++;
       this.log('extractAndFinalize failed: ' + this.errText(e));
     } finally {
+      await this.stopExtractTask();
       this.extracting = false;
     }
   }

@@ -29,6 +29,10 @@
         "startWindowIcon": "$media:icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
+        "backgroundModes": [
+          "dataTransfer",
+          "audioPlayback"
+        ],
         "skills": [
           {
             "entities": [
