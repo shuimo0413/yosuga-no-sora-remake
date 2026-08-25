@@ -1070,20 +1070,53 @@ struct Index {
       // Clear leftover partial temp trees off the UI thread.
       this.log('extract step: cleaning tmp ' + outTmp);
       await taskpool.execute(removeTreeTask, outTmp);
-      this.log('extract step: calling native extractXp3');
-      const res = await entryNapi.extractXp3(xp3Path, outTmp,
-        (done: number, total: number, name: string) => {
-          this.progressValue = Math.floor(done * 100 / Math.max(1, total));
-          this.progressText = '正在解包 data.xp3：' + done + ' / ' + total + ' 个文件';
-        }) as Xp3ExtractResult;
-      this.log('extract step: native returned ' + JSON.stringify(res));
-      if (!res.ok) {
+      this.log('extract step: calling native extractXp3Start');
+      const started = entryNapi.extractXp3Start(xp3Path, outTmp) as boolean;
+      this.log('extract step: started=' + started);
+      if (!started) {
         this.bootState = 2;
         this.progressText = '解包失败，可重新导入或下载';
-        this.message = '解包失败：' + (res.error ? res.error : '未知错误');
+        this.message = '解包失败：无法启动解包线程';
         this.uiEpoch++;
-        await this.showNotice('解包失败', res.error ? res.error : '未知错误');
+        await this.showNotice('解包失败', '无法启动解包线程');
         return;
+      }
+      // The native worker reports through <outTmp>.status / <outTmp>.progress
+      // (polled - the same pattern as the rest of the shell; the OHOS
+      // napi_threadsafe_function rejected our create call with
+      // napi_invalid_arg, so no NAPI callback is used).
+      const statusPath = outTmp + '.status';
+      const progressPath = outTmp + '.progress';
+      let done = 0;
+      let total = 0;
+      while (true) {
+        await this.delay(400);
+        const st = this.tryReadFile(statusPath);
+        if (st !== '') {
+          this.log('extract step: status=' + st.trim());
+          if (st.startsWith('ok')) {
+            break;
+          }
+          const errMsg = st.startsWith('error ') ? st.substring(6).trim() : st.trim();
+          this.bootState = 2;
+          this.progressText = '解包失败，可重新导入或下载';
+          this.message = '解包失败：' + (errMsg !== '' ? errMsg : '未知错误');
+          this.uiEpoch++;
+          await this.showNotice('解包失败', errMsg !== '' ? errMsg : '未知错误');
+          return;
+        }
+        const pg = this.tryReadFile(progressPath);
+        if (pg !== '') {
+          const parts = pg.trim().split(' ');
+          if (parts.length >= 2) {
+            done = Number(parts[0]);
+            total = Number(parts[1]);
+            if (total > 0) {
+              this.progressValue = Math.floor(done * 100 / total);
+              this.progressText = '正在解包 data.xp3：' + done + ' / ' + total + ' 个文件';
+            }
+          }
+        }
       }
       // Swap the extracted tree in, replacing any previous loose data tree.
       if (this.tryList(outDir).indexOf('startup.tjs') >= 0) {
@@ -1093,6 +1126,16 @@ struct Index {
       }
       fs.renameSync(outTmp, outDir);
       this.log('extract done; removing archive files');
+      try {
+        fs.unlinkSync(outTmp + '.status');
+      } catch (e) {
+        // ignore
+      }
+      try {
+        fs.unlinkSync(outTmp + '.progress');
+      } catch (e) {
+        // ignore
+      }
       try {
         fs.unlinkSync(xp3Path);
       } catch (e) {
@@ -1112,6 +1155,15 @@ struct Index {
       this.log('extractAndFinalize failed: ' + this.errText(e));
     } finally {
       this.extracting = false;
+    }
+  }
+
+  /** Read a small text file; returns '' when missing/unreadable. */
+  private tryReadFile(path: string): string {
+    try {
+      return fs.readTextSync(path);
+    } catch (e) {
+      return '';
     }
   }
 
