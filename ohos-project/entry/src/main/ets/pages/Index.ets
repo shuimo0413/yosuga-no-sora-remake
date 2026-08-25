@@ -55,9 +55,13 @@ interface DataManifest {
  * synchronous call triggers ANR and the app gets killed mid-import.
  */
 @Concurrent
-function unzipTask(srcZip: string, outDir: string): string {
+async function unzipTask(srcZip: string, outDir: string): Promise<string> {
   try {
-    zlib.decompressFile(srcZip, outDir);
+    // decompressFile is ASYNC (Promise-only API). Without this await the
+    // TaskPool worker returned immediately and the decompression was
+    // cancelled after the first couple of entries ("ok:" with an empty
+    // list, and a truncated data/ tree).
+    await zlib.decompressFile(srcZip, outDir);
     // Report the top-level entries so a truncated decompression is
     // visible in the debug log instead of failing silently.
     let names: string[] = [];
