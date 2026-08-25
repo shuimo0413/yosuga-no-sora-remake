@@ -30,9 +30,10 @@ export default class EntryAbility extends UIAbility {
     windowStage.getMainWindow().then((mainWindow: window.Window) => {
       // The bootstrap page is NOT fullscreen so the status bar stays visible
       // (content would otherwise be hidden under the notification bar). The
-      // game switches to fullscreen landscape in startGame().
+      // ability itself is declared landscape in module.json5, so no runtime
+      // rotation is needed (runtime rotation froze the UI thread on first
+      // launches with the screen locked).
       mainWindow.setWindowLayoutFullScreen(false);
-      mainWindow.setPreferredOrientation(window.Orientation.PORTRAIT);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'Failed to configure main window: %{public}s', JSON.stringify(err));
     });

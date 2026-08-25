@@ -165,12 +165,7 @@ struct Index {
   }
 
   onPageShow(): void {
-    // Rotate to landscape during the bootstrap page (no XComponent exists
-    // yet) - rotating later, while the XComponent is mounted, crashes
-    // libace_compatible on this system.
-    setTimeout(() => {
-      this.rotateToLandscape();
-    }, 100);
+    // Orientation is fixed to landscape in module.json5; no runtime rotation.
     // Auto-run the data check / public-dir init shortly after the bootstrap
     // page is visible (avoid stalling startup). Never disturb a game that is
     // already starting (black transition screen).
@@ -967,11 +962,9 @@ struct Index {
     this.log('startGame begin t=' + (Date.now() - this.hbStart));
     this.cleanKrkrTmp();
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
-    // Rotate to landscape FIRST and wait ~1s on a black screen for the
-    // window system to settle before mounting the XComponent and starting
-    // the engine: starting the game while the orientation was still
-    // changing crashed libace_compatible on the UI thread.
-    this.rotateToLandscape();
+    // Orientation is fixed to landscape in module.json5. Still wait ~1s on
+    // a black screen before mounting the XComponent: starting the engine
+    // immediately after the page appears crashed libace_compatible.
     this.bootState = 5; // black transition screen
     setTimeout(() => {
       this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
