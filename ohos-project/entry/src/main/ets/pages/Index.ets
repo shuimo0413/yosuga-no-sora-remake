@@ -1,4 +1,5 @@
 import entryNapi from 'libentry.so';
+import deviceInfo from '@ohos.deviceInfo';
 import { common, wantAgent, Want, bundleManager, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
@@ -304,6 +305,8 @@ struct Index {
   private publicDenied: boolean = false;
   // The user permission dialog has already been shown once.
   private permRequested: boolean = false;
+  // The picker route has already been tried once.
+  private pickerTried: boolean = false;
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
@@ -814,19 +817,41 @@ struct Index {
     }
   }
 
-  /** Standard user permission for the Download folder (API 11+). Shows the
-   *  system authorization dialog; returns true when granted. */
-  private async requestDownloadPermission(): Promise<boolean> {
+  /**
+   * Standard user permission for the Download folder (API 11+). Shows the
+   * system authorization dialog. Returns 1 = granted, -1 = denied by the
+   * user, 0 = the request itself failed (permission unsupported on this
+   * platform). Note: the dialog text is rendered by the OS permission
+   * service, not by the app; some forks (e.g. KaihongOS) show a
+   * differently-worded privacy dialog for the same permission.
+   */
+  private async requestDownloadPermission(): Promise<number> {
     try {
       const atManager = abilityAccessCtrl.createAtManager();
       const perms: Permissions[] = ['ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY'];
       const result = await atManager.requestPermissionsFromUser(
         getContext(this) as common.UIAbilityContext, perms);
-      const granted = result.authResults.length > 0 && result.authResults[0] === 0;
+      const auth = result.authResults.length > 0 ? result.authResults[0] : -1;
       this.log('download permission result: ' + JSON.stringify(result.authResults));
-      return granted;
+      return auth === 0 ? 1 : -1;
     } catch (e) {
       this.log('download permission request failed: ' + JSON.stringify(e));
+      return 0;
+    }
+  }
+
+  /**
+   * HarmonyOS (NEXT) uses the picker as the official silent route for the
+   * app-owned Download folder; OpenHarmony/KaihongOS use the standard
+   * permission dialog instead. osFullName distinguishes them
+   * ("HarmonyOS 5.0.0" vs "OpenHarmony-5.0.2.54" / "KaihongOS x86 ...").
+   */
+  private isHarmony(): boolean {
+    try {
+      const osName = deviceInfo.osFullName;
+      return osName.indexOf('HarmonyOS') >= 0 &&
+        osName.indexOf('OpenHarmony') < 0 && osName.indexOf('Kaihong') < 0;
+    } catch (e) {
       return false;
     }
   }
@@ -896,10 +921,14 @@ struct Index {
   }
 
   /**
-   * Make sure baseDir/saveDir/dataDir point at a usable location. Order:
-   * verified marker -> silent direct write -> user permission (API 11+) ->
-   * legacy picker. After every route fails the app stays on the sandbox and
-   * never prompts again in this session.
+   * Make sure baseDir/saveDir/dataDir point at a usable location.
+   * Route order is platform-dependent:
+   * - HarmonyOS/NEXT: verified marker -> silent direct write -> picker
+   *   (official, silent) -> permission dialog as backup.
+   * - OpenHarmony/KaihongOS: verified marker -> silent direct write ->
+   *   permission dialog -> picker as last resort.
+   * Every route is verified with a marker write+read round-trip. After all
+   * routes fail the app stays on the sandbox and never prompts again.
    */
   async ensurePublic(): Promise<boolean> {
     try {
@@ -915,29 +944,53 @@ struct Index {
       this.log('public dir unusable; staying on sandbox');
       return false;
     }
-    // 1) Silent direct write (no dialog).
+    // Silent direct write (no dialog).
     if (this.tryPublicDirect()) {
       this.adoptPublicDir();
       return true;
     }
-    // 2) Standard permission dialog.
-    if (!this.permRequested) {
-      this.permRequested = true;
-      if (await this.requestDownloadPermission()) {
-        if (this.tryPublicDirect()) {
+    if (this.isHarmony()) {
+      // 1) Picker: the official silent route on HarmonyOS/NEXT.
+      if (!this.pickerTried) {
+        this.pickerTried = true;
+        if (await this.initPublicDir()) {
+          return true;
+        }
+      }
+      // 2) Permission dialog as a backup.
+      if (!this.permRequested) {
+        this.permRequested = true;
+        if (await this.requestDownloadPermission() === 1 && this.tryPublicDirect()) {
           this.adoptPublicDir();
           return true;
         }
-      } else {
-        // Explicit user denial: do not pile another dialog on top.
-        this.publicDenied = true;
-        this.message = '未授权下载目录，数据将保存在应用私有目录';
-        return false;
       }
-    }
-    // 3) Legacy picker fallback (platforms whose permission route fails).
-    if (await this.initPublicDir()) {
-      return true;
+    } else {
+      // 1) Standard permission dialog (OpenHarmony/KaihongOS).
+      if (!this.permRequested) {
+        this.permRequested = true;
+        const auth = await this.requestDownloadPermission();
+        if (auth === 1) {
+          if (this.tryPublicDirect()) {
+            this.adoptPublicDir();
+            return true;
+          }
+          // Granted but still not writable: fall through to the picker.
+        } else if (auth === -1) {
+          // Explicit user denial: do not pile another dialog on top.
+          this.publicDenied = true;
+          this.message = '未授权下载目录，数据将保存在应用私有目录';
+          return false;
+        }
+        // auth === 0: permission unsupported here; fall through to picker.
+      }
+      // 2) Picker last resort.
+      if (!this.pickerTried) {
+        this.pickerTried = true;
+        if (await this.initPublicDir()) {
+          return true;
+        }
+      }
     }
     this.publicDenied = true;
     this.message = '下载目录不可用，数据将保存在应用私有目录';
@@ -2110,6 +2163,7 @@ struct Index {
           Button('重新授权并检查').width(200).height(48).onClick(() => {
             this.publicDenied = false;
             this.permRequested = false;
+            this.pickerTried = false;
             this.prepare();
           })
         }
