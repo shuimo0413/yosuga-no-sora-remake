@@ -331,8 +331,10 @@ bool carveTailIndex(FILE *f, uint64_t fileSize,
     for (size_t t = chain.size(); t-- > 0;) {
       const Cand &c = cands[chain[t]];
       Entry entry;
+      /* parseEntry expects the CONTENT range of the File chunk (tag+size
+       * header excluded): pass tag+12 and size-12, not the raw chunk. */
       if (!parseEntry(tail.data(), (uint32_t)tail.size(),
-        (uint32_t)(c.pos - scanBase), c.csize, entry, result)) {
+        (uint32_t)(c.pos - scanBase) + 12, c.csize - 12, entry, result)) {
         ok = false;
         break;
       }
