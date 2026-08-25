@@ -147,10 +147,19 @@ NEXT (AGC signing).
 
 ## CI
 
-.github/workflows/release-ohos.yml builds the HAP on ubuntu-24.04:
-downloads the OpenHarmony 5.0.0 SDK and command line tools, runs the
-project setup, assembles the release HAP, optionally signs it, verifies the
-package contents and publishes multipart 7-Zip volumes to the GitHub
-Release. The SDK download URLs can be overridden with the repository
-variables OHOS_SDK_URL and OHOS_COMMAND_LINE_TOOLS_URL when the
-OpenHarmony release page publishes newer packages.
+.github/workflows/release-ohos.yml builds TWO HAPs on ubuntu-24.04:
+
+- **HarmonyOS build** (`Yosuga-no-Sora-HD-Remake-HarmonyOS-arm64-x86_64-...hap`)
+  uses the picker save(DOWNLOAD) route: on launch it silently creates
+  Download/<bundleName> and stores data there.
+- **OpenHarmony build** (`Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-x86_64-...hap`)
+  uses the experimental routes (folder picker / permission dialog) for
+  platforms whose picker lacks the DOWNLOAD mode (e.g. KaihongOS).
+
+The flavor is injected at build time as
+`resources/rawfile/build-flavor.json`; the ArkTS shell reads it and
+selects the Download-directory route. Both flavors are signed, verified
+and published to the GitHub Release. The SDK download URLs can be
+overridden with the repository variables OHOS_SDK_URL and
+OHOS_COMMAND_LINE_TOOLS_URL when the OpenHarmony release page publishes
+newer packages.

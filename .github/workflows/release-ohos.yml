@@ -210,7 +210,7 @@ jobs:
             "$REPO" "$RELEASE_TAG" \
             > ohos-project/entry/src/main/resources/rawfile/default-manifest.json
           cat ohos-project/entry/src/main/resources/rawfile/default-manifest.json
-      - name: Build the release HAP
+      - name: Build the release HAPs (harmonyos + openharmony flavors)
         id: build
         shell: bash
         env:
@@ -237,19 +237,31 @@ jobs:
               text = re.sub(r'("' + field + r'"\s*:\s*)[^,\n]+', r'\g<1>' + api, text)
           open(path, 'w', encoding='utf-8').write(text)
           PY
-          hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-          hap="$(find entry/build -name 'entry-default-*.hap' -print -quit)"
-          [[ -n "$hap" && -f "$hap" ]] || { echo 'No HAP produced' >&2; exit 1; }
-          hap="$(realpath "$hap")"
-          echo "hap=$hap" >> "$GITHUB_OUTPUT"
-          ls -lh "$hap"
+          # The ArkTS shell reads entry/src/main/resources/rawfile/build-flavor.json
+          # to pick the Download-directory route at runtime:
+          #   harmonyos   -> save(DOWNLOAD) route (silent Download/<bundleName>)
+          #   openharmony -> experimental routes (folder picker / permission)
+          for flavor in harmonyos openharmony; do
+            printf '{"flavor":"%s"}\n' "$flavor" \
+              > entry/src/main/resources/rawfile/build-flavor.json
+            cat entry/src/main/resources/rawfile/build-flavor.json
+            hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+            hap="$(find entry/build -name 'entry-default-*.hap' -print -quit)"
+            [[ -n "$hap" && -f "$hap" ]] || { echo "No HAP produced for $flavor" >&2; exit 1; }
+            mv "$hap" "$RUNNER_TEMP/hap-$flavor.hap"
+            rm -rf entry/build # keep entry/.cxx so the second flavor reuses the native build
+          done
+          ls -lh "$RUNNER_TEMP"/hap-*.hap
+          echo "hap-harmonyos=$RUNNER_TEMP/hap-harmonyos.hap" >> "$GITHUB_OUTPUT"
+          echo "hap-openharmony=$RUNNER_TEMP/hap-openharmony.hap" >> "$GITHUB_OUTPUT"
 
-      - name: Sign the HAP
+      - name: Sign the HAPs
         id: signing
         if: steps.release.outputs.sign-mode != 'none'
         shell: bash
         env:
-          HAP: ${{ steps.build.outputs.hap }}
+          HAP_HARMONYOS: ${{ steps.build.outputs.hap-harmonyos }}
+          HAP_OPENHARMONY: ${{ steps.build.outputs.hap-openharmony }}
           SIGN_MODE: ${{ steps.release.outputs.sign-mode }}
           KEYSTORE_BASE64: ${{ secrets.OHOS_KEYSTORE_P12_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.OHOS_KEYSTORE_PASSWORD }}
@@ -277,11 +289,14 @@ jobs:
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/keystore.p12"
             printf '%s' "$APP_CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.cer"
             printf '%s' "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.p7b"
-            signed="${HAP%.hap}-signed.hap"
-            java -jar "$sign_tool" sign-app -keyAlias "$KEY_ALIAS" -signAlg SHA256withECDSA -mode localSign \
-              -appCertFile "$RUNNER_TEMP/cert.cer" -profileFile "$RUNNER_TEMP/profile.p7b" \
-              -inFile "$HAP" -outFile "$signed" -keystoreFile "$RUNNER_TEMP/keystore.p12" \
-              -keyPwd "$KEY_PASSWORD" -keystorePwd "$KEYSTORE_PASSWORD"
+            for hap in "$HAP_HARMONYOS" "$HAP_OPENHARMONY"; do
+              base="$(basename "$hap" .hap)"
+              signed="$RUNNER_TEMP/$base-signed.hap"
+              java -jar "$sign_tool" sign-app -keyAlias "$KEY_ALIAS" -signAlg SHA256withECDSA -mode localSign \
+                -appCertFile "$RUNNER_TEMP/cert.cer" -profileFile "$RUNNER_TEMP/profile.p7b" \
+                -inFile "$hap" -outFile "$signed" -keystoreFile "$RUNNER_TEMP/keystore.p12" \
+                -keyPwd "$KEY_PASSWORD" -keystorePwd "$KEYSTORE_PASSWORD"
+            done
             echo 'signed=agc' >> "$GITHUB_OUTPUT"
           elif [[ "$SIGN_MODE" == 'community' ]]; then
             echo 'Signing with the community OpenHarmony debug certificate.'
@@ -307,60 +322,70 @@ jobs:
             run_autosign() { python3 autosign.py "$1" || { cat error.txt 2>/dev/null || true; cat log.txt 2>/dev/null || true; exit 1; }; }
             run_autosign createRootAndSubCert
             run_autosign createAppCertAndProfile
-            cp "$HAP" "$sign_dir/app1-unsigned.hap"
-            sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
-            run_autosign signHap
-            signed="$sign_dir/result/app1-signed.hap"
-            [[ -f "$signed" ]] || { echo 'Community signing failed' >&2; exit 1; }
+            for hap in "$HAP_HARMONYOS" "$HAP_OPENHARMONY"; do
+              base="$(basename "$hap" .hap)"
+              cp "$hap" "$sign_dir/app1-unsigned.hap"
+              sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
+              run_autosign signHap
+              signed="$sign_dir/result/app1-signed.hap"
+              [[ -f "$signed" ]] || { echo 'Community signing failed' >&2; exit 1; }
+              cp "$signed" "$RUNNER_TEMP/$base-signed.hap"
+            done
             echo 'signed=community' >> "$GITHUB_OUTPUT"
           else
             echo "Bad sign mode: $SIGN_MODE" >&2; exit 1
           fi
-          echo "hap=$signed" >> "$GITHUB_OUTPUT"
-          ls -lh "$signed"
+          echo "signed-harmonyos=$RUNNER_TEMP/hap-harmonyos-signed.hap" >> "$GITHUB_OUTPUT"
+          echo "signed-openharmony=$RUNNER_TEMP/hap-openharmony-signed.hap" >> "$GITHUB_OUTPUT"
+          ls -lh "$RUNNER_TEMP"/hap-*-signed.hap
 
-      - name: Verify and package the HAP
+      - name: Verify and package the HAPs
         id: package
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          SIGNED: ${{ steps.signing.outputs.signed }}
-          HAP: ${{ steps.signing.outputs.hap || steps.build.outputs.hap }}
+          HAP_HARMONYOS: ${{ steps.build.outputs.hap-harmonyos }}
+          HAP_OPENHARMONY: ${{ steps.build.outputs.hap-openharmony }}
+          SIGNED_HARMONYOS: ${{ steps.signing.outputs.signed-harmonyos }}
+          SIGNED_OPENHARMONY: ${{ steps.signing.outputs.signed-openharmony }}
           DATA_MODE: ${{ steps.release.outputs.data-mode }}
         run: |
           set -euo pipefail
-          hap="$HAP"
-          [[ -f "$hap" ]] || { echo 'HAP missing' >&2; exit 1; }
-          unzip -t "$hap" >/dev/null
-          mapfile -t contents < <(unzip -Z1 "$hap")
-          content_list="$(printf '%s\n' "${contents[@]}")"
           if [[ "$DATA_MODE" == 'bundled' ]]; then
             required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so' 'resources/rawfile/data/startup.tjs')
           else
             required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so')
           fi
-          for required in "${required_list[@]}"; do
-            grep -Fxq "$required" <<<"$content_list" || { echo "HAP missing $required" >&2; exit 1; }
-          done
           if [[ "$DATA_MODE" == 'mini' ]]; then data_suffix="-mini"; else data_suffix=""; fi
-          if [[ -n "$SIGNED" ]]; then
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-x86_64${data_suffix}-$RELEASE_TAG.hap"
-          else
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-x86_64${data_suffix}-unsigned-$RELEASE_TAG.hap"
-          fi
           asset_dir="$RUNNER_TEMP/release-assets"
           mkdir -p "$asset_dir"
-          cp "$hap" "$asset_dir/$package_name"
+          verify_and_package() {
+            local flavor="$1" hap="$2" signed_hap="$3"
+            local file="$hap"
+            [[ -n "$signed_hap" && -f "$signed_hap" ]] && file="$signed_hap"
+            [[ -f "$file" ]] || { echo "HAP missing for $flavor" >&2; exit 1; }
+            unzip -t "$file" >/dev/null
+            mapfile -t contents < <(unzip -Z1 "$file")
+            content_list="$(printf '%s\n' "${contents[@]}")"
+            for required in "${required_list[@]}"; do
+              grep -Fxq "$required" <<<"$content_list" || { echo "$flavor HAP missing $required" >&2; exit 1; }
+            done
+            local os_label="OpenHarmony"
+            [[ "$flavor" == 'harmonyos' ]] && os_label="HarmonyOS"
+            local package_name
+            if [[ -n "$signed_hap" ]]; then
+              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-$RELEASE_TAG.hap"
+            else
+              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-unsigned-$RELEASE_TAG.hap"
+            fi
+            cp "$file" "$asset_dir/$package_name"
+            printf 'Yosuga no Sora: HD Remake\nRuntime: Kirikiri SDL2 for %s 5.0 (API 12, ARM64 + x86_64)\nFlavor: %s\nRelease: %s\nCommit: %s\nSigning: %s\nData: %s\nNative optimization: Release\n' \
+              "$os_label" "$flavor" "$RELEASE_TAG" "$GITHUB_SHA" "${signed_hap:-unsigned}" "${DATA_MODE:-external}" \
+              > "$asset_dir/$package_name-BUILD-INFO.txt"
+          }
+          verify_and_package harmonyos "$HAP_HARMONYOS" "$SIGNED_HARMONYOS"
+          verify_and_package openharmony "$HAP_OPENHARMONY" "$SIGNED_OPENHARMONY"
           rm -rf ohos-project/entry/build ohos-project/.hvigor ohos-project/entry/src/main/cpp/third_party
-          cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
-          Yosuga no Sora: HD Remake
-          Runtime: Kirikiri SDL2 for OpenHarmony 5.0 (API 12, ARM64 + x86_64)
-          Release: $RELEASE_TAG
-          Commit: $GITHUB_SHA
-          Signing: ${SIGNED:-unsigned}
-          Data: ${DATA_MODE:-external}
-          Native optimization: Release
-          EOF
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"
       - name: Publish HAP to Release

@@ -26,6 +26,11 @@ interface DefaultManifest {
   releaseTag: string;
 }
 
+/** build-flavor.json (build-time injected build flavor). */
+interface FlavorManifest {
+  flavor: string;
+}
+
 /** Result of the native XP3 extraction (libentry extractXp3). */
 interface Xp3ExtractResult {
   ok: boolean;
@@ -314,6 +319,8 @@ struct Index {
   private lastDirectError: string = '';
   // HarmonyOS only: auto-init the Download folder once at startup.
   private autoInitTried: boolean = false;
+  // Build flavor injected at build time: 'harmonyos' | 'openharmony' | ''.
+  private buildFlavor: string = '';
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
@@ -342,7 +349,8 @@ struct Index {
   aboutToAppear(): void {
     this.hbStart = Date.now();
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
-    this.log('appear t=0');
+    this.buildFlavor = this.readBuildFlavor();
+    this.log('appear t=0 flavor=' + this.buildFlavor);
     // Raise the video XComponent above the game XComponent while the AVPlayer
     // plays; poll the native flag (100ms) instead of a NAPI callback thread.
     setInterval(() => {
@@ -696,10 +704,10 @@ struct Index {
       this.needInit = false;
       this.message = '数据暂存于应用私有目录';
       this.log('data dir: sandbox (public not granted)');
-      // Auto-init once on every platform except KaihongOS (the
-      // v0.0.0-action-test.225 behavior): HarmonyOS/OpenHarmony resolve
-      // osFullName inconsistently, so do not gate this on a name match.
-      if (!this.autoInitTried && !this.isKaihong()) {
+      // Auto-init once when the save(DOWNLOAD) route is active (the
+      // v0.0.0-action-test.225 behavior); the openharmony flavor never
+      // auto-pops dialogs at startup.
+      if (!this.autoInitTried && this.useSaveDownloadRoute()) {
         this.autoInitTried = true;
         this.log('auto-initing public dir once');
         this.initPublicDir();
@@ -747,6 +755,36 @@ struct Index {
     }
     this.uiEpoch++;
     this.log('bootstrap page shown');
+  }
+
+  /** Read the build-time-injected flavor (harmonyos | openharmony).
+   *  Returns '' when the file is absent (local builds). */
+  readBuildFlavor(): string {
+    try {
+      const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
+      const bytes = manager.getRawFileContentSync('build-flavor.json');
+      const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
+      const parsed = JSON.parse(text) as FlavorManifest;
+      return parsed.flavor || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * The HarmonyOS build uses the save(DOWNLOAD) route (silent, creates
+   * Download/<bundleName>); the OpenHarmony build uses the experimental
+   * routes (folder picker / permission dialog). Unflavored local builds
+   * fall back to the runtime KaihongOS detection.
+   */
+  private useSaveDownloadRoute(): boolean {
+    if (this.buildFlavor === 'harmonyos') {
+      return true;
+    }
+    if (this.buildFlavor === 'openharmony') {
+      return false;
+    }
+    return !this.isKaihong();
   }
 
   /** Read the build-time-injected default base URL from rawfile
@@ -1074,8 +1112,8 @@ struct Index {
         return false;
       }
       this.log('initPublicDir: save returned (user confirmed)');
-      if (!this.isKaihong()) {
-        // HarmonyOS/OpenHarmony: keep the exact original flow. The
+      if (this.useSaveDownloadRoute()) {
+        // save(DOWNLOAD) route: keep the exact original flow. The
         // DOWNLOAD-mode save silently creates Download/<bundleName> and
         // grants write access; adopt it unconditionally (marker errors are
         // only logged) - a read-back check or a mkdir on the folder itself
@@ -1159,9 +1197,9 @@ struct Index {
       this.adoptPublicDir();
       return true;
     }
-    if (!this.isKaihong()) {
-      // HarmonyOS/OpenHarmony: keep the original flow - the picker save
-      // DOWNLOAD route silently creates Download/<bundleName> and grants it.
+    if (this.useSaveDownloadRoute()) {
+      // save(DOWNLOAD) route first: the picker silently creates
+      // Download/<bundleName> and grants it.
       if (!this.pickerTried) {
         this.pickerTried = true;
         if (await this.initPublicDir()) {
@@ -2368,13 +2406,18 @@ struct Index {
               this.importLocal();
             })
           }
-          Row({ space: 12 }) {
-            Button('选择数据文件夹').width(150).height(52).backgroundColor('#444444').onClick(() => {
-              this.pickDataFolder();
-            })
-            Button('初始化下载目录').width(150).height(52).backgroundColor('#555555').onClick(() => {
-              this.manualInitPublicDir();
-            })
+          // The harmonyos flavor uses the automatic save(DOWNLOAD) route
+          // only; the two experimental buttons exist in the openharmony
+          // flavor (and unflavored local builds).
+          if (this.buildFlavor !== 'harmonyos') {
+            Row({ space: 12 }) {
+              Button('选择数据文件夹').width(150).height(52).backgroundColor('#444444').onClick(() => {
+                this.pickDataFolder();
+              })
+              Button('初始化下载目录').width(150).height(52).backgroundColor('#555555').onClick(() => {
+                this.manualInitPublicDir();
+              })
+            }
           }
           }
         .width('100%')
