@@ -66,6 +66,7 @@ public class BootstrapActivity extends Activity {
     private TextView progressView;
     private ProgressBar progressBar;
     private EditText baseUrlInput;
+    private EditText proxyInput;
     private Button downloadButton;
     private Button importButton;
     private boolean busy = false;
@@ -74,8 +75,40 @@ public class BootstrapActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        applyImmersive();
         buildUi();
         probeData();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyImmersive();
+    }
+
+    /** Fullscreen immersive: hide the status/navigation bars (including the
+     * gesture pill area) so the bootstrap page has no bottom black strip. */
+    private void applyImmersive() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController controller =
+                    getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(android.view.WindowInsets.Type.statusBars()
+                        | android.view.WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(
+                        android.view.WindowInsetsController
+                                .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
     }
 
     // ---- UI -----------------------------------------------------------------
@@ -84,12 +117,14 @@ public class BootstrapActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
         root.setPadding(48, 48, 48, 48);
+        root.setBackgroundResource(R.drawable.background);
 
         TextView title = new TextView(this);
         title.setText("缘之空：高清重制");
         title.setTextSize(26f);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
+        title.setShadowLayer(3f, 0f, 0f, Color.BLACK);
 
         messageView = new TextView(this);
         messageView.setText(" ");
@@ -104,10 +139,38 @@ public class BootstrapActivity extends Activity {
         hint.setGravity(Gravity.CENTER);
 
         baseUrlInput = new EditText(this);
-        baseUrlInput.setText(DEFAULT_BASE_URL);
+        baseUrlInput.setText("");
         baseUrlInput.setTextSize(12f);
         baseUrlInput.setSingleLine(true);
         baseUrlInput.setHint("下载地址（留空使用默认值）");
+
+        proxyInput = new EditText(this);
+        proxyInput.setText("");
+        proxyInput.setTextSize(12f);
+        proxyInput.setSingleLine(true);
+        proxyInput.setHint("加速代理前缀（留空=直连）");
+
+        LinearLayout proxyButtons = new LinearLayout(this);
+        proxyButtons.setOrientation(LinearLayout.HORIZONTAL);
+        proxyButtons.setGravity(Gravity.CENTER);
+        Button directBtn = new Button(this);
+        directBtn.setText("直连");
+        directBtn.setOnClickListener(v -> proxyInput.setText(""));
+        Button ghBtn = new Button(this);
+        ghBtn.setText("gh-proxy");
+        ghBtn.setOnClickListener(v -> proxyInput.setText("https://gh-proxy.cn/"));
+        Button craftBtn = new Button(this);
+        craftBtn.setText("Craft-Hello Proxy");
+        craftBtn.setOnClickListener(v -> proxyInput.setText("https://proxy.craft-hello.top/proxy/"));
+        proxyButtons.addView(directBtn);
+        proxyButtons.addView(ghBtn);
+        proxyButtons.addView(craftBtn);
+
+        TextView hint2 = new TextView(this);
+        hint2.setText("下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前");
+        hint2.setTextSize(11f);
+        hint2.setTextColor(Color.BLACK);
+        hint2.setGravity(Gravity.CENTER);
 
         LinearLayout buttons = new LinearLayout(this);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
@@ -138,6 +201,9 @@ public class BootstrapActivity extends Activity {
         root.addView(messageView);
         root.addView(hint);
         root.addView(baseUrlInput);
+        root.addView(proxyInput);
+        root.addView(proxyButtons);
+        root.addView(hint2);
         root.addView(buttons);
         root.addView(progressView);
         root.addView(progressBar);
@@ -308,8 +374,10 @@ public class BootstrapActivity extends Activity {
                 ensureNoMedia(parent);
                 DataExtractService.start(this);
                 try {
-                    File unzipTmp = new File(getCacheDir(), "unzip.tmp");
-                    deleteTree(unzipTmp);
+                    // Extract the zips STRAIGHT into the data directory (no
+                    // staging dir, no cross-volume move).
+                    File dataDir = new File(parent, "data");
+                    if (dataDir.exists()) deleteTree(dataDir);
                     long total = 0;
                     for (String[] a : assets) total += Long.parseLong(a[2]);
                     long done = 0;
@@ -322,11 +390,11 @@ public class BootstrapActivity extends Activity {
                         File zip = new File(getCacheDir(), name);
                         downloadFile(asset[3], zip, size, done, total, name);
                         verifySha(zip, sha);
-                        extractZipTo(zip, unzipTmp, "解压 " + name);
+                        extractZipTo(zip, dataDir, "解压 " + name);
                         zip.delete();
                         done += size;
                     }
-                    installUnzipped(unzipTmp);
+                    installIntoDataDir(dataDir, parent);
                 } finally {
                     DataExtractService.stop(this);
                 }
@@ -339,13 +407,18 @@ public class BootstrapActivity extends Activity {
         }).start();
     }
 
-    /** Returns [name, sha256, size, url] tuples. */
+    /** Returns [name, sha256, size, url] tuples. The accelerator proxy
+     * prefix (when set) is prepended to every asset URL, mirroring the
+     * OHOS downloader. */
     private List<String[]> loadManifest() throws Exception {
         List<String[]> out = new ArrayList<>();
         String base = baseUrlInput.getText().toString().trim();
         if (base.isEmpty()) base = DEFAULT_BASE_URL;
         if (!base.endsWith("/")) base += "/";
-        HttpURLConnection conn = (HttpURLConnection) new URL(base + "data-assets.json").openConnection();
+        final String proxy = proxyInput.getText().toString().trim();
+        String manifestUrl = proxy.isEmpty() ? (base + "data-assets.json")
+                : (proxy + base + "data-assets.json");
+        HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl).openConnection();
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(30000);
         conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
@@ -362,11 +435,13 @@ public class BootstrapActivity extends Activity {
         if (assets == null) return out;
         for (int i = 0; i < assets.length(); i++) {
             JSONObject a = assets.getJSONObject(i);
+            String assetUrl = proxy.isEmpty() ? (base + a.getString("name"))
+                    : (proxy + base + a.getString("name"));
             out.add(new String[]{
                 a.getString("name"),
                 a.optString("sha256", ""),
                 String.valueOf(a.optLong("size", 0)),
-                base + a.getString("name"),
+                assetUrl,
             });
         }
         return out;
@@ -487,8 +562,10 @@ public class BootstrapActivity extends Activity {
         }
         DataExtractService.start(this);
         try {
-            File unzipTmp = new File(getCacheDir(), "unzip.tmp");
-            deleteTree(unzipTmp);
+            // Extract the zips STRAIGHT into the data directory (no staging
+            // dir, no cross-volume move).
+            File dataDir = new File(parent, "data");
+            if (dataDir.exists()) deleteTree(dataDir);
             for (int i = 0; i < zips.size(); i++) {
                 String name = queryName(zips.get(i));
                 setProgress("正在解压 " + name + "（" + (i + 1) + "/" + zips.size() + "）",
@@ -496,13 +573,13 @@ public class BootstrapActivity extends Activity {
                 File zip = new File(getCacheDir(), name);
                 copyUri(zips.get(i), zip);
                 try {
-                    extractZipTo(zip, unzipTmp, "解压 " + name);
+                    extractZipTo(zip, dataDir, "解压 " + name);
                 } catch (IOException badZip) {
                     throw new IOException(name + " 不是有效的 zip 压缩包，请重新选择");
                 }
                 zip.delete();
             }
-            installUnzipped(unzipTmp);
+            installIntoDataDir(dataDir, parent);
         } finally {
             DataExtractService.stop(this);
         }
@@ -567,48 +644,40 @@ public class BootstrapActivity extends Activity {
         }
     }
 
-    private void installUnzipped(File unzipTmp) throws IOException {
-        File parent = chooseDataParent();
-        if (parent == null) throw new IOException("无法使用外部存储");
-        File dataDir = new File(parent, "data");
-        File inner = new File(unzipTmp, "data");
-        File innerXp3 = new File(unzipTmp, "data.xp3");
-        File bare = new File(unzipTmp, "startup.tjs");
-        if (inner.isDirectory()) {
-            swapIn(inner, dataDir, unzipTmp);
-        } else if (innerXp3.isFile()) {
-            // zip contained data.xp3: copy it to the public root, then extract.
+    /** Finish a straight-into-data-dir extraction: verify the tree, or hand
+     *  a zip-contained data.xp3 over to the native extractor. */
+    private void installIntoDataDir(File dataDir, File parent) throws IOException {
+        File innerXp3 = new File(dataDir, "data.xp3");
+        if (innerXp3.isFile()) {
+            // zip contained data.xp3: move it to the public root, then extract.
             setProgress("正在复制 data.xp3 到下载目录…", 0);
-            try (InputStream in = new FileInputStream(innerXp3);
-                 OutputStream out = new FileOutputStream(new File(parent, "data.xp3"))) {
-                byte[] buf = new byte[1 << 20];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            File dst = new File(parent, "data.xp3");
+            dst.delete();
+            if (!innerXp3.renameTo(dst)) {
+                copyFile(innerXp3, dst);
+                innerXp3.delete();
             }
-            deleteTree(unzipTmp);
-            extractXp3(new File(parent, "data.xp3"));
-        } else if (bare.isFile()) {
-            swapIn(unzipTmp, dataDir, null);
+            deleteTree(dataDir);
+            extractXp3(dst);
+        } else if (new File(dataDir, "startup.tjs").isFile()) {
+            markConfirmed();
+            final File ready = dataDir;
+            runOnUiThread(() -> {
+                if (dataReady(ready)) startEngine(ready);
+                else fail("数据安装后仍不可用，请重新导入");
+            });
         } else {
             throw new IOException("压缩包内容不正确：未找到 data 文件夹或 data.xp3");
         }
     }
 
-    private void swapIn(File src, File dataDir, File leftover) throws IOException {
-        if (dataDir.exists()) deleteTree(dataDir);
-        if (!src.renameTo(dataDir)) {
-            // Cross-volume (cache -> public): copy then delete.
-            setProgress("正在移动数据到数据目录…", 0);
-            copyTree(src, dataDir);
-            deleteTree(src);
+    private void copyFile(File src, File dst) throws IOException {
+        try (InputStream in = new FileInputStream(src);
+             OutputStream out = new FileOutputStream(dst)) {
+            byte[] buf = new byte[1 << 20];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
         }
-        if (leftover != null) deleteTree(leftover);
-        markConfirmed();
-        runOnUiThread(() -> {
-            File ready = findReadyDataDir();
-            if (ready != null) startEngine(ready);
-            else fail("数据安装后仍不可用，请重新导入");
-        });
     }
 
     private void copyTree(File src, File dst) throws IOException {
