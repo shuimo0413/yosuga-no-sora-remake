@@ -5,7 +5,8 @@ import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
-import { taskpool, util } from '@kit.ArkTS';
+import { taskpool, util, uri } from '@kit.ArkTS';
+import { preferences } from '@kit.ArkData';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -307,6 +308,8 @@ struct Index {
   private permRequested: boolean = false;
   // The picker route has already been tried once.
   private pickerTried: boolean = false;
+  // The folder picker (user-chosen data directory) has been tried once.
+  private folderTried: boolean = false;
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
@@ -658,6 +661,12 @@ struct Index {
     // platforms virtualize the public tree and make un-permissioned writes
     // silently succeed without storing anything).
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+    // A folder the user picked earlier (DocumentViewPicker FOLDER mode)
+    // wins over the default Download location.
+    const chosen = this.readChosenDir();
+    if (chosen !== '' && this.tryList(chosen).indexOf('.granted') >= 0) {
+      this.appDir = chosen;
+    }
     let publicOk = false;
     try {
       const entries = fs.listFileSync(this.appDir);
@@ -795,25 +804,143 @@ struct Index {
    * public tree is virtualized (un-permissioned writes silently succeed
    * without storing anything) the read-back fails and we stay on sandbox.
    */
-  private tryPublicDirect(): boolean {
+  /** Verify a directory is really writable: mkdir, marker write + read
+   *  back. No dialogs. On platforms where the public tree is virtualized
+   *  (un-permissioned writes silently succeed without storing anything)
+   *  the read-back fails and the caller stays on the sandbox. */
+  private tryDirectAt(dir: string): boolean {
     try {
-      fs.mkdirSync(this.appDir, true);
-      fs.mkdirSync(this.appDir + '/savedata', true);
-      const marker = fs.openSync(this.appDir + '/.granted',
+      fs.mkdirSync(dir, true);
+      fs.mkdirSync(dir + '/savedata', true);
+      const marker = fs.openSync(dir + '/.granted',
         fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       fs.writeSync(marker.fd, 'granted-ok');
       fs.closeSync(marker);
-      const readBack = fs.readTextSync(this.appDir + '/.granted');
+      const readBack = fs.readTextSync(dir + '/.granted');
       if (readBack !== 'granted-ok') {
-        this.log('tryPublicDirect: read-back mismatch: ' + readBack);
+        this.log('tryDirectAt: read-back mismatch: ' + readBack);
         return false;
       }
-      this.writeNomedia(this.appDir);
-      this.log('tryPublicDirect: ok');
+      this.writeNomedia(dir);
+      this.log('tryDirectAt: ok ' + dir);
       return true;
     } catch (e) {
-      this.log('tryPublicDirect failed: ' + JSON.stringify(e));
+      this.log('tryDirectAt failed: ' + JSON.stringify(e));
       return false;
+    }
+  }
+
+  private tryPublicDirect(): boolean {
+    return this.tryDirectAt(this.appDir);
+  }
+
+  /** Whether this device can pick folders with the document picker. */
+  private supportsFolderPicker(): boolean {
+    try {
+      return canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** Convert a picker document URI (file://docs/...) to the sandbox path
+   *  the fs APIs accept. */
+  private uriToPath(uriStr: string): string {
+    try {
+      const p = new uri.URI(uriStr).path;
+      if (p !== '') {
+        return p;
+      }
+    } catch (e) {
+      // fall through to the prefix strips
+    }
+    if (uriStr.indexOf('file://docs/') === 0) {
+      return uriStr.substring('file://docs'.length);
+    }
+    if (uriStr.indexOf('file://') === 0) {
+      return uriStr.substring('file://'.length);
+    }
+    return '';
+  }
+
+  /** Persisted user-chosen data folder (DocumentViewPicker FOLDER mode). */
+  private readChosenDir(): string {
+    try {
+      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
+      const v = pref.getSync('chosenDir', '');
+      if (typeof v === 'string') {
+        return v;
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  private saveChosenDir(dir: string): void {
+    try {
+      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
+      pref.putSync('chosenDir', dir);
+      pref.flush();
+    } catch (e) {
+      this.log('saveChosenDir failed: ' + JSON.stringify(e));
+    }
+  }
+
+  /**
+   * Let the user pick a folder that becomes the app data directory
+   * (DocumentViewPicker FOLDER mode, API 11+). The picker returns a
+   * document URI whose access grant persists across launches; the folder
+   * is verified with a marker round-trip and remembered in Preferences.
+   * This is the most reliable route on platforms where
+   * Download/<bundleName> cannot be granted any other way.
+   */
+  async chooseDataFolder(): Promise<boolean> {
+    this.message = '';
+    try {
+      const dp = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
+      const opts = new picker.DocumentSelectOptions();
+      opts.selectMode = picker.DocumentSelectMode.FOLDER;
+      opts.maxSelectNumber = 1;
+      this.log('chooseDataFolder: opening folder picker');
+      let uris: string[] = [];
+      try {
+        uris = await dp.select(opts);
+      } catch (e) {
+        this.log('chooseDataFolder: canceled/failed: ' + JSON.stringify(e));
+        this.message = '未选择文件夹，数据将保存在应用私有目录';
+        return false;
+      }
+      if (uris.length === 0) {
+        this.message = '未选择文件夹';
+        return false;
+      }
+      const dirPath = this.uriToPath(uris[0]);
+      this.log('chooseDataFolder: uri=' + uris[0] + ' path=' + dirPath);
+      if (dirPath === '' || !this.tryDirectAt(dirPath)) {
+        this.message = '所选文件夹不可写，请换一个文件夹（或在选择器中新建一个）';
+        return false;
+      }
+      this.saveChosenDir(dirPath);
+      this.appDir = dirPath;
+      this.adoptPublicDir();
+      this.message = '';
+      this.log('data folder chosen: ' + dirPath);
+      return true;
+    } finally {
+      // The picker is a UIExtension; rebuild after it closes.
+      this.uiEpoch++;
+    }
+  }
+
+  /** Bootstrap page button: manually pick the data folder. */
+  async pickDataFolder(): Promise<void> {
+    await this.setScreenOn(true);
+    this.applyImmersive();
+    const ok = await this.chooseDataFolder();
+    await this.setScreenOn(false);
+    if (ok) {
+      this.prepare();
     }
   }
 
@@ -845,6 +972,12 @@ struct Index {
    * app-owned Download folder; OpenHarmony/KaihongOS use the standard
    * permission dialog instead. osFullName distinguishes them
    * ("HarmonyOS 5.0.0" vs "OpenHarmony-5.0.2.54" / "KaihongOS x86 ...").
+   */
+  /**
+   * HarmonyOS (NEXT) uses the picker save DOWNLOAD route as the official
+   * silent way to create Download/<bundleName>; OpenHarmony/KaihongOS do
+   * not. osFullName distinguishes them ("HarmonyOS 5.0.0" vs
+   * "OpenHarmony-5.0.2.54" / "KaihongOS x86 ...").
    */
   private isHarmony(): boolean {
     try {
@@ -935,13 +1068,11 @@ struct Index {
 
   /**
    * Make sure baseDir/saveDir/dataDir point at a usable location.
-   * Route order is platform-dependent:
-   * - HarmonyOS/NEXT: verified marker -> silent direct write -> picker
-   *   (official, silent) -> permission dialog as backup.
-   * - OpenHarmony/KaihongOS: verified marker -> silent direct write ->
-   *   permission dialog -> picker as last resort.
-   * Every route is verified with a marker write+read round-trip. After all
-   * routes fail the app stays on the sandbox and never prompts again.
+   * HarmonyOS keeps the original picker-save-DOWNLOAD route (silent,
+   * official); OpenHarmony/KaihongOS prefer the folder picker, then the
+   * permission dialog, then the legacy save picker. Every route is
+   * verified with a marker write+read round-trip. After all routes fail
+   * the app stays on the sandbox and never prompts again.
    */
   async ensurePublic(): Promise<boolean> {
     try {
@@ -957,20 +1088,21 @@ struct Index {
       this.log('public dir unusable; staying on sandbox');
       return false;
     }
-    // Silent direct write (no dialog).
+    // 1) Silent direct write (no dialog).
     if (this.tryPublicDirect()) {
       this.adoptPublicDir();
       return true;
     }
     if (this.isHarmony()) {
-      // 1) Picker: the official silent route on HarmonyOS/NEXT.
+      // HarmonyOS/NEXT: keep the original flow - the picker save DOWNLOAD
+      // route silently creates Download/<bundleName> and grants it.
       if (!this.pickerTried) {
         this.pickerTried = true;
         if (await this.initPublicDir()) {
           return true;
         }
       }
-      // 2) Permission dialog as a backup.
+      // Backup: standard permission dialog.
       if (!this.permRequested) {
         this.permRequested = true;
         if (await this.requestDownloadPermission() === 1 && this.tryPublicDirect()) {
@@ -978,8 +1110,24 @@ struct Index {
           return true;
         }
       }
+      // Last resort: folder picker.
+      if (!this.folderTried && this.supportsFolderPicker()) {
+        this.folderTried = true;
+        if (await this.chooseDataFolder()) {
+          return true;
+        }
+      }
     } else {
-      // 1) Standard permission dialog (OpenHarmony/KaihongOS).
+      // OpenHarmony/KaihongOS: the save picker cannot grant the folder, so
+      // prefer the folder picker (user picks or creates the data folder;
+      // the grant persists across launches).
+      if (!this.folderTried && this.supportsFolderPicker()) {
+        this.folderTried = true;
+        if (await this.chooseDataFolder()) {
+          return true;
+        }
+      }
+      // Standard permission dialog.
       if (!this.permRequested) {
         this.permRequested = true;
         const auth = await this.requestDownloadPermission();
@@ -997,8 +1145,8 @@ struct Index {
         }
         // auth === 0: permission unsupported here; fall through to picker.
       }
-      // 2) Picker last resort (not on KaihongOS: its picker has no
-      //    DOWNLOAD mode, so the save dialog can never grant the folder).
+      // Legacy save picker last resort (not on KaihongOS: its picker has
+      // no DOWNLOAD mode, so the save dialog can never grant the folder).
       if (!this.pickerTried && !this.isKaihong()) {
         this.pickerTried = true;
         if (await this.initPublicDir()) {
@@ -1007,7 +1155,7 @@ struct Index {
       }
     }
     this.publicDenied = true;
-    this.message = '下载目录不可用，数据将保存在应用私有目录';
+    this.message = '数据将保存在应用私有目录（可在引导页点击「选择数据文件夹」手动指定位置）';
     return false;
   }
 
@@ -2154,6 +2302,11 @@ struct Index {
               this.importLocal();
             })
           }
+          Row({ space: 12 }) {
+            Button('选择数据文件夹').width(150).height(52).backgroundColor('#444444').onClick(() => {
+              this.pickDataFolder();
+            })
+          }
           }
         .width('100%')
         .padding({ top: 20, bottom: 40 })
@@ -2178,6 +2331,7 @@ struct Index {
             this.publicDenied = false;
             this.permRequested = false;
             this.pickerTried = false;
+            this.folderTried = false;
             this.prepare();
           })
         }
