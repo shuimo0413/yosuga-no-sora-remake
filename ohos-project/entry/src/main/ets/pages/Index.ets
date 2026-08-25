@@ -434,6 +434,10 @@ struct Index {
       this.startingGame || this.confirming) {
       return; // already running / starting / extracting / asking
     }
+    // Back on the setup page: restore the status bar strip and stop
+    // keeping the screen on.
+    this.showStatusBar();
+    await this.setScreenOn(false);
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
     try {
@@ -547,14 +551,31 @@ struct Index {
     }
   }
 
-  /** Immersive fullscreen: hide the navigation bar without any
-   *  orientation call (window-property IPCs only). */
+  /** Immersive fullscreen: hide BOTH system bars (status + navigation)
+   *  without any orientation call (window-property IPCs only). Used on the
+   *  download/import/extraction screens. */
   private applyImmersive(): void {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
         mainWindow.setWindowLayoutFullScreen(true);
         mainWindow.setWindowSystemBarEnable([]);
+      }).catch(() => {
+        // best effort
+      });
+    } catch (e) {
+      // best effort
+    }
+  }
+
+  /** Restore the status bar strip on the setup page (white bar on top, no
+   *  black bottom strip). */
+  private showStatusBar(): void {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
+        mainWindow.setWindowLayoutFullScreen(true);
+        mainWindow.setWindowSystemBarEnable(['status']);
       }).catch(() => {
         // best effort
       });
@@ -885,6 +906,9 @@ struct Index {
   async downloadAll(): Promise<void> {
     // Enter the download screen IMMEDIATELY - fetching data-assets.json
     // over the network can take a while and must not look like a hang.
+    // Keep the screen ON and the bars hidden while downloading/extracting.
+    await this.setScreenOn(true);
+    this.applyImmersive();
     this.bootState = 3;
     this.message = '';
     this.progressText = '正在获取下载清单…';
@@ -895,6 +919,8 @@ struct Index {
     if (this.assets.length === 0) {
       // The manifest could not be fetched (or is empty): tell the user and
       // return to the setup page.
+      await this.setScreenOn(false);
+      this.showStatusBar();
       this.bootState = 2;
       this.progressValue = 0;
       this.message = '无法读取下载清单（data-assets.json），请检查网络后重试';
@@ -943,6 +969,8 @@ struct Index {
         }
       } catch (e) {
         this.bootState = 5;
+        await this.setScreenOn(false);
+        this.showStatusBar();
         this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）\n' +
           '若为网络问题，请返回引导页点击「gh-proxy」或「我的代理」切换加速后再下载';
         return;
@@ -1374,6 +1402,8 @@ struct Index {
   }
 
   async importLocal(): Promise<void> {
+    await this.setScreenOn(true);
+    this.applyImmersive();
     this.bootState = 4;
     this.message = '';
     this.progressText = '正在导入，请稍等';
@@ -1435,6 +1465,8 @@ struct Index {
       } catch (e) {
         this.bootState = 2;
         const detail = JSON.stringify(e);
+        await this.setScreenOn(false);
+        this.showStatusBar();
         this.message = '导入失败：' + name + '\n' + detail + '\nuri: ' + uri;
         await this.showNotice('导入失败', detail);
         return;
@@ -1457,6 +1489,8 @@ struct Index {
           await this.unzipTo(tmp, unzipTmp);
         } catch (eZ) {
           this.bootState = 2;
+        await this.setScreenOn(false);
+        this.showStatusBar();
           this.message = '导入失败：' + name + ' 不是有效的 zip 压缩包，请重新选择';
           await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
           return;
@@ -1503,6 +1537,8 @@ struct Index {
       return;
     }
     this.extracting = true;
+    await this.setScreenOn(true);
+    this.applyImmersive();
     // Extract straight into the public app folder (Download/<bundle>) so
     // the data is visible in the file manager. The DATA_TRANSFER
     // continuous task exempts this long run from resource reclamation,
@@ -1564,6 +1600,8 @@ struct Index {
       this.log('extract step: started=' + started);
       if (!started) {
         this.bootState = 2;
+        await this.setScreenOn(false);
+        this.showStatusBar();
         this.progressText = '解包失败，可重新导入或下载';
         this.message = '解包失败：无法启动解包线程';
         this.uiEpoch++;
@@ -1595,6 +1633,8 @@ struct Index {
           const diagText = this.tryReadFile(outTmp + '.diag');
           this.log('extract diag: ' + (diagText !== '' ? diagText.slice(-2000) : '(empty)'));
           this.bootState = 2;
+        await this.setScreenOn(false);
+        this.showStatusBar();
           this.progressText = '解包失败，可重新导入或下载';
           this.message = '解包失败：' + (errMsg !== '' ? errMsg : '未知错误');
           this.uiEpoch++;
@@ -1663,6 +1703,8 @@ struct Index {
       this.finishData();
     } catch (e) {
       this.bootState = 2;
+        await this.setScreenOn(false);
+        this.showStatusBar();
       this.progressText = '解包失败，可重新导入或下载';
       this.message = '解包失败：' + this.errText(e);
       this.uiEpoch++;

@@ -194,12 +194,15 @@ public class BootstrapActivity extends Activity {
         proxyButtons.setGravity(Gravity.CENTER);
         Button directBtn = new Button(this);
         directBtn.setText("直连");
+        directBtn.setTextColor(Color.BLACK);
         directBtn.setOnClickListener(v -> proxyInput.setText(""));
         Button ghBtn = new Button(this);
         ghBtn.setText("gh-proxy");
+        ghBtn.setTextColor(Color.BLACK);
         ghBtn.setOnClickListener(v -> proxyInput.setText("https://gh-proxy.cn/"));
         Button craftBtn = new Button(this);
         craftBtn.setText("Craft-Hello Proxy");
+        craftBtn.setTextColor(Color.BLACK);
         craftBtn.setOnClickListener(v -> proxyInput.setText("https://proxy.craft-hello.top/proxy/"));
         proxyButtons.addView(directBtn);
         proxyButtons.addView(ghBtn);
@@ -216,9 +219,11 @@ public class BootstrapActivity extends Activity {
         buttons.setGravity(Gravity.CENTER);
         downloadButton = new Button(this);
         downloadButton.setText("下载游戏数据");
+        downloadButton.setTextColor(Color.BLACK);
         downloadButton.setOnClickListener(v -> startDownload());
         importButton = new Button(this);
         importButton.setText("从本地压缩包导入");
+        importButton.setTextColor(Color.BLACK);
         importButton.setOnClickListener(v -> startImport());
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -265,6 +270,15 @@ public class BootstrapActivity extends Activity {
         runOnUiThread(() -> {
             downloadButton.setEnabled(!value);
             importButton.setEnabled(!value);
+            // Keep the screen ON while downloading / extracting so the
+            // device does not go to sleep mid-transfer.
+            if (value) {
+                getWindow().addFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                getWindow().clearFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
         });
     }
 
@@ -321,7 +335,7 @@ public class BootstrapActivity extends Activity {
         File ready = findReadyDataDir();
         if (ready == null) {
             // Bundled install (old APK with assets): let the engine read assets.
-            showSetup("需要下载或导入游戏数据");
+            showSetup("");
             return;
         }
         File parent = chooseDataParent();
@@ -833,6 +847,10 @@ public class BootstrapActivity extends Activity {
     private static native boolean nativeExtractXp3Start(String xp3Path, String outDir);
 
     static {
+        // "SDL2" first (its symbols are needed by the engine), then the
+        // engine library itself - the native methods of this class live in
+        // libmain.so.
         System.loadLibrary("SDL2");
+        System.loadLibrary("main");
     }
 }
