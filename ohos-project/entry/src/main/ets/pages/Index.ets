@@ -208,7 +208,7 @@ struct Index {
       // loose data/ tree before the game starts; a ready loose tree goes
       // straight into the game.
       const rootEntries = this.tryList(this.baseDir);
-      const hasLoose = this.tryList(this.dataDir).indexOf('startup.tjs') >= 0;
+      const hasLoose = this.hasLooseData();
       if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
         this.log('xp3 present without loose tree -> auto-extract');
         this.extractAndFinalize(this.baseDir + '/data.xp3');
@@ -479,7 +479,7 @@ struct Index {
       // Readiness may come from a data.xp3 archive on the root; that must
       // be extracted into a loose data/ tree before the game can run.
       const rootEntries = this.tryList(this.baseDir);
-      const hasLoose = this.tryList(this.dataDir).indexOf('startup.tjs') >= 0;
+      const hasLoose = this.hasLooseData();
       if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
         this.extractAndFinalize(this.baseDir + '/data.xp3');
         return;
@@ -808,10 +808,13 @@ struct Index {
     // listFileSync gives us the actual directory entries instead.
     const rootEntries = this.tryList(this.baseDir);
     const dataEntries = this.tryList(this.dataDir);
+    const sandboxData = this.tryList(this.sandboxFiles + '/data');
     const hasRootXp3 = rootEntries.indexOf('data.xp3') >= 0;
     const hasStartup = dataEntries.indexOf('startup.tjs') >= 0;
     const hasSystem = dataEntries.indexOf('system') >= 0;
-    const hasLooseTree = hasStartup && hasSystem;
+    const hasLooseTree = (hasStartup && hasSystem) ||
+      (sandboxData.indexOf('startup.tjs') >= 0 &&
+        sandboxData.indexOf('system') >= 0);
     this.log('dataReady: root=' + JSON.stringify(rootEntries).slice(0, 300) +
       ' data=' + JSON.stringify(dataEntries).slice(0, 300) +
       ' root/data.xp3=' + hasRootXp3 + ' loose-tree=' + hasLooseTree);
@@ -824,6 +827,17 @@ struct Index {
     } catch (e) {
       return ['<err:' + JSON.stringify(e) + '>'];
     }
+  }
+
+  /** A loose data tree is ready in the public folder OR in the sandbox
+   *  (the extraction writes into the sandbox to keep the media scanner
+   *  away; the engine then reads data/ from there). Both startup.tjs and
+   *  the system folder must exist so a partial tree never counts. */
+  private hasLooseData(): boolean {
+    const pub = this.tryList(this.dataDir);
+    const sbox = this.tryList(this.sandboxFiles + '/data');
+    return (pub.indexOf('startup.tjs') >= 0 && pub.indexOf('system') >= 0) ||
+      (sbox.indexOf('startup.tjs') >= 0 && sbox.indexOf('system') >= 0);
   }
 
   private hasDirEntry(dir: string, name: string): boolean {
@@ -1032,8 +1046,14 @@ struct Index {
       return;
     }
     this.extracting = true;
-    const outTmp = this.baseDir + '/data.extract.tmp';
-    const outDir = this.baseDir + '/data';
+    // Extract into the SANDBOX, not the public Download folder: the media
+    // scanner indexes every file that appears there (thousands of ogg/mp4
+    // metadata parses) and gets the app killed mid-extraction. The sandbox
+    // is invisible to the scanner. The engine then reads data/ from the
+    // sandbox (see startGame), while the xp3 itself may live in the
+    // public folder.
+    const outTmp = this.sandboxFiles + '/data.extract.tmp';
+    const outDir = this.sandboxFiles + '/data';
     this.bootState = 7;
     this.progressText = '正在解包 data.xp3…';
     this.progressValue = 0;
@@ -1047,11 +1067,14 @@ struct Index {
       if (lastProgress !== '') {
         this.log('last extract progress: ' + lastProgress.trim());
       }
-      // Recover an interrupted previous run: a finished temp tree without a
-      // data tree is renamed straight into place and skips re-extraction.
-      const hasTmp = this.tryList(this.baseDir).indexOf('data.extract.tmp') >= 0;
+      // Recover ONLY a fully finished previous run: the worker writes
+      // "ok ..." into <outTmp>.status only after every file extracted. A
+      // killed run leaves no status (or a stale one) and its PARTIAL tree
+      // must be discarded and re-extracted - never renamed into place.
+      const lastStatus = this.tryReadFile(outTmp + '.status');
+      const hasTmp = this.tryList(this.sandboxFiles).indexOf('data.extract.tmp') >= 0;
       const hasData = this.tryList(outDir).indexOf('startup.tjs') >= 0;
-      if (hasTmp && !hasData) {
+      if (hasTmp && !hasData && lastStatus.startsWith('ok')) {
         try {
           fs.renameSync(outTmp, outDir);
         } catch (e) {
@@ -1135,13 +1158,27 @@ struct Index {
           }
         }
       }
-      // Swap the extracted tree in, replacing any previous loose data tree.
-      if (this.tryList(outDir).indexOf('startup.tjs') >= 0) {
+      // Swap the extracted tree in, replacing ANY previous data tree
+      // (partial or complete) - rename fails when the target exists.
+      if (this.tryList(this.sandboxFiles).indexOf('data') >= 0) {
         this.progressText = '正在替换旧数据…';
         this.uiEpoch++;
         await taskpool.execute(removeTreeTask, outDir);
       }
-      fs.renameSync(outTmp, outDir);
+      let renamed = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          fs.renameSync(outTmp, outDir);
+          renamed = true;
+          break;
+        } catch (eR) {
+          this.log('rename attempt ' + attempt + ' failed: ' + this.errText(eR));
+          await this.delay(800);
+        }
+      }
+      if (!renamed) {
+        throw new Error('rename into place failed');
+      }
       this.log('extract done; removing archive files');
       try {
         fs.unlinkSync(outTmp + '.status');
@@ -1215,7 +1252,7 @@ struct Index {
       // A zip download may have delivered a root-level data.xp3; extract it
       // into a loose data/ tree before starting (and then remove the xp3).
       const rootEntries = this.tryList(this.baseDir);
-      const hasLoose = this.tryList(this.dataDir).indexOf('startup.tjs') >= 0;
+      const hasLoose = this.hasLooseData();
       if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
         this.extractAndFinalize(this.baseDir + '/data.xp3');
         return;
@@ -1252,7 +1289,15 @@ struct Index {
     this.startingGame = true;
     this.log('startGame begin t=' + (Date.now() - this.hbStart));
     this.cleanKrkrTmp();
-    entryNapi.setExternalDirs(this.baseDir, this.saveDir);
+    // The extracted loose tree may live in the sandbox (extraction writes
+    // there to keep the public-folder media scanner away); point the
+    // engine at wherever startup.tjs actually is.
+    let engineBase = this.baseDir;
+    if (this.tryList(this.sandboxFiles + '/data').indexOf('startup.tjs') >= 0) {
+      engineBase = this.sandboxFiles;
+    }
+    this.log('engine base dir: ' + engineBase);
+    entryNapi.setExternalDirs(engineBase, this.saveDir);
     // Orientation is fixed to landscape in module.json5. Still wait ~1s on
     // a black screen before mounting the XComponent: starting the engine
     // immediately after the page appears crashed libace_compatible.
