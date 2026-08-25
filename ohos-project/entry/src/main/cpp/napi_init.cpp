@@ -10,7 +10,10 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <string>
+
+#include <filemanagement/file_uri/oh_file_uri.h>
 
 #include <atomic>
 #include <thread>
@@ -396,6 +399,45 @@ static napi_value ExtractXp3Start(napi_env env, napi_callback_info info) {
   return r;
 }
 
+/* Convert a picker document URI (file://docs/...) to the real sandbox path
+ * via the official OH_FileUri_GetPathFromUri. Returns undefined on failure. */
+static napi_value UriToPath(napi_env env, napi_callback_info info)
+{
+	size_t argc = 1;
+	napi_value args[1] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 1)
+	{
+		return nullptr;
+	}
+	size_t length = 0;
+	napi_get_value_string_utf8(env, args[0], nullptr, 0, &length);
+	if (length == 0)
+	{
+		return nullptr;
+	}
+	std::string uri_str(length, '\0');
+	napi_get_value_string_utf8(env, args[0], &uri_str[0], length + 1, &length);
+
+	char *path = nullptr;
+	FileManagement_ErrCode rc = OH_FileUri_GetPathFromUri(uri_str.c_str(), uri_str.size(), &path);
+	napi_value r = nullptr;
+	if (rc == 0 && path != nullptr && path[0] != '\0')
+	{
+		napi_create_string_utf8(env, path, NAPI_AUTO_LENGTH, &r);
+		free(path);
+	}
+	else
+	{
+		if (path != nullptr)
+		{
+			free(path);
+		}
+		napi_get_undefined(env, &r);
+	}
+	return r;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
@@ -412,6 +454,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"isEngineRunning", nullptr, IsEngineRunning, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"extractXp3Start", nullptr, ExtractXp3Start, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"uriToPath", nullptr, UriToPath, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 	return exports;

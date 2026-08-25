@@ -151,6 +151,7 @@ target_link_libraries(entry PUBLIC
 	libhilog_ndk.z.so
 	libavplayer.so
 	libnative_media_core.so
+	libohfileuri.so
 	EGL
 	GLESv3
 	# Provides SDL's generated-config include paths and compile definitions

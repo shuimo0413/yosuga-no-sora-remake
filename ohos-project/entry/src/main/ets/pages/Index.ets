@@ -850,8 +850,17 @@ struct Index {
   }
 
   /** Convert a picker document URI (file://docs/...) to the sandbox path
-   *  the fs APIs accept. */
+   *  the fs APIs accept. Prefers the official native conversion
+   *  (OH_FileUri_GetPathFromUri); falls back to manual parsing. */
   private uriToPath(uriStr: string): string {
+    try {
+      const p = entryNapi.uriToPath(uriStr) as string | undefined;
+      if (typeof p === 'string' && p !== '') {
+        return p;
+      }
+    } catch (e) {
+      this.log('native uriToPath failed: ' + JSON.stringify(e));
+    }
     try {
       const p = new uri.URI(uriStr).path;
       if (p !== '') {
@@ -928,7 +937,7 @@ struct Index {
         return false;
       }
       if (!this.tryDirectAt(dirPath)) {
-        this.message = '所选文件夹不可写：' + this.lastDirectError + '\n请换一个文件夹（或在选择器中新建一个）';
+        this.message = '所选文件夹不可写：' + this.lastDirectError + '\nuri=' + uris[0] + '\npath=' + dirPath;
         return false;
       }
       this.saveChosenDir(dirPath);
@@ -1055,19 +1064,32 @@ struct Index {
       opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
       opts.newFileNames = ['YosugaNoSoraHD.initialized'];
       this.log('initPublicDir: opening save (DOWNLOAD mode)');
+      let savedUris: string[] = [];
       try {
-        await dp.save(opts);
+        savedUris = await dp.save(opts);
       } catch (e) {
         this.log('initPublicDir: save rejected/canceled: ' + JSON.stringify(e));
         this.message = '未确认下载目录授权，数据将保存在应用私有目录';
         return false;
       }
       this.log('initPublicDir: save returned (user confirmed)');
-      // The picker may or may not have made Download/<bundleName> usable;
-      // adopt it only when the marker round-trip proves real write access.
+      // Prefer the real directory from the URI the picker returned: the
+      // system may create the folder at a path different from the
+      // constructed Download/<bundleName> (file managers show a virtual
+      // view), and only the real path carries the write grant.
+      if (savedUris.length > 0) {
+        const filePath = this.uriToPath(savedUris[0]);
+        this.log('initPublicDir: saved uri=' + savedUris[0] + ' path=' + filePath);
+        const slash = filePath.lastIndexOf('/');
+        if (slash > 0) {
+          this.appDir = filePath.substring(0, slash);
+          this.log('initPublicDir: resolved appDir=' + this.appDir);
+        }
+      }
+      // Adopt it only when the marker round-trip proves real write access.
       if (!this.tryPublicDirect()) {
         this.log('initPublicDir: folder still unusable after picker');
-        this.message = '下载目录仍不可写：' + this.lastDirectError + '\n数据将保存在应用私有目录';
+        this.message = '下载目录仍不可写：' + this.lastDirectError + '\nappDir=' + this.appDir;
         return false;
       }
       this.adoptPublicDir();
