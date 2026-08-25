@@ -696,12 +696,12 @@ struct Index {
       this.needInit = false;
       this.message = '数据暂存于应用私有目录';
       this.log('data dir: sandbox (public not granted)');
-      // HarmonyOS only: the picker save DOWNLOAD route silently creates
-      // Download/<bundleName> (v0.0.0-action-test.225 behavior). Other
-      // platforms never auto-pop dialogs at startup.
-      if (!this.autoInitTried && this.isHarmony()) {
+      // Auto-init once on every platform except KaihongOS (the
+      // v0.0.0-action-test.225 behavior): HarmonyOS/OpenHarmony resolve
+      // osFullName inconsistently, so do not gate this on a name match.
+      if (!this.autoInitTried && !this.isKaihong()) {
         this.autoInitTried = true;
-        this.log('HarmonyOS: auto-initing public dir once');
+        this.log('auto-initing public dir once');
         this.initPublicDir();
       }
     }
@@ -1022,22 +1022,6 @@ struct Index {
    * ("HarmonyOS 5.0.0" vs "OpenHarmony-5.0.2.54" / "KaihongOS x86 ...").
    */
   /**
-   * HarmonyOS (NEXT) uses the picker save DOWNLOAD route as the official
-   * silent way to create Download/<bundleName>; OpenHarmony/KaihongOS do
-   * not. osFullName distinguishes them ("HarmonyOS 5.0.0" vs
-   * "OpenHarmony-5.0.2.54" / "KaihongOS x86 ...").
-   */
-  private isHarmony(): boolean {
-    try {
-      const osName = deviceInfo.osFullName;
-      return osName.indexOf('HarmonyOS') >= 0 &&
-        osName.indexOf('OpenHarmony') < 0 && osName.indexOf('Kaihong') < 0;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /**
    * KaihongOS ships a picker without the DOWNLOAD mode (its
    * DocumentSaveOptions has no pickerMode), so the picker always opens the
    * generic save dialog and never grants Download/<bundleName>; skip it.
@@ -1090,12 +1074,12 @@ struct Index {
         return false;
       }
       this.log('initPublicDir: save returned (user confirmed)');
-      if (this.isHarmony()) {
-        // HarmonyOS: keep the exact original flow. The DOWNLOAD-mode save
-        // silently creates Download/<bundleName> and grants write access;
-        // adopt it unconditionally (marker errors are only logged) - a
-        // read-back check or a mkdir on the folder itself fails with
-        // 13900012 even though file writes inside are allowed.
+      if (!this.isKaihong()) {
+        // HarmonyOS/OpenHarmony: keep the exact original flow. The
+        // DOWNLOAD-mode save silently creates Download/<bundleName> and
+        // grants write access; adopt it unconditionally (marker errors are
+        // only logged) - a read-back check or a mkdir on the folder itself
+        // fails with 13900012 even though file writes inside are allowed.
         try {
           fs.mkdirSync(this.appDir + '/savedata', true);
         } catch (e) {
@@ -1175,9 +1159,9 @@ struct Index {
       this.adoptPublicDir();
       return true;
     }
-    if (this.isHarmony()) {
-      // HarmonyOS/NEXT: keep the original flow - the picker save DOWNLOAD
-      // route silently creates Download/<bundleName> and grants it.
+    if (!this.isKaihong()) {
+      // HarmonyOS/OpenHarmony: keep the original flow - the picker save
+      // DOWNLOAD route silently creates Download/<bundleName> and grants it.
       if (!this.pickerTried) {
         this.pickerTried = true;
         if (await this.initPublicDir()) {
