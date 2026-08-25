@@ -326,13 +326,6 @@ jobs:
             fi
           done
 
-          checksum_file="$asset_dir/$package_name-SHA256SUMS.txt"
-          (
-            cd "$asset_dir"
-            sha256sum "$(basename "$package_name.7z")".* > \
-              "$(basename "$checksum_file")"
-          )
-
           cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Android Kirikiri SDL2 (ARM64)

@@ -448,10 +448,6 @@ jobs:
           mkdir -p "$asset_dir"
           cp "$hap" "$asset_dir/$package_name"
           rm -rf ohos-project/entry/build ohos-project/.hvigor ohos-project/entry/src/main/cpp/third_party
-          (
-            cd "$asset_dir"
-            sha256sum "$package_name" > "$package_name-SHA256SUMS.txt"
-          )
           cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Kirikiri SDL2 for OpenHarmony 5.0 (API 12, ARM64)
@@ -460,7 +456,6 @@ jobs:
           Signing: ${SIGNED:-unsigned}
           Data: ${DATA_MODE:-external}
           Native optimization: Release
-          Audio: no SDL audio backend yet (silent)
           EOF
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"

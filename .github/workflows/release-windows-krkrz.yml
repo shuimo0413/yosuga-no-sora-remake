@@ -183,18 +183,6 @@ jobs:
             }
           }
 
-          $checksumLines = foreach ($volume in $volumes) {
-            $hash = (Get-FileHash -LiteralPath $volume.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($volume.Name)"
-          }
-          $checksumFile = Join-Path $assetDirectory `
-            "$packageName-$env:RELEASE_TAG-SHA256SUMS.txt"
-          [System.IO.File]::WriteAllLines(
-            $checksumFile,
-            $checksumLines,
-            [System.Text.UTF8Encoding]::new($false)
-          )
-
           "asset-directory=$assetDirectory" >> $env:GITHUB_OUTPUT
           Get-ChildItem -LiteralPath $assetDirectory -File |
             Select-Object Name, Length | Format-Table -AutoSize

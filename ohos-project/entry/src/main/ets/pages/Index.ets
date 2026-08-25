@@ -300,7 +300,6 @@ struct Index {
   @State message: string = '';
   @State needInit: boolean = false;
   @State uiEpoch: number = 0;
-  @State debugOut: string = '';
   private autoInitTried: boolean = false;
   private extracting: boolean = false;
   private confirming: boolean = false;
@@ -447,20 +446,11 @@ struct Index {
     }
   }
 
+  /** Debug logging was removed for the release build: all the
+   *  this.log(...) call sites stay but are no-ops now. */
   private log(msg: string): void {
-    hilog.info(0xD003300, 'YosugaOHOS', '%{public}s', msg);
-    // Mirror onto the on-screen debug area and append to the sandbox
-    // debug.log (hdc-readable) - hilog is not available in release builds.
-    const line = Date.now() % 100000 + ': ' + msg;
-    this.debugOut = (this.debugOut + '\n' + line).slice(-800);
-    try {
-      const fd = fs.openSync(this.sandboxFiles + '/debug.log',
-        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
-      fs.writeSync(fd.fd, line + '\n');
-      fs.closeSync(fd);
-    } catch (e) {
-      // logging must never break the app
-    }
+    // intentionally empty
+  }
   }
 
   /**
@@ -894,14 +884,24 @@ struct Index {
   }
 
   async downloadAll(): Promise<void> {
+    // Enter the download screen IMMEDIATELY - fetching data-assets.json
+    // over the network can take a while and must not look like a hang.
+    this.bootState = 3;
+    this.message = '';
+    this.progressText = '正在获取下载清单…';
+    this.uiEpoch++;
     if (this.assets.length === 0) {
       await this.loadManifest();
     }
     if (this.assets.length === 0) {
-      this.message = '下载清单为空，请检查网络或稍后重试';
+      // The manifest could not be fetched (or is empty): tell the user and
+      // return to the setup page.
+      this.bootState = 2;
+      this.progressValue = 0;
+      this.message = '无法读取下载清单（data-assets.json），请检查网络后重试';
+      await this.showNotice('获取下载清单失败', '无法读取 data-assets.json，请检查网络后重试');
       return;
     }
-    this.bootState = 3;
     this.message = '';
     await this.ensurePublic();
     this.uiEpoch++; // force a rebuild after the permission dialog closes
@@ -1312,7 +1312,7 @@ struct Index {
     await promptAction.showDialog({
       title: title,
       message: msg,
-      buttons: [{ text: '知道了', color: '#FFFFFF' }]
+      buttons: [{ text: '知道了', color: '#000000' }]
     });
   }
 
@@ -2016,6 +2016,7 @@ struct Index {
         .width('100%')
         .padding({ top: 20, bottom: 40 })
       } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
+        // Download / import / extraction progress: centered on screen.
         Column({ space: 14 }) {
           // Progress component may not repaint on some system versions;
           // the percentage text is the reliable progress indicator.
@@ -2025,6 +2026,8 @@ struct Index {
             .textAlign(TextAlign.Center)
           Progress({ value: this.progressValue, total: 100 }).width(260).color(Color.White)
         }
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
       } else {
         Column({ space: 14 }) {
           Text('需要授权').fontSize(18).fontColor(Color.White)

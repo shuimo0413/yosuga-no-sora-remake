@@ -362,10 +362,6 @@ jobs:
           for volume in "${volumes[@]}"; do
             [[ "$(stat -f '%z' "$volume")" -lt 2147483648 ]]
           done
-          (
-            cd "$asset_dir"
-            shasum -a 256 "$ipa_name.7z."* > "$ipa_name-SHA256SUMS.txt"
-          )
           cat > "$asset_dir/$ipa_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Kirikiri SDL2 for iOS (arm64)
