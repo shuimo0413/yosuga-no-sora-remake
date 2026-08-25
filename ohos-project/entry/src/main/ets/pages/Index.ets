@@ -65,6 +65,72 @@ function unzipTask(srcZip: string, outDir: string): string {
 }
 
 /**
+ * TaskPool worker: copy a directory tree iteratively and incrementally
+ * (files whose destination already exists with the same size are skipped,
+ * so a killed mirror run resumes cheaply). Runs off the UI thread.
+ */
+@Concurrent
+function copyTreeTask(srcDir: string, dstDir: string): void {
+  const stack: string[] = [''];
+  while (stack.length > 0) {
+    const rel = stack.pop();
+    if (rel === undefined) {
+      continue;
+    }
+    const src = srcDir + (rel === '' ? '' : '/' + rel);
+    const dst = dstDir + (rel === '' ? '' : '/' + rel);
+    let entries: string[] = [];
+    try {
+      entries = fs.listFileSync(src);
+    } catch (e) {
+      continue;
+    }
+    try {
+      fs.mkdirSync(dst, true);
+    } catch (e) {
+      // may already exist
+    }
+    for (const name of entries) {
+      const s = src + '/' + name;
+      const d = dst + '/' + name;
+      let st: fs.Stat | null = null;
+      try {
+        st = fs.statSync(s);
+      } catch (e) {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push(rel === '' ? name : rel + '/' + name);
+      } else {
+        let same = false;
+        try {
+          const ds = fs.statSync(d);
+          same = ds.isFile() && ds.size === st.size;
+        } catch (e) {
+          // destination missing - copy it
+        }
+        if (!same) {
+          try {
+            fs.copyFileSync(s, d);
+          } catch (e) {
+            // ignore: a retry on the next launch will pick it up
+          }
+        }
+      }
+    }
+  }
+  // Completion marker: the launcher skips the mirror while it exists.
+  try {
+    const fd = fs.openSync(dstDir + '/.complete',
+      fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    fs.writeSync(fd.fd, 'ok');
+    fs.closeSync(fd);
+  } catch (e) {
+    // ignore
+  }
+}
+
+/**
  * TaskPool worker: delete a directory tree iteratively (no recursion:
  * @Concurrent functions may only reference imported or local variables).
  * Runs off the UI thread because leftover krkr_* video temp dirs can be
@@ -676,6 +742,11 @@ struct Index {
     let doneBytes = 0;
     const totalBytes = this.assets.reduce((sum, asset) => sum + asset.size, 0);
     const startTime = Date.now();
+    // All downloaded zips extract into ONE sandbox staging dir (multi-part
+    // archives accumulate there); the public folder is not touched until
+    // the mirror runs after the game starts.
+    const unzipTmp = this.sandboxFiles + '/unzip.tmp';
+    await taskpool.execute(removeTreeTask, unzipTmp);
     for (const asset of this.assets) {
       const originalUrl = this.baseUrl + '/' + asset.name;
       const proxy = this.proxyUrl.trim();
@@ -705,7 +776,7 @@ struct Index {
           '若为网络问题，请返回引导页点击「gh-proxy」或「我的代理」切换加速后再下载';
         return;
       }
-      await this.unzipTo(tmp, this.baseDir);
+      await this.unzipTo(tmp, unzipTmp);
       try {
         fs.unlinkSync(tmp);
       } catch (e) {
@@ -715,7 +786,15 @@ struct Index {
       this.progressValue = Math.min(99, Math.floor(doneBytes * 100 / Math.max(1, totalBytes)));
       await this.delay(50);
     }
-    await this.finishData();
+    this.progressText = '正在准备游戏数据…';
+    this.uiEpoch++;
+    const ok = await this.installUnzipped(unzipTmp);
+    if (!ok) {
+      this.bootState = 2;
+      this.progressValue = 0;
+      this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+      await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+    }
   }
 
   async downloadFile(url: string, dest: string, totalSize: number,
@@ -838,6 +917,84 @@ struct Index {
     const sbox = this.tryList(this.sandboxFiles + '/data');
     return (pub.indexOf('startup.tjs') >= 0 && pub.indexOf('system') >= 0) ||
       (sbox.indexOf('startup.tjs') >= 0 && sbox.indexOf('system') >= 0);
+  }
+
+  private isDir(path: string): boolean {
+    try {
+      return fs.statSync(path).isDirectory();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** After unzipping into the sandbox staging dir, install the result:
+   *  - "data/" folder  -> becomes the sandbox loose tree
+   *  - "data.xp3"      -> handed to the native extractor
+   *  - bare tree       -> the staging dir itself becomes the loose tree
+   *  Returns true when game data is ready. */
+  private async installUnzipped(unzipTmp: string): Promise<boolean> {
+    const items = this.tryList(unzipTmp);
+    const sandboxData = this.sandboxFiles + '/data';
+    const swapIn = async (src: string): Promise<void> => {
+      if (this.tryList(this.sandboxFiles).indexOf('data') >= 0) {
+        await taskpool.execute(removeTreeTask, sandboxData);
+      }
+      fs.renameSync(src, sandboxData);
+      try {
+        fs.unlinkSync(this.baseDir + '/data.xp3');
+      } catch (e) {
+        // none present
+      }
+      try {
+        fs.unlinkSync(this.dataDir + '/.complete');
+      } catch (e) {
+        // ignore
+      }
+      this.finishData();
+      this.uiEpoch++;
+    };
+    if (this.isDir(unzipTmp + '/data')) {
+      await swapIn(unzipTmp + '/data');
+      await taskpool.execute(removeTreeTask, unzipTmp);
+      return true;
+    } else if (items.indexOf('data.xp3') >= 0) {
+      await this.extractAndFinalize(unzipTmp + '/data.xp3');
+      await taskpool.execute(removeTreeTask, unzipTmp);
+      return true;
+    } else if (items.indexOf('startup.tjs') >= 0) {
+      await swapIn(unzipTmp);
+      return true;
+    }
+    return false;
+  }
+
+  /** Mirror the sandbox data/ tree into the public app folder so it is
+   *  visible in the file manager. Incremental (same-size files skipped)
+   *  and resumable: a killed mirror simply continues on the next launch.
+   *  Runs in the background while the game is already playing. */
+  private mirrorDataToPublic(): void {
+    try {
+      // Sandbox-only setup (no granted public folder): nothing to mirror.
+      if (this.dataDir.startsWith(this.sandboxFiles)) {
+        return;
+      }
+      if (this.tryList(this.dataDir).indexOf('.complete') >= 0) {
+        return; // mirror already finished
+      }
+      if (this.tryList(this.sandboxFiles + '/data').indexOf('startup.tjs') < 0) {
+        return; // nothing to mirror yet
+      }
+      try {
+        fs.mkdirSync(this.dataDir, true);
+      } catch (e) {
+        // already exists
+      }
+      this.writeNomedia(this.dataDir);
+      this.log('starting public-folder mirror of sandbox data');
+      taskpool.execute(copyTreeTask, this.sandboxFiles + '/data', this.dataDir);
+    } catch (e) {
+      this.log('mirror failed to start: ' + JSON.stringify(e));
+    }
   }
 
   private hasDirEntry(dir: string, name: string): boolean {
@@ -986,21 +1143,26 @@ struct Index {
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
           await this.copyFromUri(uri, tmp);
-          // Clear a stale data.xp3 so decompress won't hit a conflict
-          // (error 900002), then extract to the app root.
-          try {
-            fs.unlinkSync(this.baseDir + '/data.xp3');
-          } catch (e) {
-            // none present
-          }
-          await this.unzipTo(tmp, this.baseDir);
-          // If the zip held a root-level data.xp3 it now sits beside
-          // savedata at <base>/data.xp3, which the engine reads directly.
+          // Unzip into a sandbox staging dir (unzipping into the public
+          // folder makes the media scanner churn through thousands of
+          // files; on this device it also produced a truncated tree).
+          const unzipTmp = this.sandboxFiles + '/unzip.tmp';
+          await taskpool.execute(removeTreeTask, unzipTmp);
+          this.progressText = '正在解压 ' + name;
+          await this.unzipTo(tmp, unzipTmp);
           try {
             fs.unlinkSync(tmp);
           } catch (e) {
             // ignore
           }
+          const ok = await this.installUnzipped(unzipTmp);
+          if (!ok) {
+            this.bootState = 2;
+            this.progressValue = 0;
+            this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+            await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+          }
+          return;
         } else if (lower.endsWith('.7z') || lower.endsWith('.001') || lower.endsWith('.002')) {
           this.message = '暂不支持 7z 格式，请使用 zip 压缩包或 data.xp3';
           await this.showNotice('暂不支持 7z 格式', '请选择 zip 压缩包或 data.xp3 文件');
@@ -1179,6 +1341,13 @@ struct Index {
       if (!renamed) {
         throw new Error('rename into place failed');
       }
+      // The data changed: invalidate the public-folder mirror marker so
+      // the background mirror rebuilds it on the next launch.
+      try {
+        fs.unlinkSync(this.dataDir + '/.complete');
+      } catch (e) {
+        // ignore
+      }
       this.log('extract done; removing archive files');
       try {
         fs.unlinkSync(outTmp + '.status');
@@ -1306,6 +1475,11 @@ struct Index {
       this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
       this.bootState = 6;
       this.startingGame = false;
+      // Once the game is up, mirror the sandbox data into the public
+      // folder in the background (incremental, resumable).
+      setTimeout(() => {
+        this.mirrorDataToPublic();
+      }, 15000);
     }, 1000);
   }
 
