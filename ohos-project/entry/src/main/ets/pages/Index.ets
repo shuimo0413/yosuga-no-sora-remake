@@ -224,6 +224,7 @@ struct Index {
       if (this.keepAliveStarted) {
         return;
       }
+      this.log('keepAlive begin t=' + (Date.now() - this.hbStart));
       const ctx = getContext(this) as common.UIAbilityContext;
       const want: Want = {
         bundleName: ctx.abilityInfo.bundleName,
@@ -242,6 +243,7 @@ struct Index {
         agent
       );
       this.keepAliveStarted = true;
+      this.log('keepAlive started t=' + (Date.now() - this.hbStart));
     } catch (e) {
       // Keep-alive is best effort: the app must never die over it.
       this.log('startBackgroundRunning failed: ' + JSON.stringify(e));
@@ -265,11 +267,13 @@ struct Index {
   /** Keep the screen on while the game runs (no permission needed). */
   private async setScreenOn(keep: boolean): Promise<void> {
     try {
+      this.log('setScreenOn(' + keep + ') begin t=' + (Date.now() - this.hbStart));
       const ctx = getContext(this) as common.UIAbilityContext;
       const win = await window.getLastWindow(ctx);
       await win.setWindowKeepScreenOn(keep);
+      this.log('setScreenOn(' + keep + ') done t=' + (Date.now() - this.hbStart));
     } catch (e) {
-      // best effort
+      this.log('setScreenOn failed: ' + JSON.stringify(e));
     }
   }
 
@@ -976,6 +980,7 @@ struct Index {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
+        this.log('rotateToLandscape got window t=' + (Date.now() - this.hbStart));
         mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
         mainWindow.setWindowLayoutFullScreen(true);
         // Hide both system bars so the navigation gesture pill is

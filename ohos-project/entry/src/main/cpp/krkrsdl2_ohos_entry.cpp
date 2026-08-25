@@ -442,16 +442,41 @@ void OHOS_Entry_AttachXComponent(void *component)
 	// The surface callbacks deliver the window; we wait for them instead.
 }
 
+/* Diagnostic trace into the sandbox diag.txt (hdc-readable). */
+static void OHOS_DiagLog(const char *fmt, ...)
+{
+	const char *sandbox = SDL_OHOS_GetFilesDir();
+	if (!sandbox || !sandbox[0])
+		return;
+	char path[512];
+	snprintf(path, sizeof(path), "%s/diag.txt", sandbox);
+	FILE *lf = fopen(path, "a");
+	if (!lf)
+		return;
+	char line[512];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+	long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+	fprintf(lf, "%lld: %s\n", ms % 100000, line);
+	fclose(lf);
+}
+
 static void EngineMain()
 {
 	g_engine_running = true;
 	OHOS_InstallCrashHandler();
+	OHOS_DiagLog("EngineMain begin");
 
 	if (!SDL_OHOS_WaitForNativeWindow(60000))
 	{
+		OHOS_DiagLog("WaitForNativeWindow TIMEOUT");
 		g_engine_running = false;
 		return;
 	}
+	OHOS_DiagLog("native window ready");
 
 	// Determine the engine base directory. The ArkTS shell may have set an
 	// external (public Download) base with game data at <base>/data and
@@ -503,21 +528,29 @@ static void EngineMain()
 
 	try
 	{
+		OHOS_DiagLog("pre_init enter");
 		krkrsdl2_pre_init_platform();
+		OHOS_DiagLog("pre_init done");
 		krkrsdl2_convert_set_args(1, argv);
+		OHOS_DiagLog("init_platform enter");
 		if (krkrsdl2_init_platform())
 		{
 			// The application asked to terminate during startup.
+			OHOS_DiagLog("init_platform requested termination");
 			g_engine_running = false;
 			return;
 		}
+		OHOS_DiagLog("init_platform done, entering main loop");
 		krkrsdl2_run_main_loop();
+		OHOS_DiagLog("main loop exited");
 		krkrsdl2_cleanup();
 	}
 	catch (...)
 	{
+		OHOS_DiagLog("UNCAUGHT exception in engine");
 	}
 
+	OHOS_DiagLog("EngineMain end");
 	g_engine_running = false;
 }
 
