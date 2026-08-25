@@ -856,6 +856,19 @@ struct Index {
     }
   }
 
+  /**
+   * KaihongOS ships a picker without the DOWNLOAD mode (its
+   * DocumentSaveOptions has no pickerMode), so the picker always opens the
+   * generic save dialog and never grants Download/<bundleName>; skip it.
+   */
+  private isKaihong(): boolean {
+    try {
+      return deviceInfo.osFullName.indexOf('Kaihong') >= 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /** Point baseDir/saveDir/dataDir at the public folder (already verified). */
   private adoptPublicDir(): void {
     this.baseDir = this.appDir;
@@ -984,8 +997,9 @@ struct Index {
         }
         // auth === 0: permission unsupported here; fall through to picker.
       }
-      // 2) Picker last resort.
-      if (!this.pickerTried) {
+      // 2) Picker last resort (not on KaihongOS: its picker has no
+      //    DOWNLOAD mode, so the save dialog can never grant the folder).
+      if (!this.pickerTried && !this.isKaihong()) {
         this.pickerTried = true;
         if (await this.initPublicDir()) {
           return true;
