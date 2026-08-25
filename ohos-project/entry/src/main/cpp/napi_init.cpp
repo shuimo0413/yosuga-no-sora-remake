@@ -393,9 +393,28 @@ void Xp3WorkerMain(void *vctx) {
 
 } /* namespace */
 
+/* Resolve the deferred promise with {ok:false, error:msg} instead of
+ * throwing: an ArkTS exception loses its message across the NAPI boundary
+ * (the UI only ever shows "{}" then). */
+static napi_value Xp3ResolveError(napi_env env, napi_deferred deferred,
+  const char *msg) {
+  napi_value obj = nullptr;
+  napi_create_object(env, &obj);
+  napi_value okVal = nullptr;
+  napi_get_boolean(env, false, &okVal);
+  napi_set_named_property(env, obj, "ok", okVal);
+  napi_value err = nullptr;
+  napi_create_string_utf8(env, msg, NAPI_AUTO_LENGTH, &err);
+  napi_set_named_property(env, obj, "error", err);
+  napi_resolve_deferred(env, deferred, obj);
+  return obj;
+}
+
 /* extractXp3(xp3Path, outDir, progressCb?): Promise<{ok, filesDone,
  * filesTotal, error?}>. The extraction runs on a native worker thread;
- * progressCb(done, total, name) is throttled and invoked on the JS thread. */
+ * progressCb(done, total, name) is throttled and invoked on the JS thread.
+ * Every failure resolves the promise with an error object - never throws -
+ * so the ArkTS side can display the reason. */
 static napi_value ExtractXp3(napi_env env, napi_callback_info info) {
   size_t argc = 3;
   napi_value args[3] = {nullptr, nullptr, nullptr};
@@ -421,14 +440,15 @@ static napi_value ExtractXp3(napi_env env, napi_callback_info info) {
     ctx->outDir.resize(len);
     napi_get_value_string_utf8(env, args[1], &ctx->outDir[0], len + 1, &len);
   }
-  if (ctx->xp3Path.empty() || ctx->outDir.empty()) {
-    delete ctx;
-    napi_throw_type_error(env, nullptr, "extractXp3: empty path argument");
-    return nullptr;
-  }
 
   napi_value promise = nullptr;
   napi_create_promise(env, &ctx->deferred, &promise);
+
+  if (ctx->xp3Path.empty() || ctx->outDir.empty()) {
+    Xp3ResolveError(env, ctx->deferred, "extractXp3: empty path argument");
+    delete ctx;
+    return promise;
+  }
 
   napi_value jsCb = nullptr;
   if (argc >= 3) {
@@ -439,19 +459,25 @@ static napi_value ExtractXp3(napi_env env, napi_callback_info info) {
     }
   }
 
-  if (napi_create_threadsafe_function(env, jsCb, nullptr, nullptr,
-    0, 1, nullptr, Xp3TsfnFinalize, ctx, Xp3CallJs, &ctx->tsfn) != napi_ok) {
+  napi_status tsfnStatus = napi_create_threadsafe_function(env, jsCb, nullptr,
+    nullptr, 0, 1, nullptr, Xp3TsfnFinalize, ctx, Xp3CallJs, &ctx->tsfn);
+  if (tsfnStatus != napi_ok) {
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+      "extractXp3: cannot create worker callback (status %d)", (int)tsfnStatus);
+    Xp3ResolveError(env, ctx->deferred, buf);
     delete ctx;
-    napi_throw_error(env, nullptr, "extractXp3: cannot create worker callback");
-    return nullptr;
+    return promise;
   }
 
   try {
     ctx->worker = std::thread(Xp3WorkerMain, ctx);
   } catch (...) {
+    Xp3ResolveError(env, ctx->deferred,
+      "extractXp3: cannot start worker thread");
+    /* releasing the tsfn triggers its finalize, which deletes ctx */
     napi_release_threadsafe_function(ctx->tsfn, napi_tsfn_release);
-    napi_throw_error(env, nullptr, "extractXp3: cannot start worker thread");
-    return nullptr;
+    return promise;
   }
   return promise;
 }

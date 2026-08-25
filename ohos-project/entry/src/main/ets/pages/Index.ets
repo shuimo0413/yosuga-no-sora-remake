@@ -1068,13 +1068,15 @@ struct Index {
         return;
       }
       // Clear leftover partial temp trees off the UI thread.
+      this.log('extract step: cleaning tmp ' + outTmp);
       await taskpool.execute(removeTreeTask, outTmp);
-
+      this.log('extract step: calling native extractXp3');
       const res = await entryNapi.extractXp3(xp3Path, outTmp,
         (done: number, total: number, name: string) => {
           this.progressValue = Math.floor(done * 100 / Math.max(1, total));
           this.progressText = '正在解包 data.xp3：' + done + ' / ' + total + ' 个文件';
         }) as Xp3ExtractResult;
+      this.log('extract step: native returned ' + JSON.stringify(res));
       if (!res.ok) {
         this.bootState = 2;
         this.progressText = '解包失败，可重新导入或下载';
@@ -1105,11 +1107,37 @@ struct Index {
     } catch (e) {
       this.bootState = 2;
       this.progressText = '解包失败，可重新导入或下载';
-      this.message = '解包失败：' + JSON.stringify(e);
+      this.message = '解包失败：' + this.errText(e);
       this.uiEpoch++;
-      this.log('extractAndFinalize failed: ' + JSON.stringify(e));
+      this.log('extractAndFinalize failed: ' + this.errText(e));
     } finally {
       this.extracting = false;
+    }
+  }
+
+  /** Best-effort human-readable rendering of a caught value (NAPI errors
+   *  serialize to "{}" with JSON.stringify). */
+  private errText(e: Object): string {
+    try {
+      const s = JSON.stringify(e);
+      if (s !== undefined && s !== '{}') {
+        return s;
+      }
+    } catch (e2) {
+      // fall through
+    }
+    try {
+      const anyE = e as Error;
+      if (anyE.message !== undefined && anyE.message !== '') {
+        return (anyE.name ? anyE.name + ': ' : '') + anyE.message;
+      }
+    } catch (e3) {
+      // fall through
+    }
+    try {
+      return String(e);
+    } catch (e4) {
+      return 'unknown';
     }
   }
 
