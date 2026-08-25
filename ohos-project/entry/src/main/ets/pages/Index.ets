@@ -263,6 +263,22 @@ struct Index {
     }
   }
 
+  /** Immersive fullscreen: hide the navigation bar without any
+   *  orientation call (window-property IPCs only). */
+  private applyImmersive(): void {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
+        mainWindow.setWindowLayoutFullScreen(true);
+        mainWindow.setWindowSystemBarEnable([]);
+      }).catch(() => {
+        // best effort
+      });
+    } catch (e) {
+      // best effort
+    }
+  }
+
   /** Keep the screen on while the game runs (no permission needed). */
   private async setScreenOn(keep: boolean): Promise<void> {
     try {
@@ -966,19 +982,6 @@ struct Index {
     // a black screen before mounting the XComponent: starting the engine
     // immediately after the page appears crashed libace_compatible.
     this.bootState = 5; // black transition screen
-    // Immersive fullscreen (hide the white navigation bar) - window
-    // properties only, no orientation call.
-    try {
-      const ctx = getContext(this) as common.UIAbilityContext;
-      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
-        mainWindow.setWindowLayoutFullScreen(true);
-        mainWindow.setWindowSystemBarEnable([]);
-      }).catch(() => {
-        // best effort
-      });
-    } catch (e) {
-      // best effort
-    }
     setTimeout(() => {
       this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
       this.bootState = 6;
@@ -1049,10 +1052,13 @@ struct Index {
                 if (ok) {
                   entryNapi.startEngine();
                   this.log('startEngine called');
-                  // Defer the keep-alive and screen-on system IPCs far away
-                  // from the engine startup: calling them during the first
-                  // launch window occasionally froze the UI thread
-                  // (appfreeze - the system killed the app).
+                  // Defer ALL window/system IPCs away from the engine
+                  // startup: calling them right after an import froze the UI
+                  // thread (appfreeze - the system killed the app).
+                  setTimeout(() => {
+                    this.log('immersive timer fired t=' + (Date.now() - this.hbStart));
+                    this.applyImmersive();
+                  }, 2000);
                   setTimeout(() => {
                     this.log('deferred keepalive timer fired t=' + (Date.now() - this.hbStart));
                     this.startKeepAlive();
