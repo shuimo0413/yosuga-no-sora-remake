@@ -77,15 +77,6 @@ public class BootstrapActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        DebugLog.init(this);
-        // Environment.isExternalStorageManager() only exists on API 30+;
-        // calling it below crashes Android 10 with NoSuchMethodError.
-        boolean isStorageManager = false;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            isStorageManager = Environment.isExternalStorageManager();
-        }
-        DebugLog.log("bootstrap onCreate; sdk=" + Build.VERSION.SDK_INT
-                + " isExternalStorageManager=" + isStorageManager);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         // Build the content view FIRST: the immersive setup below touches
         // the window insets controller, which NPEs on some Android 16
@@ -163,7 +154,6 @@ public class BootstrapActivity extends Activity {
             }
         } catch (Throwable t) {
             // Immersion is cosmetic: never crash the bootstrap over it.
-            DebugLog.log("applyImmersive failed", t);
         }
     }
 
@@ -416,7 +406,6 @@ public class BootstrapActivity extends Activity {
 
     // ---- engine handoff -----------------------------------------------------
     private void startEngine(File dataDir) {
-        DebugLog.log("starting engine; dataDir=" + (dataDir != null ? dataDir.getAbsolutePath() : "assets"));
         setProgress("正在启动游戏…", 100);
         Intent intent = new Intent(this, KirikiriSDL2Activity.class);
         intent.putExtra("dataDir", dataDir != null ? dataDir.getAbsolutePath() : "");
@@ -470,7 +459,6 @@ public class BootstrapActivity extends Activity {
                     DataExtractService.stop(this);
                 }
             } catch (Exception e) {
-                DebugLog.log("download failed", e);
                 Log.e(TAG, "download failed", e);
                 fail("下载失败：" + e.getMessage());
             } finally {
@@ -597,7 +585,6 @@ public class BootstrapActivity extends Activity {
             try {
                 handleImport(selected);
             } catch (Exception e) {
-                DebugLog.log("import failed", e);
                 Log.e(TAG, "import failed", e);
                 fail("导入失败：" + e.getMessage());
             } finally {
@@ -856,7 +843,6 @@ public class BootstrapActivity extends Activity {
     }
 
     private void fail(String message) {
-        DebugLog.log(message);
         Log.e(TAG, message);
         runOnUiThread(() -> {
             setMessage(message);

@@ -59,9 +59,7 @@ public class KirikiriSDL2Activity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        DebugLog.log("engine onCreate");
         String dataDir = getIntent().getStringExtra("dataDir");
-        DebugLog.log("engine dataDir=" + (dataDir == null ? "null" : dataDir));
         if (dataDir != null) {
             nativeSetDataDir(dataDir);
         }
