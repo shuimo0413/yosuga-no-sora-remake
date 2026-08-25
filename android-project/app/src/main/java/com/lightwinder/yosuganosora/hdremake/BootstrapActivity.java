@@ -77,6 +77,9 @@ public class BootstrapActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DebugLog.init(this);
+        DebugLog.log("bootstrap onCreate; sdk=" + Build.VERSION.SDK_INT
+                + " isExternalStorageManager=" + Environment.isExternalStorageManager());
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         applyImmersive();
         buildUi();
@@ -399,6 +402,7 @@ public class BootstrapActivity extends Activity {
 
     // ---- engine handoff -----------------------------------------------------
     private void startEngine(File dataDir) {
+        DebugLog.log("starting engine; dataDir=" + (dataDir != null ? dataDir.getAbsolutePath() : "assets"));
         setProgress("正在启动游戏…", 100);
         Intent intent = new Intent(this, KirikiriSDL2Activity.class);
         intent.putExtra("dataDir", dataDir != null ? dataDir.getAbsolutePath() : "");
@@ -452,6 +456,7 @@ public class BootstrapActivity extends Activity {
                     DataExtractService.stop(this);
                 }
             } catch (Exception e) {
+                DebugLog.log("download failed", e);
                 Log.e(TAG, "download failed", e);
                 fail("下载失败：" + e.getMessage());
             } finally {
@@ -578,6 +583,7 @@ public class BootstrapActivity extends Activity {
             try {
                 handleImport(selected);
             } catch (Exception e) {
+                DebugLog.log("import failed", e);
                 Log.e(TAG, "import failed", e);
                 fail("导入失败：" + e.getMessage());
             } finally {
@@ -836,6 +842,7 @@ public class BootstrapActivity extends Activity {
     }
 
     private void fail(String message) {
+        DebugLog.log(message);
         Log.e(TAG, message);
         runOnUiThread(() -> {
             setMessage(message);
