@@ -76,7 +76,7 @@ static void OHOS_CrashHandler(int sig, siginfo_t *si, void *uc)
 	_exit(128 + sig);
 }
 
-static void OHOS_InstallCrashHandler(void)
+void OHOS_InstallCrashHandler(void)
 {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));

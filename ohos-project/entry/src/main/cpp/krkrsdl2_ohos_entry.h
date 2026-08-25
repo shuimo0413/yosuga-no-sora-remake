@@ -65,6 +65,11 @@ void *OHOS_Entry_GetResourceManager(void);
  * calls are ignored. */
 void OHOS_Entry_StartEngine(void);
 
+/* Install the fatal-signal crash recorder (idempotent). Normally installed
+ * when the engine starts, but the data.xp3 extraction runs BEFORE the engine
+ * and must get the same coverage. */
+void OHOS_InstallCrashHandler(void);
+
 #ifdef __cplusplus
 }
 #endif

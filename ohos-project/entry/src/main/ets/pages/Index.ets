@@ -1089,8 +1089,13 @@ struct Index {
       const progressPath = outTmp + '.progress';
       let done = 0;
       let total = 0;
+      let pollCount = 0;
       while (true) {
         await this.delay(400);
+        pollCount++;
+        if (pollCount % 10 === 0) {
+          this.log('extract polling alive, done=' + done + '/' + total);
+        }
         const st = this.tryReadFile(statusPath);
         if (st !== '') {
           this.log('extract step: status=' + st.trim());
@@ -1109,9 +1114,13 @@ struct Index {
         if (pg !== '') {
           const parts = pg.trim().split(' ');
           if (parts.length >= 2) {
-            done = Number(parts[0]);
-            total = Number(parts[1]);
-            if (total > 0) {
+            const pd = Number(parts[0]);
+            const pt = Number(parts[1]);
+            /* Guard against partially-written progress lines: only accept
+             * finite positive values (NaN would crash the Progress node). */
+            if (isFinite(pd) && isFinite(pt) && pd >= 0 && pt > 0) {
+              done = pd;
+              total = pt;
               this.progressValue = Math.floor(done * 100 / total);
               this.progressText = '正在解包 data.xp3：' + done + ' / ' + total + ' 个文件';
             }

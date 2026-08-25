@@ -11,6 +11,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <new>
+#include <algorithm>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -169,63 +172,176 @@ bool findChunk(const unsigned char *data, uint32_t indexSize,
   return false;
 }
 
+/* Parse one File chunk (content at data[start..start+size)) into an Entry.
+ * Mirrors tTVPXP3Archive's info/segm sub-chunk parsing. */
+bool parseEntry(const unsigned char *data, uint32_t indexSize, uint32_t start,
+  uint32_t size, Entry &entry, OHOSXp3ExtractResult *result) {
+  const unsigned char tagInfo[4] = { 0x69, 0x6e, 0x66, 0x6f };
+  const unsigned char tagSegm[4] = { 0x73, 0x65, 0x67, 0x6d };
+  uint32_t subStart = start;
+  uint32_t subSize = size;
+  if (!findChunk(data, indexSize, tagInfo, subStart, subSize)) {
+    return fail(result, "archive entry without info chunk", "");
+  }
+  if (subSize < 22) {
+    return fail(result, "archive info chunk too small", "");
+  }
+  /* info: u32 flags, u64 orgSize, u64 arcSize, u16 nameLen, UTF-16LE */
+  uint16_t nameLen = (uint16_t)data[subStart + 20] |
+    ((uint16_t)data[subStart + 21] << 8);
+  if ((uint64_t)subStart + 22 + nameLen * 2 > indexSize) {
+    return fail(result, "archive entry name overflows the index", "");
+  }
+  std::string utf8;
+  if (!utf16leToUtf8(data + subStart + 22, (size_t)nameLen * 2, utf8)) {
+    return fail(result, "cannot decode archive entry name", "");
+  }
+  if (!sanitizeName(utf8, entry.name)) {
+    return fail(result, "unsafe entry name in archive index", utf8.c_str());
+  }
+
+  subStart = start;
+  subSize = size;
+  if (!findChunk(data, indexSize, tagSegm, subStart, subSize)) {
+    return fail(result, "archive entry without segm chunk", entry.name.c_str());
+  }
+  if (subSize % 28 != 0) {
+    return fail(result, "archive segm chunk size not a multiple of 28",
+      entry.name.c_str());
+  }
+  uint32_t segCount = subSize / 28;
+  if (segCount == 0) {
+    return fail(result, "file without segments in archive index",
+      entry.name.c_str());
+  }
+  for (uint32_t i = 0; i < segCount; ++i) {
+    const unsigned char *p = data + subStart + i * 28;
+    Segment seg;
+    seg.flags = rd32(p);
+    if ((seg.flags & 0x07) != 0 && (seg.flags & 0x07) != 1) {
+      return fail(result, "unsupported segment encoding in archive index",
+        entry.name.c_str());
+    }
+    seg.offset = rd64(p + 4);
+    seg.orgSize = rd64(p + 12);
+    seg.arcSize = rd64(p + 20);
+    entry.segments.push_back(seg);
+  }
+  return true;
+}
+
 bool parseIndex(const unsigned char *data, uint32_t indexSize,
   std::vector<Entry> &entries, OHOSXp3ExtractResult *result) {
   const unsigned char tagFile[4] = { 0x46, 0x69, 0x6c, 0x65 };
-  const unsigned char tagInfo[4] = { 0x69, 0x6e, 0x66, 0x6f };
-  const unsigned char tagSegm[4] = { 0x73, 0x65, 0x67, 0x6d };
   uint32_t fileStart = 0;
   uint32_t fileSize = indexSize;
   for (;;) {
     if (!findChunk(data, indexSize, tagFile, fileStart, fileSize)) break;
-    uint32_t subStart = fileStart;
-    uint32_t subSize = fileSize;
-    if (!findChunk(data, indexSize, tagInfo, subStart, subSize))
-      return false;
-    if (subSize < 22) return false;
-    /* info: u32 flags, u64 orgSize, u64 arcSize, u16 nameLen, UTF-16LE */
-    uint16_t nameLen = (uint16_t)data[subStart + 20] |
-      ((uint16_t)data[subStart + 21] << 8);
-    if ((uint64_t)subStart + 22 + nameLen * 2 > indexSize) return false;
-    std::string utf8;
-    if (!utf16leToUtf8(data + subStart + 22, (size_t)nameLen * 2, utf8))
-      return false;
     Entry entry;
-    if (!sanitizeName(utf8, entry.name)) {
-      return fail(result, "unsafe entry name in archive index", utf8.c_str());
-    }
-
-    subStart = fileStart;
-    subSize = fileSize;
-    if (!findChunk(data, indexSize, tagSegm, subStart, subSize))
+    if (!parseEntry(data, indexSize, fileStart, fileSize, entry, result))
       return false;
-    if (subSize % 28 != 0) return false;
-    uint32_t segCount = subSize / 28;
-    for (uint32_t i = 0; i < segCount; ++i) {
-      const unsigned char *p = data + subStart + i * 28;
-      Segment seg;
-      seg.flags = rd32(p);
-      if ((seg.flags & 0x07) != 0 && (seg.flags & 0x07) != 1) {
-        return fail(result, "unsupported segment encoding in archive index",
-          entry.name.c_str());
-      }
-      seg.offset = rd64(p + 4);
-      seg.orgSize = rd64(p + 12);
-      seg.arcSize = rd64(p + 20);
-      entry.segments.push_back(seg);
-    }
-    if (entry.segments.empty()) {
-      return fail(result, "file without segments in archive index",
-        entry.name.c_str());
-    }
     entries.push_back(entry);
 
     fileStart += fileSize;
-    if (fileStart > indexSize) return false;
+    if (fileStart > indexSize) {
+      return fail(result, "archive index entries overlap the index end", "");
+    }
     fileSize = indexSize - fileStart;
   }
-  return !entries.empty();
+  if (entries.empty()) {
+    return fail(result, "archive index contains no file entries", "");
+  }
+  return true;
 }
+
+/* Some packers put a decoy header at the front of the file and the REAL
+ * index as a plain contiguous File-chunk chain in the last few megabytes
+ * (the chain ends exactly at EOF). Recover it by scanning the tail. */
+/* Some packers (GARbro XP3 v2 among others) put a decoy header block at
+ * the front of the file and the REAL index as a plain contiguous
+ * File-chunk chain in the last few megabytes (the chain ends at EOF).
+ * Recover it by scanning the tail. */
+bool carveTailIndex(FILE *f, uint64_t fileSize,
+  std::vector<Entry> &entries, OHOSXp3ExtractResult *result) {
+  const uint64_t scanCap = 64 * 1024 * 1024ULL;
+  uint64_t scanLen = fileSize < scanCap ? fileSize : scanCap;
+  uint64_t scanBase = fileSize - scanLen;
+  std::vector<unsigned char> tail((size_t)scanLen);
+  if (!readAt(f, scanBase, tail.data(), (size_t)scanLen)) {
+    return fail(result, "cannot read archive tail for index recovery", "");
+  }
+
+  struct Cand { uint64_t pos; uint32_t csize; };
+  std::vector<Cand> cands;
+  for (uint64_t p = 0; p + 12 <= scanLen; ++p) {
+    if (memcmp(tail.data() + p, "File", 4) != 0) continue;
+    uint64_t csize = rd64(tail.data() + p + 4);
+    if (csize < 22 || csize > 1024 * 1024) continue;
+    if (p + 12 + csize > scanLen) continue;
+    cands.push_back({ scanBase + p, (uint32_t)csize });
+  }
+  if (cands.size() < 2) {
+    return fail(result, "no index chain found in archive tail", "");
+  }
+
+  /* chains run forward (a chunk starts where the previous one ended);
+   * collect every chain whose end lies within a few bytes of the EOF by
+   * walking backwards, then try them longest-first */
+  std::map<uint64_t, size_t> endToIdx;
+  for (size_t i = 0; i < cands.size(); ++i) {
+    endToIdx[cands[i].pos + 12 + cands[i].csize] = i;
+  }
+
+  std::vector<std::vector<size_t>> chains;
+  std::map<uint64_t, size_t>::iterator it = endToIdx.end();
+  while (it != endToIdx.begin()) {
+    --it;
+    uint64_t end = it->first;
+    if (end > fileSize || fileSize - end > 4096) continue;
+    std::vector<size_t> chain;
+    uint64_t curEnd = end;
+    size_t steps = 0;
+    while (steps++ < cands.size()) {
+      std::map<uint64_t, size_t>::iterator back = endToIdx.find(curEnd);
+      if (back == endToIdx.end()) break;
+      size_t idx = back->second;
+      chain.push_back(idx);
+      curEnd = cands[idx].pos;
+    }
+    chains.push_back(chain);
+  }
+  if (chains.empty()) {
+    return fail(result, "no index chain ends at the archive tail", "");
+  }
+  std::sort(chains.begin(), chains.end(),
+    [](const std::vector<size_t> &a, const std::vector<size_t> &b) {
+      return a.size() > b.size();
+    });
+
+  for (size_t ci = 0; ci < chains.size(); ++ci) {
+    const std::vector<size_t> &chain = chains[ci];
+    if (chain.size() < 2) continue;
+    std::vector<Entry> trial;
+    bool ok = true;
+    /* chain is collected tail-to-head; parse head-to-tail */
+    for (size_t t = chain.size(); t-- > 0;) {
+      const Cand &c = cands[chain[t]];
+      Entry entry;
+      if (!parseEntry(tail.data(), (uint32_t)tail.size(),
+        (uint32_t)(c.pos - scanBase), c.csize, entry, result)) {
+        ok = false;
+        break;
+      }
+      trial.push_back(entry);
+    }
+    if (ok && !trial.empty()) {
+      entries.swap(trial);
+      return true;
+    }
+  }
+  return fail(result, "no parseable index chain found in archive tail", "");
+}
+
 
 int extractSegments(FILE *f, const Entry &entry, const std::string &outPath,
   OHOSXp3ExtractResult *result) {
@@ -321,7 +437,8 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
 
   int rc = 0;
   std::vector<Entry> entries;
-  do {
+  try {
+    do {
     unsigned char sig[11];
     if (fread(sig, 1, 11, f) != 11 ||
       memcmp(sig, kSignature, 11) != 0) {
@@ -329,16 +446,25 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       break;
     }
 
-    /* walk the index chain (supports the continue-bit chaining) */
+    /* Get the real file size first: both the tail-index recovery and the
+     * segment validation below need it. */
+    fseeko(f, 0, SEEK_END);
+    uint64_t archiveSize = (uint64_t)ftello(f);
+
+    /* Walk the standard index chain (continue-bit chaining). The chain is
+     * ABANDONED - not failed - when it turns out to be a decoy: GARbro's
+     * XP3 v2 puts an empty stub block at the front and the real index at
+     * the end of the file, so an empty or unparsable block falls back to
+     * tail recovery below. */
+    bool chainOk = true;
     uint64_t indexOfs = 0;
     if (!read64At(f, 11, indexOfs)) {
-      rc = fail(result, "cannot read index offset", xp3Path);
-      break;
+      chainOk = false;
     }
-    while (indexOfs != 0) {
+    while (chainOk && indexOfs != 0) {
       unsigned char flagByte = 0;
       if (!readAt(f, indexOfs, &flagByte, 1)) {
-        rc = fail(result, "cannot read index flag", xp3Path);
+        chainOk = false;
         break;
       }
       uint64_t compressedSize = 0, indexSize = 0;
@@ -346,50 +472,62 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       if ((flagByte & 0x07) == 1) {
         if (!read64At(f, indexOfs + 1, compressedSize) ||
           !read64At(f, indexOfs + 9, indexSize)) {
-          rc = fail(result, "cannot read compressed index header", xp3Path);
+          chainOk = false;
           break;
         }
         bodyOfs = indexOfs + 17;
       } else if ((flagByte & 0x07) == 0) {
         if (!read64At(f, indexOfs + 1, indexSize)) {
-          rc = fail(result, "cannot read index header", xp3Path);
+          chainOk = false;
           break;
         }
         bodyOfs = indexOfs + 9;
       } else {
-        rc = fail(result, "unsupported index encoding", xp3Path);
+        /* unknown encoding: decoy/foreign block */
+        chainOk = false;
         break;
       }
-      if (indexSize > 0x7FFFFFFFULL) {
-        rc = fail(result, "index too large", xp3Path);
+      if (indexSize == 0) {
+        /* empty stub block (GARbro style): the real index is in the tail */
+        chainOk = false;
+        break;
+      }
+      /* 256 MB is far beyond any real index (a 4 GB archive with 23k
+       * files has a ~5 MB index); larger values mean a mis-parsed header,
+       * which would otherwise trigger a huge (and fatal) allocation. */
+      if (indexSize > 256 * 1024 * 1024ULL ||
+        compressedSize > 256 * 1024 * 1024ULL) {
+        chainOk = false;
         break;
       }
       std::vector<unsigned char> indexData((size_t)indexSize);
       uint64_t consumed = 0;
       if ((flagByte & 0x07) == 0) {
         if (!readAt(f, bodyOfs, indexData.data(), (size_t)indexSize)) {
-          rc = fail(result, "cannot read index data", xp3Path);
+          chainOk = false;
           break;
         }
         consumed = bodyOfs + indexSize;
       } else {
         std::vector<unsigned char> compressed((size_t)compressedSize);
         if (!readAt(f, bodyOfs, compressed.data(), (size_t)compressedSize)) {
-          rc = fail(result, "cannot read compressed index data", xp3Path);
+          chainOk = false;
           break;
         }
         uLongf destLen = (uLongf)indexSize;
         if (uncompress(indexData.data(), &destLen, compressed.data(),
           (uLong)compressedSize) != Z_OK || destLen != indexSize) {
-          rc = fail(result, "index decompression failed", xp3Path);
+          chainOk = false;
           break;
         }
         consumed = bodyOfs + compressedSize;
       }
-      if (rc != 0) break;
       if (!parseIndex(indexData.data(), (uint32_t)indexData.size(), entries,
         result)) {
-        rc = -1;
+        /* a broken chain means the index is not what we think it is:
+         * recover from the tail instead of trusting a partial index */
+        entries.clear();
+        chainOk = false;
         break;
       }
       /* continue-bit: the 8 bytes after the index body hold the next
@@ -398,11 +536,39 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       read64At(f, consumed, nextOfs);
       indexOfs = (flagByte & 0x80) ? nextOfs : 0;
     }
-    if (rc != 0) break;
+    if (chainOk && entries.empty()) {
+      chainOk = false;
+    }
+
+    if (!chainOk) {
+      /* Recover the real index from the file tail: GARbro and friends keep
+       * a plain contiguous File-chunk chain that ends exactly at EOF. */
+      entries.clear();
+      result->error[0] = 0;
+      if (!carveTailIndex(f, archiveSize, entries, result)) {
+        rc = -1;
+        break;
+      }
+    }
     if (entries.empty()) {
       rc = fail(result, "archive index contains no files", xp3Path);
       break;
     }
+
+    /* validate every segment against the real archive size before
+     * copying anything (a mis-parsed index must not seek into the void) */
+    for (size_t i = 0; i < entries.size() && rc == 0; ++i) {
+      for (size_t si = 0; si < entries[i].segments.size(); ++si) {
+        const Segment &seg = entries[i].segments[si];
+        if (seg.offset > archiveSize ||
+          seg.offset + seg.arcSize > archiveSize) {
+          rc = fail(result, "segment offset out of archive bounds",
+            entries[i].name.c_str());
+          break;
+        }
+      }
+    }
+    if (rc != 0) break;
 
     result->filesTotal = (int)entries.size();
     mkdir(outDir, 0777);
@@ -438,7 +604,12 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (rc == 0) {
       result->ok = 1;
     }
-  } while (false);
+    } while (false);
+  } catch (const std::bad_alloc &) {
+    rc = fail(result, "out of memory while extracting", xp3Path);
+  } catch (...) {
+    rc = fail(result, "internal error: unexpected exception", xp3Path);
+  }
 
   fclose(f);
   return rc;

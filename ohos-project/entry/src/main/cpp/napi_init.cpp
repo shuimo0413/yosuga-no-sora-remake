@@ -311,8 +311,14 @@ int Xp3ProgressBridge(void *vctx, int done, int total, const char *nameUtf8) {
 void Xp3WorkerMain(void *vctx) {
   Xp3ExtractContext *ctx = static_cast<Xp3ExtractContext *>(vctx);
   OHOSXp3ExtractResult res;
-  int rc = OHOS_ExtractXp3(ctx->xp3Path.c_str(), ctx->outDir.c_str(),
-    Xp3ProgressBridge, ctx, &res);
+  memset(&res, 0, sizeof(res));
+  int rc = -1;
+  try {
+    rc = OHOS_ExtractXp3(ctx->xp3Path.c_str(), ctx->outDir.c_str(),
+      Xp3ProgressBridge, ctx, &res);
+  } catch (...) {
+    snprintf(res.error, sizeof(res.error), "worker thread exception");
+  }
   FILE *s = fopen(ctx->statusPath.c_str(), "w");
   if (s) {
     if (rc == 0) {
@@ -331,6 +337,10 @@ void Xp3WorkerMain(void *vctx) {
  * native worker thread and returns immediately. The ArkTS side polls
  * <outDir>.status / <outDir>.progress until the status file appears. */
 static napi_value ExtractXp3Start(napi_env env, napi_callback_info info) {
+  /* The extraction runs before the engine (which normally installs the
+   * crash recorder), so install it here too: a worker crash must leave a
+   * crash.txt behind instead of dying silently. */
+  OHOS_InstallCrashHandler();
   size_t argc = 2;
   napi_value args[2] = {nullptr, nullptr};
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
