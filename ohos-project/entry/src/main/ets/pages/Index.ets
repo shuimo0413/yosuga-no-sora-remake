@@ -724,10 +724,11 @@ struct Index {
     let doneBytes = 0;
     const totalBytes = this.assets.reduce((sum, asset) => sum + asset.size, 0);
     const startTime = Date.now();
-    // All downloaded zips extract into ONE sandbox staging dir (multi-part
-    // archives accumulate there); the public folder is not touched until
-    // the mirror runs after the game starts.
-    const unzipTmp = this.sandboxFiles + '/unzip.tmp';
+    // All downloaded zips extract into ONE staging dir on the same
+    // volume as the final public data folder (multi-part archives
+    // accumulate there); the DATA_TRANSFER task protects the long
+    // decompression.
+    const unzipTmp = this.baseDir + '/unzip.tmp';
     await taskpool.execute(removeTreeTask, unzipTmp);
     for (const asset of this.assets) {
       const originalUrl = this.baseUrl + '/' + asset.name;
@@ -909,19 +910,19 @@ struct Index {
     }
   }
 
-  /** After unzipping into the sandbox staging dir, install the result:
-   *  - "data/" folder  -> becomes the sandbox loose tree
+  /** After unzipping into the staging dir, install the result:
+   *  - "data/" folder  -> becomes the public loose tree
    *  - "data.xp3"      -> handed to the native extractor
    *  - bare tree       -> the staging dir itself becomes the loose tree
-   *  Returns true when game data is ready. */
+   *  Returns true when game data is ready. The staging dir must live on
+   *  the same volume as the final data dir so the rename is atomic. */
   private async installUnzipped(unzipTmp: string): Promise<boolean> {
     const items = this.tryList(unzipTmp);
-    const sandboxData = this.sandboxFiles + '/data';
     const swapIn = async (src: string): Promise<void> => {
-      if (this.tryList(this.sandboxFiles).indexOf('data') >= 0) {
-        await taskpool.execute(removeTreeTask, sandboxData);
+      if (this.tryList(this.baseDir).indexOf('data') >= 0) {
+        await taskpool.execute(removeTreeTask, this.dataDir);
       }
-      fs.renameSync(src, sandboxData);
+      fs.renameSync(src, this.dataDir);
       try {
         fs.unlinkSync(this.baseDir + '/data.xp3');
       } catch (e) {
@@ -967,8 +968,9 @@ struct Index {
           '“使用旧数据”将直接启动。',
         '重新导入', '使用旧数据');
       if (reimport) {
-        this.log('user chose re-import; dropping sandbox data');
+        this.log('user chose re-import; dropping old data');
         await taskpool.execute(removeTreeTask, this.sandboxFiles + '/data');
+        await taskpool.execute(removeTreeTask, this.dataDir);
         this.writeTextFile(markerPath, ver);
         this.readyForGame = false;
         this.bootState = 2;
@@ -1169,10 +1171,11 @@ struct Index {
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
           await this.copyFromUri(uri, tmp);
-          // Unzip into a sandbox staging dir (unzipping into the public
-          // folder makes the media scanner churn through thousands of
-          // files; on this device it also produced a truncated tree).
-          const unzipTmp = this.sandboxFiles + '/unzip.tmp';
+          // Unzip into a staging dir on the same volume as the final
+          // public data folder (atomic rename afterwards). The DATA_TRANSFER
+          // continuous task protects this long decompression from resource
+          // reclamation.
+          const unzipTmp = this.baseDir + '/unzip.tmp';
           await taskpool.execute(removeTreeTask, unzipTmp);
           this.progressText = '正在解压 ' + name;
           await this.unzipTo(tmp, unzipTmp);
@@ -1234,14 +1237,14 @@ struct Index {
       return;
     }
     this.extracting = true;
-    // Extract into the SANDBOX, not the public Download folder: the media
-    // scanner indexes every file that appears there (thousands of ogg/mp4
-    // metadata parses) and gets the app killed mid-extraction. The sandbox
-    // is invisible to the scanner. The engine then reads data/ from the
-    // sandbox (see startGame), while the xp3 itself may live in the
-    // public folder.
-    const outTmp = this.sandboxFiles + '/data.extract.tmp';
-    const outDir = this.sandboxFiles + '/data';
+    // Extract straight into the public app folder (Download/<bundle>) so
+    // the data is visible in the file manager. The DATA_TRANSFER
+    // continuous task exempts this long run from resource reclamation,
+    // and the resumable extractor survives a kill anyway. When the public
+    // folder was never granted, baseDir falls back to the sandbox and the
+    // same code path still works.
+    const outTmp = this.baseDir + '/data.extract.tmp';
+    const outDir = this.baseDir + '/data';
     this.bootState = 7;
     this.progressText = '正在解包 data.xp3…';
     this.progressValue = 0;
@@ -1260,7 +1263,7 @@ struct Index {
       // killed run leaves no status (or a stale one) and its PARTIAL tree
       // must be discarded and re-extracted - never renamed into place.
       const lastStatus = this.tryReadFile(outTmp + '.status');
-      const hasTmp = this.tryList(this.sandboxFiles).indexOf('data.extract.tmp') >= 0;
+      const hasTmp = this.tryList(this.baseDir).indexOf('data.extract.tmp') >= 0;
       const hasData = this.tryList(outDir).indexOf('startup.tjs') >= 0;
       if (hasTmp && !hasData && lastStatus.startsWith('ok')) {
         try {
@@ -1351,7 +1354,7 @@ struct Index {
       }
       // Swap the extracted tree in, replacing ANY previous data tree
       // (partial or complete) - rename fails when the target exists.
-      if (this.tryList(this.sandboxFiles).indexOf('data') >= 0) {
+      if (this.tryList(this.baseDir).indexOf('data') >= 0) {
         this.progressText = '正在替换旧数据…';
         this.uiEpoch++;
         await taskpool.execute(removeTreeTask, outDir);
@@ -1485,11 +1488,11 @@ struct Index {
     this.startingGame = true;
     this.log('startGame begin t=' + (Date.now() - this.hbStart));
     this.cleanKrkrTmp();
-    // The extracted loose tree may live in the sandbox (extraction writes
-    // there to keep the public-folder media scanner away); point the
-    // engine at wherever startup.tjs actually is.
+    // The loose tree lives in the public folder (Download/<bundle>/data);
+    // fall back to the sandbox only for data left by older builds.
     let engineBase = this.baseDir;
-    if (this.tryList(this.sandboxFiles + '/data').indexOf('startup.tjs') >= 0) {
+    if (this.tryList(this.dataDir).indexOf('startup.tjs') < 0 &&
+      this.tryList(this.sandboxFiles + '/data').indexOf('startup.tjs') >= 0) {
       engineBase = this.sandboxFiles;
     }
     this.log('engine base dir: ' + engineBase);
