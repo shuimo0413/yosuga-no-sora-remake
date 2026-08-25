@@ -451,7 +451,6 @@ struct Index {
   private log(msg: string): void {
     // intentionally empty
   }
-  }
 
   /**
    * Start the background keep-alive task (continuous audio playback) so the
