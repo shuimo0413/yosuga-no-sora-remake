@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: MIT */
-/* Self-contained XP3 extractor. See ohos_xp3_extract.h for the format notes. */
+/* Self-contained XP3 extractor. See xp3_extract.h for the format notes. */
 
 #ifndef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
 #endif
 
-#include "ohos_xp3_extract.h"
+#include "xp3_extract.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -122,7 +122,7 @@ add_library(entry SHARED
 	krkrsdl2_ohos_entry.cpp
 	ohos_video_player.cpp
 	ohos_data_extract.cpp
-	ohos_xp3_extract.cpp
+	${REPO_ROOT}/src/core/sdl2/xp3_extract.cpp
 	ohos_xp3_extract.cpp
 	ohos_xp3_extract.cpp
 	# Compiled here as well so the touch/surface bridge symbols are provided

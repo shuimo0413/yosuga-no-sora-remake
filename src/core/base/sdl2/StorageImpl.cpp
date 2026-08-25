@@ -27,6 +27,7 @@
 #include "StringUtil.h"
 #include "FilePathUtil.h"
 #include "TickCount.h"
+#include "../../sdl2/AndroidDataBridge.h"
 
 #include <algorithm>
 #include <vector>
@@ -511,6 +512,39 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 
 #if defined(__ANDROID__)
 	AAssetManager *asset_manager = AndroidAssetManager_Get_AssetManager();
+
+	// External data flow: when the bootstrap activity extracted the game
+	// data to a directory (Download/YosugaSoraHD/data or
+	// Android/data/<pkg>/data), resolve ./data/* against that directory
+	// first; the APK assets remain the fallback for bundled installs.
+	const char *ext_data_root = AndroidDataDir_Get();
+	if (ext_data_root && ext_data_root[0] &&
+		nname.length() >= 2 && nname[0] == '.' &&
+		(nname[1] == '/' || nname[1] == '\'))
+	{
+		std::string rel(nname.begin() + 2, nname.end());
+		for (std::string::iterator i = rel.begin(); i != rel.end(); ++i)
+		{
+			if (*i == '\') *i = '/';
+		}
+		bool is_data = false;
+		if (rel.compare(0, 5, "data/") == 0) { rel.erase(0, 5); is_data = true; }
+		else if (rel == "data") { rel.clear(); is_data = true; }
+		if (is_data && !rel.empty())
+		{
+			std::string real = std::string(ext_data_root) + "/" + rel;
+			struct stat st;
+			if (stat(real.c_str(), &st) == 0)
+			{
+				tjs_string wide_real;
+				if (TVPUtf8ToUtf16(wide_real, real))
+				{
+					name = ttstr(wide_real);
+					return;
+				}
+			}
+		}
+	}
 
 	// Android APK assets are case-sensitive and already use the exact spelling
 	// emitted by the content pipeline.  Walking every path component through

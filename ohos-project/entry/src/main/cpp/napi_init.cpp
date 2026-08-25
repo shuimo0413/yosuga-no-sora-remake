@@ -17,7 +17,7 @@
 
 #include "krkrsdl2_ohos_entry.h"
 #include "sdl_ohos_bridge.h"
-#include "ohos_xp3_extract.h"
+#include "xp3_extract.h"
 
 static napi_value InitResourceManager(napi_env env, napi_callback_info info)
 {

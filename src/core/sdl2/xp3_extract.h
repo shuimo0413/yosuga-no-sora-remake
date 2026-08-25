@@ -10,8 +10,8 @@
  * directory. No TVP initialization is required - only stdio and zlib.
  */
 
-#ifndef OHOS_XP3_EXTRACT_H
-#define OHOS_XP3_EXTRACT_H
+#ifndef XP3_EXTRACT_H
+#define XP3_EXTRACT_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,4 +42,4 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
 }
 #endif
 
-#endif /* OHOS_XP3_EXTRACT_H */
+#endif /* XP3_EXTRACT_H */

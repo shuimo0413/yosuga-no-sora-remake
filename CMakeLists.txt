@@ -587,6 +587,12 @@ list(APPEND KRKRSDL2_LIBS
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
 )
+# External data flow: JNI bridge (data dir + xp3 extraction) and the
+# self-contained xp3 extractor shared with the OHOS build.
+list(APPEND KRKRSDL2_SRC
+	src/core/sdl2/AndroidDataBridge.cpp
+	src/core/sdl2/xp3_extract.cpp
+)
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS" OR ${CMAKE_SYSTEM_NAME} STREQUAL "OpenHarmony" OR OHOS)
 # SDL2 for OpenHarmony is built by the ohos-project entry module (see
 # ohos-project/entry/src/main/cpp/CMakeLists.txt) and must already be
