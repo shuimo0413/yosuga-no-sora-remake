@@ -310,6 +310,8 @@ struct Index {
   private pickerTried: boolean = false;
   // The folder picker (user-chosen data directory) has been tried once.
   private folderTried: boolean = false;
+  // Last direct-write failure detail (shown in the UI for diagnosis).
+  private lastDirectError: string = '';
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
@@ -807,7 +809,8 @@ struct Index {
   /** Verify a directory is really writable: mkdir, marker write + read
    *  back. No dialogs. On platforms where the public tree is virtualized
    *  (un-permissioned writes silently succeed without storing anything)
-   *  the read-back fails and the caller stays on the sandbox. */
+   *  the read-back fails and the caller stays on the sandbox. The failure
+   *  detail is kept in lastDirectError for the UI. */
   private tryDirectAt(dir: string): boolean {
     try {
       fs.mkdirSync(dir, true);
@@ -818,14 +821,17 @@ struct Index {
       fs.closeSync(marker);
       const readBack = fs.readTextSync(dir + '/.granted');
       if (readBack !== 'granted-ok') {
-        this.log('tryDirectAt: read-back mismatch: ' + readBack);
+        this.lastDirectError = 'read-back mismatch: ' + readBack;
+        this.log('tryDirectAt: ' + this.lastDirectError);
         return false;
       }
       this.writeNomedia(dir);
+      this.lastDirectError = '';
       this.log('tryDirectAt: ok ' + dir);
       return true;
     } catch (e) {
-      this.log('tryDirectAt failed: ' + JSON.stringify(e));
+      this.lastDirectError = JSON.stringify(e);
+      this.log('tryDirectAt failed: ' + this.lastDirectError);
       return false;
     }
   }
@@ -917,8 +923,12 @@ struct Index {
       }
       const dirPath = this.uriToPath(uris[0]);
       this.log('chooseDataFolder: uri=' + uris[0] + ' path=' + dirPath);
-      if (dirPath === '' || !this.tryDirectAt(dirPath)) {
-        this.message = '所选文件夹不可写，请换一个文件夹（或在选择器中新建一个）';
+      if (dirPath === '') {
+        this.message = '无法解析所选文件夹，数据将保存在应用私有目录';
+        return false;
+      }
+      if (!this.tryDirectAt(dirPath)) {
+        this.message = '所选文件夹不可写：' + this.lastDirectError + '\n请换一个文件夹（或在选择器中新建一个）';
         return false;
       }
       this.saveChosenDir(dirPath);
@@ -938,6 +948,18 @@ struct Index {
     await this.setScreenOn(true);
     this.applyImmersive();
     const ok = await this.chooseDataFolder();
+    await this.setScreenOn(false);
+    if (ok) {
+      this.prepare();
+    }
+  }
+
+  /** Bootstrap page button: manually trigger the picker save DOWNLOAD route
+   *  (diagnostic; the automatic flow calls this on HarmonyOS). */
+  async manualInitPublicDir(): Promise<void> {
+    await this.setScreenOn(true);
+    this.applyImmersive();
+    const ok = await this.initPublicDir();
     await this.setScreenOn(false);
     if (ok) {
       this.prepare();
@@ -1045,7 +1067,7 @@ struct Index {
       // adopt it only when the marker round-trip proves real write access.
       if (!this.tryPublicDirect()) {
         this.log('initPublicDir: folder still unusable after picker');
-        this.message = '下载目录不可用，数据将保存在应用私有目录';
+        this.message = '下载目录仍不可写：' + this.lastDirectError + '\n数据将保存在应用私有目录';
         return false;
       }
       this.adoptPublicDir();
@@ -2305,6 +2327,9 @@ struct Index {
           Row({ space: 12 }) {
             Button('选择数据文件夹').width(150).height(52).backgroundColor('#444444').onClick(() => {
               this.pickDataFolder();
+            })
+            Button('初始化下载目录').width(150).height(52).backgroundColor('#555555').onClick(() => {
+              this.manualInitPublicDir();
             })
           }
           }
