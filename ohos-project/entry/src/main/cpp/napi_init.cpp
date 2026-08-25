@@ -12,8 +12,12 @@
 #include <cstring>
 #include <string>
 
+#include <atomic>
+#include <thread>
+
 #include "krkrsdl2_ohos_entry.h"
 #include "sdl_ohos_bridge.h"
+#include "ohos_xp3_extract.h"
 
 static napi_value InitResourceManager(napi_env env, napi_callback_info info)
 {
@@ -270,6 +274,188 @@ static napi_value IsEngineRunning(napi_env env, napi_callback_info info)
 	return result;
 }
 
+/* ---- data.xp3 extraction ------------------------------------------------ */
+
+namespace {
+
+struct Xp3ExtractContext {
+  napi_env env = nullptr;
+  napi_deferred deferred = nullptr;
+  napi_threadsafe_function tsfn = nullptr;
+  std::thread worker;
+  OHOSXp3ExtractResult result{};
+  std::string xp3Path;
+  std::string outDir;
+  std::atomic<int> lastProgress{0};
+  int rc = -1;
+};
+
+struct Xp3ProgressPayload {
+  int done;
+  int total;
+  int final; /* 1: terminal call - resolves the promise */
+  int rc;
+  char name[512];
+  char error[512];
+};
+
+void Xp3ResolveFinal(napi_env env, Xp3ExtractContext *ctx,
+  Xp3ProgressPayload *payload) {
+  napi_value obj = nullptr;
+  napi_create_object(env, &obj);
+  napi_value okVal = nullptr;
+  napi_get_boolean(env, payload->rc == 0, &okVal);
+  napi_set_named_property(env, obj, "ok", okVal);
+  if (payload->rc == 0) {
+    napi_value done = nullptr, total = nullptr;
+    napi_create_int32(env, payload->done, &done);
+    napi_create_int32(env, payload->total, &total);
+    napi_set_named_property(env, obj, "filesDone", done);
+    napi_set_named_property(env, obj, "filesTotal", total);
+  } else {
+    napi_value err = nullptr;
+    napi_create_string_utf8(env, payload->error, NAPI_AUTO_LENGTH, &err);
+    napi_set_named_property(env, obj, "error", err);
+  }
+  napi_resolve_deferred(env, ctx->deferred, obj);
+}
+
+void Xp3CallJs(napi_env env, napi_value jsCb, void *context, void *data) {
+  Xp3ExtractContext *ctx = static_cast<Xp3ExtractContext *>(context);
+  Xp3ProgressPayload *payload = static_cast<Xp3ProgressPayload *>(data);
+  if (payload->final) {
+    Xp3ResolveFinal(env, ctx, payload);
+  } else if (jsCb != nullptr) {
+    napi_value args[3] = {nullptr, nullptr, nullptr};
+    napi_create_int32(env, payload->done, &args[0]);
+    napi_create_int32(env, payload->total, &args[1]);
+    napi_create_string_utf8(env, payload->name, NAPI_AUTO_LENGTH, &args[2]);
+    napi_value global = nullptr;
+    napi_get_global(env, &global);
+    napi_value ignored = nullptr;
+    if (napi_call_function(env, global, jsCb, 3, args, &ignored) != napi_ok) {
+      /* drop any pending JS exception from the progress callback */
+      napi_value exc = nullptr;
+      napi_get_and_clear_last_exception(env, &exc);
+    }
+  }
+  delete payload;
+}
+
+void Xp3TsfnFinalize(napi_env env, void *data, void *context) {
+  Xp3ExtractContext *ctx = static_cast<Xp3ExtractContext *>(context);
+  if (ctx->worker.joinable()) {
+    ctx->worker.join(); /* worker finished before the tsfn was released */
+  }
+  delete ctx;
+}
+
+int Xp3ProgressBridge(void *vctx, int done, int total, const char *nameUtf8) {
+  Xp3ExtractContext *ctx = static_cast<Xp3ExtractContext *>(vctx);
+  /* Throttle: at most one UI update per 128 extracted files. */
+  if (done - ctx->lastProgress.load() < 128 && done < total) {
+    return 1;
+  }
+  ctx->lastProgress.store(done);
+  Xp3ProgressPayload *payload = new Xp3ProgressPayload();
+  payload->done = done;
+  payload->total = total;
+  payload->final = 0;
+  payload->rc = 0;
+  payload->name[0] = '\0';
+  if (nameUtf8) {
+    strncpy(payload->name, nameUtf8, sizeof(payload->name) - 1);
+    payload->name[sizeof(payload->name) - 1] = '\0';
+  }
+  napi_call_threadsafe_function(ctx->tsfn, payload, napi_tsfn_blocking);
+  return 1;
+}
+
+void Xp3WorkerMain(void *vctx) {
+  Xp3ExtractContext *ctx = static_cast<Xp3ExtractContext *>(vctx);
+  OHOSXp3ExtractResult res;
+  int rc = OHOS_ExtractXp3(ctx->xp3Path.c_str(), ctx->outDir.c_str(),
+    Xp3ProgressBridge, ctx, &res);
+  ctx->rc = rc;
+  ctx->result = res;
+  Xp3ProgressPayload *payload = new Xp3ProgressPayload();
+  payload->done = res.filesDone;
+  payload->total = res.filesTotal;
+  payload->final = 1;
+  payload->rc = rc;
+  payload->name[0] = '\0';
+  snprintf(payload->error, sizeof(payload->error), "%s", res.error);
+  napi_call_threadsafe_function(ctx->tsfn, payload, napi_tsfn_blocking);
+  /* Release our reference so the JS thread finalizes the tsfn (and deletes
+   * the context) once the final payload has been processed. */
+  napi_release_threadsafe_function(ctx->tsfn, napi_tsfn_release);
+}
+
+} /* namespace */
+
+/* extractXp3(xp3Path, outDir, progressCb?): Promise<{ok, filesDone,
+ * filesTotal, error?}>. The extraction runs on a native worker thread;
+ * progressCb(done, total, name) is throttled and invoked on the JS thread. */
+static napi_value ExtractXp3(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value args[3] = {nullptr, nullptr, nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 2) {
+    napi_throw_type_error(env, nullptr,
+      "extractXp3 expects (xp3Path, outDir[, progressCb])");
+    return nullptr;
+  }
+
+  Xp3ExtractContext *ctx = new Xp3ExtractContext();
+  ctx->env = env;
+
+  size_t len = 0;
+  if (napi_get_value_string_utf8(env, args[0], nullptr, 0, &len) == napi_ok &&
+    len > 0) {
+    ctx->xp3Path.resize(len);
+    napi_get_value_string_utf8(env, args[0], &ctx->xp3Path[0], len + 1, &len);
+  }
+  len = 0;
+  if (napi_get_value_string_utf8(env, args[1], nullptr, 0, &len) == napi_ok &&
+    len > 0) {
+    ctx->outDir.resize(len);
+    napi_get_value_string_utf8(env, args[1], &ctx->outDir[0], len + 1, &len);
+  }
+  if (ctx->xp3Path.empty() || ctx->outDir.empty()) {
+    delete ctx;
+    napi_throw_type_error(env, nullptr, "extractXp3: empty path argument");
+    return nullptr;
+  }
+
+  napi_value promise = nullptr;
+  napi_create_promise(env, &ctx->deferred, &promise);
+
+  napi_value jsCb = nullptr;
+  if (argc >= 3) {
+    napi_valuetype type = napi_undefined;
+    napi_typeof(env, args[2], &type);
+    if (type == napi_function) {
+      jsCb = args[2];
+    }
+  }
+
+  if (napi_create_threadsafe_function(env, jsCb, nullptr, nullptr,
+    0, 1, nullptr, Xp3TsfnFinalize, ctx, Xp3CallJs, &ctx->tsfn) != napi_ok) {
+    delete ctx;
+    napi_throw_error(env, nullptr, "extractXp3: cannot create worker callback");
+    return nullptr;
+  }
+
+  try {
+    ctx->worker = std::thread(Xp3WorkerMain, ctx);
+  } catch (...) {
+    napi_release_threadsafe_function(ctx->tsfn, napi_tsfn_release);
+    napi_throw_error(env, nullptr, "extractXp3: cannot start worker thread");
+    return nullptr;
+  }
+  return promise;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
@@ -285,6 +471,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"isVideoPlaying", nullptr, IsVideoPlaying, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"isEngineRunning", nullptr, IsEngineRunning, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"extractXp3", nullptr, ExtractXp3, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 	return exports;

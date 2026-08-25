@@ -24,6 +24,14 @@ interface DefaultManifest {
   releaseTag: string;
 }
 
+/** Result of the native XP3 extraction (libentry extractXp3). */
+interface Xp3ExtractResult {
+  ok: boolean;
+  filesDone?: number;
+  filesTotal?: number;
+  error?: string;
+}
+
 /** Structural subset of wantAgent.WantAgentInfo (the SDK does not export
  *  the type itself); fields match the accepted parameter shape. */
 interface KeepAliveAgentInfo {
@@ -127,6 +135,7 @@ struct Index {
   @State uiEpoch: number = 0;
   @State debugOut: string = '';
   private autoInitTried: boolean = false;
+  private extracting: boolean = false;
   @State readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
@@ -195,13 +204,29 @@ struct Index {
     this.probeData();
     this.log('probeData done t=' + (Date.now() - this.hbStart));
     if (this.dataReady()) {
-      this.readyForGame = true;
-      this.log('ready -> startGame');
-      this.startGame();
+      // Readiness backed only by a root data.xp3 must be extracted into a
+      // loose data/ tree before the game starts; a ready loose tree goes
+      // straight into the game.
+      const rootEntries = this.tryList(this.baseDir);
+      const hasLoose = this.tryList(this.dataDir).indexOf('startup.tjs') >= 0;
+      if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
+        this.log('xp3 present without loose tree -> auto-extract');
+        this.extractAndFinalize(this.baseDir + '/data.xp3');
+      } else {
+        this.readyForGame = true;
+        this.log('ready -> startGame');
+        this.startGame();
+      }
     } else {
       this.bootState = 2;
       this.progressText = '需要下载或导入游戏数据';
-      this.prepare();
+      const xp3 = this.findXp3();
+      if (xp3 !== '') {
+        this.log('found data.xp3, auto-extracting: ' + xp3);
+        this.extractAndFinalize(xp3);
+      } else {
+        this.prepare();
+      }
     }
   }
 
@@ -220,7 +245,8 @@ struct Index {
     // page is visible (avoid stalling startup). Never disturb a game that is
     // already starting (black transition screen).
     setTimeout(() => {
-      if (this.bootState === 6 || this.bootState === 5 || this.startingGame) {
+      if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
+        this.startingGame) {
         return;
       }
       this.prepare();
@@ -233,8 +259,9 @@ struct Index {
   }
 
   async prepare(): Promise<void> {
-    if (this.bootState === 6 || this.bootState === 5 || this.startingGame) {
-      return; // already running / already starting
+    if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
+      this.startingGame) {
+      return; // already running / already starting / extracting
     }
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
@@ -449,6 +476,14 @@ struct Index {
     this.readyForGame = ready;
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
     if (ready) {
+      // Readiness may come from a data.xp3 archive on the root; that must
+      // be extracted into a loose data/ tree before the game can run.
+      const rootEntries = this.tryList(this.baseDir);
+      const hasLoose = this.tryList(this.dataDir).indexOf('startup.tjs') >= 0;
+      if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
+        this.extractAndFinalize(this.baseDir + '/data.xp3');
+        return;
+      }
       if (this.startingGame || this.bootState === 5) {
         return; // startGame already waits for the rotation; keep the black screen
       }
@@ -928,9 +963,12 @@ struct Index {
       const lower = name.toLowerCase();
       try {
         if (lower.endsWith('.xp3')) {
-          // A bare data.xp3 goes straight onto the app root, beside savedata
-          // (mirrors Windows krkrz: data.xp3 lives next to the executable).
+          // A bare data.xp3 lands on the app root (beside savedata, like
+          // Windows krkrz), then gets extracted into a loose data/ tree and
+          // deleted. The extraction owns the rest of the flow.
           await this.copyFromUri(uri, this.baseDir + '/data.xp3');
+          await this.extractAndFinalize(this.baseDir + '/data.xp3');
+          return;
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
           await this.copyFromUri(uri, tmp);
@@ -971,8 +1009,120 @@ struct Index {
     this.uiEpoch++;
   }
 
+  /** First data.xp3 candidate: the app root, then the app-owned public
+   *  Download folder. Returns '' when none exists. */
+  private findXp3(): string {
+    if (this.tryList(this.baseDir).indexOf('data.xp3') >= 0) {
+      return this.baseDir + '/data.xp3';
+    }
+    const dl = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+    if (this.tryList(dl).indexOf('data.xp3') >= 0) {
+      return dl + '/data.xp3';
+    }
+    return '';
+  }
+
+  /** Extract a data.xp3 archive into <base>/data: unpack to a temp tree
+   *  (native worker thread), swap it in with an atomic rename, then delete
+   *  the xp3. A crash mid-flow never leaves a half-extracted tree that
+   *  looks complete - the temp tree is either renamed in on the next
+   *  launch or discarded and re-extracted. */
+  async extractAndFinalize(xp3Path: string): Promise<void> {
+    if (this.extracting || this.bootState === 6) {
+      return;
+    }
+    this.extracting = true;
+    const outTmp = this.baseDir + '/data.extract.tmp';
+    const outDir = this.baseDir + '/data';
+    this.bootState = 7;
+    this.progressText = '正在解包 data.xp3…';
+    this.progressValue = 0;
+    this.message = '';
+    this.uiEpoch++;
+    this.log('extractAndFinalize begin: ' + xp3Path);
+    try {
+      // Recover an interrupted previous run: a finished temp tree without a
+      // data tree is renamed straight into place and skips re-extraction.
+      const hasTmp = this.tryList(this.baseDir).indexOf('data.extract.tmp') >= 0;
+      const hasData = this.tryList(outDir).indexOf('startup.tjs') >= 0;
+      if (hasTmp && !hasData) {
+        try {
+          fs.renameSync(outTmp, outDir);
+        } catch (e) {
+          // fall through and re-extract
+        }
+      }
+      if (this.tryList(outDir).indexOf('startup.tjs') >= 0) {
+        this.log('recovered extracted tree; removing archive files');
+        try {
+          fs.unlinkSync(xp3Path);
+        } catch (e) {
+          // ignore
+        }
+        try {
+          fs.unlinkSync(DOWNLOAD_ROOT + '/' + APP_FOLDER + '/data.xp3');
+        } catch (e) {
+          // ignore
+        }
+        this.finishData();
+        return;
+      }
+      // Clear leftover partial temp trees off the UI thread.
+      await taskpool.execute(removeTreeTask, outTmp);
+
+      const res = await entryNapi.extractXp3(xp3Path, outTmp,
+        (done: number, total: number, name: string) => {
+          this.progressValue = Math.floor(done * 100 / Math.max(1, total));
+          this.progressText = '正在解包 data.xp3：' + done + ' / ' + total + ' 个文件';
+        }) as Xp3ExtractResult;
+      if (!res.ok) {
+        this.bootState = 2;
+        this.progressText = '解包失败，可重新导入或下载';
+        this.message = '解包失败：' + (res.error ? res.error : '未知错误');
+        this.uiEpoch++;
+        await this.showNotice('解包失败', res.error ? res.error : '未知错误');
+        return;
+      }
+      // Swap the extracted tree in, replacing any previous loose data tree.
+      if (this.tryList(outDir).indexOf('startup.tjs') >= 0) {
+        this.progressText = '正在替换旧数据…';
+        this.uiEpoch++;
+        await taskpool.execute(removeTreeTask, outDir);
+      }
+      fs.renameSync(outTmp, outDir);
+      this.log('extract done; removing archive files');
+      try {
+        fs.unlinkSync(xp3Path);
+      } catch (e) {
+        // ignore
+      }
+      try {
+        fs.unlinkSync(DOWNLOAD_ROOT + '/' + APP_FOLDER + '/data.xp3');
+      } catch (e) {
+        // ignore
+      }
+      this.finishData();
+    } catch (e) {
+      this.bootState = 2;
+      this.progressText = '解包失败，可重新导入或下载';
+      this.message = '解包失败：' + JSON.stringify(e);
+      this.uiEpoch++;
+      this.log('extractAndFinalize failed: ' + JSON.stringify(e));
+    } finally {
+      this.extracting = false;
+    }
+  }
+
   finishData(): void {
     if (this.dataReady()) {
+      // A zip download may have delivered a root-level data.xp3; extract it
+      // into a loose data/ tree before starting (and then remove the xp3).
+      const rootEntries = this.tryList(this.baseDir);
+      const hasLoose = this.tryList(this.dataDir).indexOf('startup.tjs') >= 0;
+      if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
+        this.extractAndFinalize(this.baseDir + '/data.xp3');
+        return;
+      }
       this.readyForGame = true;
       // Go straight to the black transition screen - never flash the setup
       // page after a download/import finished.
@@ -1257,7 +1407,7 @@ struct Index {
           }
         .width('100%')
         .padding({ top: 20, bottom: 40 })
-      } else if (this.bootState === 3 || this.bootState === 4) {
+      } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
         Column({ space: 14 }) {
           // Progress component may not repaint on some system versions;
           // the percentage text is the reliable progress indicator.
