@@ -18,7 +18,7 @@ name: Release OpenHarmony / HarmonyOS HAP
       sign_mode:
         description: 'HAP signing: none / community / agc'
         required: true
-        default: none
+        default: community
         type: choice
         options:
           - none
@@ -104,7 +104,7 @@ jobs:
           version_name="${release_tag#v}"
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
           sign_mode="${INPUT_SIGN_MODE}"
-          if [[ -z "$sign_mode" ]]; then sign_mode="${OHOS_DEFAULT_SIGN_MODE:-none}"; fi
+          if [[ -z "$sign_mode" ]]; then sign_mode="${OHOS_DEFAULT_SIGN_MODE:-community}"; fi
           case "$sign_mode" in none|community|agc) ;; *) echo "Bad sign mode: $sign_mode" >&2; exit 1 ;; esac
           {
             echo "tag=$release_tag"

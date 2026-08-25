@@ -77,11 +77,11 @@ when DevEco signing is configured, otherwise entry-default-unsigned.hap).
 ## Signing
 
 The workflow builds an unsigned HAP and its signing is controlled by the
-`sign_mode` workflow input (default `none`):
+`sign_mode` workflow input (default `community`):
 
-- `none` (default) - no signing. The release asset is the unsigned HAP;
+- `none` - no signing. The release asset is the unsigned HAP;
   install it only after signing it with your own materials.
-- `community` - signs with the community OpenHarmony debug certificate
+- `community` (default) - signs with the community OpenHarmony debug certificate
   (the official developtools_hapsigner autosign flow). The result installs
   directly on OpenHarmony devices that have developer mode enabled, but
   HarmonyOS 5+ (NEXT) devices reject this certificate.
@@ -96,7 +96,7 @@ The workflow builds an unsigned HAP and its signing is controlled by the
   - OHOS_APP_CERT_BASE64 (the .cer application certificate)
   - OHOS_PROFILE_P7B_BASE64 (the .p7b provisioning profile)
 
-Tag pushes default to `none` unless the repository variable
+Tag pushes default to `community` unless the repository variable
 `OHOS_DEFAULT_SIGN_MODE` is set; re-run the workflow manually on the same
 tag with the desired mode to replace the release assets.
 
