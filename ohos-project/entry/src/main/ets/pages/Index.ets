@@ -201,9 +201,18 @@ struct Index {
 
   private log(msg: string): void {
     hilog.info(0xD003300, 'YosugaOHOS', '%{public}s', msg);
-    // Mirror onto the on-screen debug area only.
+    // Mirror onto the on-screen debug area and append to the sandbox
+    // debug.log (hdc-readable) - hilog is not available in release builds.
     const line = Date.now() % 100000 + ': ' + msg;
     this.debugOut = (this.debugOut + '\n' + line).slice(-800);
+    try {
+      const fd = fs.openSync(this.sandboxFiles + '/debug.log',
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
+      fs.writeSync(fd.fd, line + '\n');
+      fs.closeSync(fd);
+    } catch (e) {
+      // logging must never break the app
+    }
   }
 
   /**
