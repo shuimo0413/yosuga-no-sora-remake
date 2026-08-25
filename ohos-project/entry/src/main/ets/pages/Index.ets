@@ -64,7 +64,7 @@ function unzipTask(srcZip: string, outDir: string): string {
     try {
       names = fs.listFileSync(outDir);
     } catch (e) {
-      names = ['<listerr>'];
+      names = ['<listerr:' + JSON.stringify(e) + '>'];
     }
     return 'ok:' + names.join(',');
   } catch (e) {
@@ -866,6 +866,13 @@ struct Index {
     // multi-GB archive blocks the UI thread long enough to trigger ANR and
     // the system kills the app mid-import. The DATA_TRANSFER continuous
     // task protects the long decompression from resource reclamation.
+    // NOTE: decompressFile does NOT create the output directory and fails
+    // SILENTLY when it is missing - create it first.
+    try {
+      fs.mkdirSync(outDir, true);
+    } catch (e) {
+      // may already exist
+    }
     await this.startExtractTask();
     try {
       const result = await taskpool.execute(unzipTask, srcZip, outDir) as string;
