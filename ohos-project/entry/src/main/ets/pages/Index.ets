@@ -567,16 +567,6 @@ struct Index {
     }
   }
 
-  /** Restore the status bar strip on the setup page (white bar on top, no
-   *  black bottom strip). */
-    try {
-      const ctx = getContext(this) as common.UIAbilityContext;
-      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
-        mainWindow.setWindowLayoutFullScreen(true);
-        mainWindow.setWindowSystemBarEnable(['status']);
-        // best effort
-      // best effort
-  }
 
   /** Keep the screen on while the game runs (no permission needed). */
   private async setScreenOn(keep: boolean): Promise<void> {
