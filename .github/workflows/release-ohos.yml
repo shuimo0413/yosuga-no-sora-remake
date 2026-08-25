@@ -33,11 +33,6 @@ name: Release OpenHarmony / HarmonyOS HAP
           - external
           - bundled
           - mini
-      skip_data:
-        description: 'Skip the data packaging job (fast HAP iteration)'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -51,8 +46,6 @@ jobs:
     name: Build OpenHarmony HAP
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    outputs:
-      release-tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Check out repository, submodules, and LFS content
         uses: actions/checkout@v6
@@ -392,25 +385,8 @@ jobs:
           [[ "${#assets[@]}" -gt 0 ]] || { echo 'no hap assets' >&2; exit 1; }
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GH_REPOSITORY" --clobber
 
-  release:
-    name: Publish GitHub Release
-    needs: [build-app]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - name: Publish the GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.build-app.outputs.release-tag }}
-          INPUT_PRERELEASE: ${{ inputs.prerelease }}
-          EVENT_NAME: ${{ github.event_name }}
-          GH_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # Both package-data and build-app already uploaded their assets to
-          # the (draft) release; this job simply flips it to published once
-          # everything is in place.
+          # Publish the release right here: the HAP is uploaded, so flip the
+          # draft to published (prerelease flag per the trigger).
           if [[ "$EVENT_NAME" == 'push' ]]; then
             if [[ "$RELEASE_TAG" == *-* ]]; then IS_PRERELEASE=true; else IS_PRERELEASE=false; fi
           else
