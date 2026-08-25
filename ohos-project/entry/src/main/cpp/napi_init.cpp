@@ -328,6 +328,10 @@ void Xp3WorkerMain(void *vctx) {
     }
     fclose(s);
   }
+  /* Detach BEFORE deleting the context: ctx owns the std::thread object,
+   * and deleting a joinable thread (this very thread) calls
+   * std::terminate -> abort (signal 6 in musl). */
+  ctx->worker.detach();
   delete ctx;
 }
 

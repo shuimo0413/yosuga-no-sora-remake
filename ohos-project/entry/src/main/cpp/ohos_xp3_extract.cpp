@@ -41,7 +41,11 @@ const unsigned char kSignature[11] = {
 
 int fail(OHOSXp3ExtractResult *result, const char *fmt, const char *arg) {
   if (result) {
-    snprintf(result->error, sizeof(result->error), fmt, arg ? arg : "");
+    if (arg && arg[0]) {
+      snprintf(result->error, sizeof(result->error), "%s: %s", fmt, arg);
+    } else {
+      snprintf(result->error, sizeof(result->error), "%s", fmt);
+    }
     result->ok = 0;
   }
   return -1;
@@ -344,10 +348,19 @@ bool carveTailIndex(FILE *f, uint64_t fileSize,
 
 
 int extractSegments(FILE *f, const Entry &entry, const std::string &outPath,
-  OHOSXp3ExtractResult *result) {
+  OHOSXp3ExtractResult *result, FILE *diag) {
   FILE *out = fopen(outPath.c_str(), "wb");
   if (!out) {
-    return fail(result, "cannot create output file", outPath.c_str());
+    if (diag) {
+      fprintf(diag, "extract fopen failed: %s (errno=%d %s)
+",
+        outPath.c_str(), errno, strerror(errno));
+      fflush(diag);
+    }
+    char msg[160];
+    snprintf(msg, sizeof(msg), "cannot create output file (errno=%d %s)",
+      errno, strerror(errno));
+    return fail(result, msg, outPath.c_str());
   }
   std::vector<unsigned char> inBuf(1024 * 1024);
   std::vector<unsigned char> outBuf(1024 * 1024);
@@ -435,6 +448,19 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
   FILE *f = fopen(xp3Path, "rb");
   if (!f) return fail(result, "cannot open archive", xp3Path);
 
+  /* stage-by-stage diagnostic next to the output (the ArkTS side reads it
+   * back into debug.log when something fails; hdc cannot reach the public
+   * folder) */
+  std::string diagPath = std::string(outDir) + ".diag";
+  FILE *diag = fopen(diagPath.c_str(), "w");
+  if (diag) {
+    fprintf(diag, "xp3=%s
+", xp3Path);
+    fprintf(diag, "outDir=%s
+", outDir);
+    fflush(diag);
+  }
+
   int rc = 0;
   std::vector<Entry> entries;
   try {
@@ -443,13 +469,22 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (fread(sig, 1, 11, f) != 11 ||
       memcmp(sig, kSignature, 11) != 0) {
       rc = fail(result, "not an XP3 archive", xp3Path);
+      if (diag) { fprintf(diag, "signature mismatch
+"); fflush(diag); }
       break;
     }
+    if (diag) { fprintf(diag, "signature ok
+"); fflush(diag); }
 
     /* Get the real file size first: both the tail-index recovery and the
      * segment validation below need it. */
     fseeko(f, 0, SEEK_END);
     uint64_t archiveSize = (uint64_t)ftello(f);
+    if (diag) {
+      fprintf(diag, "archiveSize=%llu
+", (unsigned long long)archiveSize);
+      fflush(diag);
+    }
 
     /* Walk the standard index chain (continue-bit chaining). The chain is
      * ABANDONED - not failed - when it turns out to be a decoy: GARbro's
@@ -461,11 +496,22 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (!read64At(f, 11, indexOfs)) {
       chainOk = false;
     }
+    if (diag) {
+      fprintf(diag, "indexOfs=%llu
+", (unsigned long long)indexOfs);
+      fflush(diag);
+    }
     while (chainOk && indexOfs != 0) {
       unsigned char flagByte = 0;
       if (!readAt(f, indexOfs, &flagByte, 1)) {
         chainOk = false;
         break;
+      }
+      if (diag) {
+        fprintf(diag, "block@%llu flag=0x%02x
+",
+          (unsigned long long)indexOfs, flagByte);
+        fflush(diag);
       }
       uint64_t compressedSize = 0, indexSize = 0;
       uint64_t bodyOfs = 0;
@@ -489,6 +535,8 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       }
       if (indexSize == 0) {
         /* empty stub block (GARbro style): the real index is in the tail */
+        if (diag) { fprintf(diag, "empty stub block -> tail recovery
+"); fflush(diag); }
         chainOk = false;
         break;
       }
@@ -543,11 +591,23 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (!chainOk) {
       /* Recover the real index from the file tail: GARbro and friends keep
        * a plain contiguous File-chunk chain that ends exactly at EOF. */
+      if (diag) { fprintf(diag, "falling back to tail recovery
+"); fflush(diag); }
       entries.clear();
       result->error[0] = 0;
       if (!carveTailIndex(f, archiveSize, entries, result)) {
+        if (diag) {
+          fprintf(diag, "tail recovery failed: %s
+", result->error);
+          fflush(diag);
+        }
         rc = -1;
         break;
+      }
+      if (diag) {
+        fprintf(diag, "tail recovery found %zu entries
+", entries.size());
+        fflush(diag);
       }
     }
     if (entries.empty()) {
@@ -570,12 +630,27 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     }
     if (rc != 0) break;
 
+    if (diag) {
+      fprintf(diag, "entries=%zu (filesTotal=%d)
+",
+        entries.size(), (int)entries.size());
+      fflush(diag);
+    }
+
     result->filesTotal = (int)entries.size();
     mkdir(outDir, 0777);
     if (!mkdirs(std::string(outDir) + "/.")) {
       rc = fail(result, "cannot create output directory", outDir);
+      if (diag) {
+        fprintf(diag, "mkdirs(%s) failed (errno=%d %s)
+", outDir,
+          errno, strerror(errno));
+        fflush(diag);
+      }
       break;
     }
+    if (diag) { fprintf(diag, "output dir ready
+"); fflush(diag); }
 
     for (size_t i = 0; i < entries.size(); ++i) {
       std::string full = std::string(outDir) + "/" + entries[i].name;
@@ -589,7 +664,7 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
           break;
         }
       }
-      int erc = extractSegments(f, entries[i], full, result);
+      int erc = extractSegments(f, entries[i], full, result, diag);
       if (erc != 0) {
         rc = erc;
         break;
@@ -611,6 +686,13 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     rc = fail(result, "internal error: unexpected exception", xp3Path);
   }
 
+  if (diag) {
+    fprintf(diag, "final rc=%d ok=%d files=%d/%d error=%s
+", rc,
+      result->ok, result->filesDone, result->filesTotal, result->error);
+    fflush(diag);
+    fclose(diag);
+  }
   fclose(f);
   return rc;
 }

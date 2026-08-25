@@ -1103,6 +1103,8 @@ struct Index {
             break;
           }
           const errMsg = st.startsWith('error ') ? st.substring(6).trim() : st.trim();
+          const diagText = this.tryReadFile(outTmp + '.diag');
+          this.log('extract diag: ' + (diagText !== '' ? diagText.slice(-2000) : '(empty)'));
           this.bootState = 2;
           this.progressText = '解包失败，可重新导入或下载';
           this.message = '解包失败：' + (errMsg !== '' ? errMsg : '未知错误');
