@@ -56,6 +56,37 @@ function unzipTask(srcZip: string, outDir: string): string {
   }
 }
 
+/**
+ * TaskPool worker: recursively delete a directory tree. Runs off the UI
+ * thread because leftover krkr_* video temp dirs can be hundreds of MB.
+ */
+@Concurrent
+function removeTreeTask(path: string): void {
+  try {
+    const entries = fs.listFileSync(path);
+    for (const name of entries) {
+      const child = path + '/' + name;
+      try {
+        fs.unlinkSync(child);
+      } catch (e) {
+        removeTreeTask(child);
+        try {
+          fs.rmdirSync(child);
+        } catch (e2) {
+          // ignore
+        }
+      }
+    }
+    try {
+      fs.rmdirSync(path);
+    } catch (e) {
+      // ignore
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 // The app-owned public Download folder: Download/<bundleName>. On HarmonyOS
 // NEXT this exact per-app folder is writable WITHOUT any permission
 // (unlike arbitrary paths under Download), and shows under the app name in
@@ -292,35 +323,10 @@ struct Index {
     }
   }
 
-  /** Recursively delete a directory tree (fs has no single-call variant). */
-  private removeTree(path: string): void {
-    let entries: string[] = [];
-    try {
-      entries = fs.listFileSync(path);
-    } catch (e) {
-      return;
-    }
-    for (const name of entries) {
-      const child = path + '/' + name;
-      try {
-        fs.unlinkSync(child);
-      } catch (e) {
-        try {
-          this.removeTree(child);
-          fs.rmdirSync(child);
-        } catch (e2) {
-          // ignore
-        }
-      }
-    }
-    try {
-      fs.rmdirSync(path);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  /** Remove leftover krkr_* video temp dirs from previous runs. */
+  /** Remove leftover krkr_* video temp dirs from previous runs. The
+   *  removal runs on a TaskPool worker: the dirs can hold hundreds of MB
+   *  and deleting them synchronously on the UI thread froze the first
+   *  launch after an import (appfreeze). */
   private cleanKrkrTmp(): void {
     const tmpDir = this.baseDir + '/tmp';
     let entries: string[] = [];
@@ -331,7 +337,7 @@ struct Index {
     }
     for (const name of entries) {
       if (name.startsWith('krkr_')) {
-        this.removeTree(tmpDir + '/' + name);
+        taskpool.execute(removeTreeTask, tmpDir + '/' + name);
       }
     }
   }
