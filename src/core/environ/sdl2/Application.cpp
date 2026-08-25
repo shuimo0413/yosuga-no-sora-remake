@@ -68,6 +68,37 @@
 #include <emscripten.h>
 #endif
 #include <SDL.h>
+#if defined(__OHOS__)
+#include <dlfcn.h>
+#include <chrono>
+/* Diagnostic trace into the sandbox diag.txt (hdc-readable). */
+static void OHOSAppDiag(const char *msg)
+{
+	typedef const char *(*GetFilesDirFn)(void);
+	static GetFilesDirFn fn = nullptr;
+	static const char *dir = nullptr;
+	if (fn == nullptr)
+	{
+		void *h = dlopen("libentry.so", RTLD_NOW);
+		if (!h)
+			h = RTLD_DEFAULT;
+		fn = (GetFilesDirFn)dlsym(h, "SDL_OHOS_GetFilesDir");
+	}
+	if (fn && dir == nullptr)
+		dir = fn();
+	if (!dir || !dir[0])
+		return;
+	std::string path = std::string(dir) + "/diag.txt";
+	FILE *lf = fopen(path.c_str(), "a");
+	if (lf)
+	{
+		long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+		fprintf(lf, "%lld: %s\n", ms % 100000, msg);
+		fclose(lf);
+	}
+}
+#endif
 
 #if 0
 #include "resource.h"
@@ -464,12 +495,18 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 
 		TVPInitScriptEngine();
 		engine_init = true;
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: script engine inited");
+#endif
 
 		// banner
 		TVPAddImportantLog( TVPFormatMessage(TVPProgramStartedOn, TVPGetOSName(), TVPGetPlatformName()) );
 
 		// TVPInitializeBaseSystems
 		TVPInitializeBaseSystems();
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: base systems inited");
+#endif
 
 #if 0
 		Initialize();
@@ -483,6 +520,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #endif
 
 		TVPSystemInit();
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: system init done");
+#endif
 
 #if defined(__OHOS__)
 		/* data.xp3 mode: register archive-scoped auto paths natively once
@@ -552,7 +592,13 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		image_load_thread_->StartTread();
 #endif
 
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: running startup script");
+#endif
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: startup script done");
+#endif
 
 #if 0
 		Run();
