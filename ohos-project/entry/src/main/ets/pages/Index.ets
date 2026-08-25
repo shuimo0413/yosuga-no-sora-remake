@@ -1,5 +1,5 @@
 import entryNapi from 'libentry.so';
-import { common, wantAgent, Want, bundleManager } from '@kit.AbilityKit';
+import { common, wantAgent, Want, bundleManager, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
@@ -300,7 +300,10 @@ struct Index {
   @State message: string = '';
   @State needInit: boolean = false;
   @State uiEpoch: number = 0;
-  private autoInitTried: boolean = false;
+  // Public Download folder is proven unusable: never prompt again.
+  private publicDenied: boolean = false;
+  // The user permission dialog has already been shown once.
+  private permRequested: boolean = false;
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
@@ -638,7 +641,7 @@ struct Index {
   /**
    * Synchronously resolve baseDir/saveDir/dataDir from the app-owned public
    * Download folder (marker-present) or the sandbox, so a data-ready app can
-   * skip the bootstrap UI entirely on launch. Idempotent.
+   * skip the bootstrap UI entirely on launch. Idempotent. No dialogs.
    */
   probeData(): void {
     // NOTE: no permission dialog here. On HarmonyOS 7 (API 26) the system
@@ -646,53 +649,37 @@ struct Index {
     // content (black screen). Permissions are requested on demand when the
     // user taps download/import instead.
 
-    // Prefer the user-granted public Download/<bundleName> folder: after
-    // initPublicDir() runs (DocumentViewPicker.save DOWNLOAD mode) the system
-    // creates Download/<bundleName>/ and grants the app persistent access
-    // without any media permission. Probe it; fall back to the sandbox.
-    // The public Download/<bundleName>/ folder only becomes usable after
-    // initPublicDir() (DocumentViewPicker.save DOWNLOAD mode) runs: the system
-    // then creates it and grants persistent access. We self-check by looking
-    // for a marker file we write there; do NOT blindly mkdir the public path
-    // (that can appear to succeed yet be unwritable). Until granted, use the
-    // sandbox so downloads/imports always work.
+    // Prefer the public Download/<bundleName> folder. A previous run leaves
+    // a verified .granted marker there; without it the folder is probed with
+    // a silent direct write whose read-back proves real storage (some
+    // platforms virtualize the public tree and make un-permissioned writes
+    // silently succeed without storing anything).
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    // Only treat the public folder as usable when the marker we wrote after
-    // initPublicDir() is actually listed there. listFileSync on a missing
-    // folder throws, so an un-granted platform reliably falls into the
-    // sandbox branch.
     let publicOk = false;
     try {
       const entries = fs.listFileSync(this.appDir);
       publicOk = entries.indexOf('.granted') >= 0;
-      if (publicOk) {
-        fs.mkdirSync(this.appDir + '/savedata', true);
-        this.writeNomedia(this.appDir);
-      }
     } catch (e) {
-      this.log('public app dir not granted: ' + JSON.stringify(e));
+      // Folder missing or unreadable: fall through to the silent probe.
+    }
+    if (!publicOk) {
+      // Try the silent direct write (some platforms allow the app-owned
+      // Download folder without any grant; read-back proves real storage).
+      publicOk = this.tryPublicDirect();
     }
     if (publicOk) {
-      this.baseDir = this.appDir;
-      this.saveDir = this.appDir + '/savedata';
-      this.dataDir = this.appDir + '/data';
-      this.needInit = false;
-      this.message = '';
+      this.adoptPublicDir();
       this.log('data dir: public ' + this.appDir);
     } else {
-      // Public folder not granted yet: request it automatically on first
-      // launch (DocumentViewPicker.save DOWNLOAD mode). Until granted, use
-      // the sandbox so downloads/imports always work.
+      // Public folder not usable yet: stay on the sandbox silently. The
+      // grant routes (permission/picker) run only when the user taps
+      // download or import (ensurePublic), never at startup.
       this.baseDir = this.sandboxFiles;
       this.saveDir = this.sandboxFiles + '/savedata';
       this.dataDir = this.sandboxFiles + '/data';
       this.needInit = false;
       this.message = '数据暂存于应用私有目录';
-      if (!this.autoInitTried) {
-        this.autoInitTried = true;
-        this.log('data dir: sandbox (public not granted), auto-initing once');
-        this.initPublicDir();
-      }
+      this.log('data dir: sandbox (public not granted)');
     }
     try {
       fs.mkdirSync(this.saveDir, true);
@@ -799,10 +786,74 @@ struct Index {
     }
   }
 
-  /** Ask the user once to grant the app-owned Download/<bundleName> folder.
-   *  documentViewPicker.save() with DOWNLOAD mode makes the system create
-   *  Download/<bundleName>/ and grants persistent access without any media
-   *  permission. Returns true when the public folder became usable. */
+  /**
+   * Try to make Download/<bundleName> usable with a direct write, verified
+   * by a marker write+read round-trip. No dialogs. On platforms where the
+   * public tree is virtualized (un-permissioned writes silently succeed
+   * without storing anything) the read-back fails and we stay on sandbox.
+   */
+  private tryPublicDirect(): boolean {
+    try {
+      fs.mkdirSync(this.appDir, true);
+      fs.mkdirSync(this.appDir + '/savedata', true);
+      const marker = fs.openSync(this.appDir + '/.granted',
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(marker.fd, 'granted-ok');
+      fs.closeSync(marker);
+      const readBack = fs.readTextSync(this.appDir + '/.granted');
+      if (readBack !== 'granted-ok') {
+        this.log('tryPublicDirect: read-back mismatch: ' + readBack);
+        return false;
+      }
+      this.writeNomedia(this.appDir);
+      this.log('tryPublicDirect: ok');
+      return true;
+    } catch (e) {
+      this.log('tryPublicDirect failed: ' + JSON.stringify(e));
+      return false;
+    }
+  }
+
+  /** Standard user permission for the Download folder (API 11+). Shows the
+   *  system authorization dialog; returns true when granted. */
+  private async requestDownloadPermission(): Promise<boolean> {
+    try {
+      const atManager = abilityAccessCtrl.createAtManager();
+      const perms: Permissions[] = ['ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY'];
+      const result = await atManager.requestPermissionsFromUser(
+        getContext(this) as common.UIAbilityContext, perms);
+      const granted = result.authResults.length > 0 && result.authResults[0] === 0;
+      this.log('download permission result: ' + JSON.stringify(result.authResults));
+      return granted;
+    } catch (e) {
+      this.log('download permission request failed: ' + JSON.stringify(e));
+      return false;
+    }
+  }
+
+  /** Point baseDir/saveDir/dataDir at the public folder (already verified). */
+  private adoptPublicDir(): void {
+    this.baseDir = this.appDir;
+    this.saveDir = this.appDir + '/savedata';
+    this.dataDir = this.appDir + '/data';
+    this.needInit = false;
+    try {
+      fs.mkdirSync(this.saveDir, true);
+    } catch (e) {
+      // already exists
+    }
+    this.writeNomedia(this.appDir);
+    this.message = '';
+    this.log('data dir: public ' + this.appDir);
+  }
+
+  /**
+   * Legacy route: documentViewPicker.save() with DOWNLOAD mode. On some
+   * platforms this makes the system create Download/<bundleName>/ and grant
+   * persistent access. The result is verified with a marker round-trip; the
+   * public folder is adopted only when it became really writable, otherwise
+   * the app stays on the sandbox without prompting again.
+   */
   async initPublicDir(): Promise<boolean> {
     this.message = '';
     try {
@@ -815,32 +866,18 @@ struct Index {
         await dp.save(opts);
       } catch (e) {
         this.log('initPublicDir: save rejected/canceled: ' + JSON.stringify(e));
-        this.message = '初始化下载目录未确认（可稍后在引导页点击「初始化下载目录」）';
+        this.message = '未确认下载目录授权，数据将保存在应用私有目录';
         return false;
       }
       this.log('initPublicDir: save returned (user confirmed)');
-      // The system created Download/<bundleName>/ and granted access.
-      this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-      this.log('initPublicDir: appDir=' + this.appDir);
-      try {
-        fs.mkdirSync(this.appDir + '/savedata', true);
-      } catch (e) {
-        // may already exist
+      // The picker may or may not have made Download/<bundleName> usable;
+      // adopt it only when the marker round-trip proves real write access.
+      if (!this.tryPublicDirect()) {
+        this.log('initPublicDir: folder still unusable after picker');
+        this.message = '下载目录不可用，数据将保存在应用私有目录';
+        return false;
       }
-      this.writeNomedia(this.appDir);
-      // Write a marker that proves we have write access; prepare() relies on
-      // it to decide whether to use the public folder on later launches.
-      try {
-        const marker = fs.openSync(this.appDir + '/.granted', fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-        fs.writeSync(marker.fd, 'granted');
-        fs.closeSync(marker);
-      } catch (e) {
-        this.log('marker write failed: ' + JSON.stringify(e));
-      }
-      this.baseDir = this.appDir;
-      this.saveDir = this.appDir + '/savedata';
-      this.dataDir = this.appDir + '/data';
-      this.needInit = false;
+      this.adoptPublicDir();
       this.log('public dir initialised: ' + this.appDir);
       // trace the data layout so we can see what the engine will find
       this.log('baseDir list: ' + JSON.stringify(this.tryList(this.baseDir)));
@@ -858,33 +895,53 @@ struct Index {
     }
   }
 
-  /** Use the app-owned public Download folder (Download/<bundleName>) if the
-   *  platform allows it without permissions; otherwise keep the sandbox.
-   *  Returns true when the public folder is usable. */
+  /**
+   * Make sure baseDir/saveDir/dataDir point at a usable location. Order:
+   * verified marker -> silent direct write -> user permission (API 11+) ->
+   * legacy picker. After every route fails the app stays on the sandbox and
+   * never prompts again in this session.
+   */
   async ensurePublic(): Promise<boolean> {
-    // Never create this public path directly and never use accessSync here:
-    // on this device accessSync reports nonexistent paths as present. The
-    // .granted marker is only written after the system DOWNLOAD picker grants
-    // this app-owned directory.
-    const entries = this.tryList(this.appDir);
-    if (entries.indexOf('.granted') < 0) {
-      this.log('public app dir unavailable: marker missing; requesting grant');
-      return await this.initPublicDir();
-    }
-    if (this.baseDir !== this.appDir) {
-      this.baseDir = this.appDir;
-      this.saveDir = this.appDir + '/savedata';
-      this.dataDir = this.appDir + '/data';
-      try {
-        fs.mkdirSync(this.saveDir, true);
-      } catch (e) {
-        // already exists
+    try {
+      const entries = fs.listFileSync(this.appDir);
+      if (entries.indexOf('.granted') >= 0) {
+        this.adoptPublicDir();
+        return true;
       }
-      this.writeNomedia(this.appDir);
-      this.message = '';
-      this.log('switched to public dir: ' + this.baseDir);
+    } catch (e) {
+      // folder missing: fall through to the grant routes
     }
-    return true;
+    if (this.publicDenied) {
+      this.log('public dir unusable; staying on sandbox');
+      return false;
+    }
+    // 1) Silent direct write (no dialog).
+    if (this.tryPublicDirect()) {
+      this.adoptPublicDir();
+      return true;
+    }
+    // 2) Standard permission dialog.
+    if (!this.permRequested) {
+      this.permRequested = true;
+      if (await this.requestDownloadPermission()) {
+        if (this.tryPublicDirect()) {
+          this.adoptPublicDir();
+          return true;
+        }
+      } else {
+        // Explicit user denial: do not pile another dialog on top.
+        this.publicDenied = true;
+        this.message = '未授权下载目录，数据将保存在应用私有目录';
+        return false;
+      }
+    }
+    // 3) Legacy picker fallback (platforms whose permission route fails).
+    if (await this.initPublicDir()) {
+      return true;
+    }
+    this.publicDenied = true;
+    this.message = '下载目录不可用，数据将保存在应用私有目录';
+    return false;
   }
 
   async downloadAll(): Promise<void> {
@@ -2051,6 +2108,8 @@ struct Index {
           Text('需要授权').fontSize(18).fontColor(Color.White)
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(6)
           Button('重新授权并检查').width(200).height(48).onClick(() => {
+            this.publicDenied = false;
+            this.permRequested = false;
             this.prepare();
           })
         }

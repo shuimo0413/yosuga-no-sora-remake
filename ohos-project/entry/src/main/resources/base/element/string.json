@@ -15,6 +15,10 @@
     {
       "name": "media_reason",
       "value": "用于在下载目录中存取游戏数据与存档，方便您备份与修改"
+    },
+    {
+      "name": "download_dir_reason",
+      "value": "用于在下载目录中保存游戏数据与存档，便于您查看、备份与迁移"
     }
   ]
 }
