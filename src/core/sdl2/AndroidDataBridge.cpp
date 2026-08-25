@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 
+#include "AndroidDataBridge.h"
 #include "xp3_extract.h"
 
 static std::string gDataDir;
