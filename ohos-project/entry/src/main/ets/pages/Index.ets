@@ -76,6 +76,16 @@ async function unzipTask(srcZip: string, outDir: string): Promise<string> {
   }
 }
 
+/** TaskPool worker: copy one file (multi-GB) off the UI thread. */
+@Concurrent
+function copyFileTask(src: string, dst: string): void {
+  try {
+    fs.copyFileSync(src, dst);
+  } catch (e) {
+    // ignore
+  }
+}
+
 /**
  * TaskPool worker: move a directory tree across volumes (copy each file,
  * then remove the source tree). Used when the sandbox staging dir must
@@ -362,6 +372,9 @@ struct Index {
     // no setup buttons, no flicker of the setup page on launch.
     this.probeData();
     this.log('probeData done t=' + (Date.now() - this.hbStart));
+    // Clean up sandbox leftovers from imports/extractions killed mid-flight
+    // (background worker - never blocks startup).
+    this.cleanSandboxJunk();
     if (this.dataReady()) {
       // Readiness backed only by a root data.xp3 must be extracted into a
       // loose data/ tree before the game starts; a ready loose tree goes
@@ -571,6 +584,26 @@ struct Index {
       this.log('setScreenOn(' + keep + ') done t=' + (Date.now() - this.hbStart));
     } catch (e) {
       this.log('setScreenOn failed: ' + JSON.stringify(e));
+    }
+  }
+
+  /** Remove sandbox leftovers from imports/extractions that were killed
+   *  mid-flight (cached zips, staging dirs, progress/status files). The
+   *  sandbox data/ tree itself is never touched. Runs at startup. */
+  private cleanSandboxJunk(): void {
+    const dirs = ['cache', 'unzip.tmp', 'data.extract.tmp'];
+    for (const name of dirs) {
+      taskpool.execute(removeTreeTask, this.sandboxFiles + '/' + name);
+    }
+    const files = ['data.extract.tmp.status', 'data.extract.tmp.progress',
+      'data.extract.tmp.diag', 'unzip.tmp.move.progress',
+      'data.move.progress'];
+    for (const name of files) {
+      try {
+        fs.unlinkSync(this.sandboxFiles + '/' + name);
+      } catch (e) {
+        // not present
+      }
     }
   }
 
@@ -1147,8 +1180,15 @@ struct Index {
       await taskpool.execute(removeTreeTask, unzipTmp);
       return true;
     } else if (items.indexOf('data.xp3') >= 0) {
-      await this.extractAndFinalize(unzipTmp + '/data.xp3');
+      // A zip that contains a data.xp3 archive: copy the archive onto the
+      // app root in the public folder first, then run the normal
+      // extraction (which deletes the xp3 when it finishes).
+      this.progressText = '正在复制 data.xp3 到下载目录…';
+      this.uiEpoch++;
+      await taskpool.execute(copyFileTask, unzipTmp + '/data.xp3',
+        this.baseDir + '/data.xp3');
       await taskpool.execute(removeTreeTask, unzipTmp);
+      await this.extractAndFinalize(this.baseDir + '/data.xp3');
       return true;
     } else if (items.indexOf('startup.tjs') >= 0) {
       await swapIn(unzipTmp);
@@ -1368,52 +1408,30 @@ struct Index {
     } catch (e) {
       // already exists
     }
+    // Pass 1: a bare data.xp3 owns the whole flow immediately. Multi-part
+    // zips are collected and extracted TOGETHER below (the CI packer puts
+    // every part under the "data/" prefix, so merging them in one staging
+    // dir reproduces the tree).
+    const zipUris: string[] = [];
     for (let i = 0; i < uris.length; i++) {
       const uri = uris[i];
       const name = uri.substring(uri.lastIndexOf('/') + 1);
-      this.progressText = '正在导入 ' + name;
-      this.progressValue = Math.floor((i + 1) * 100 / Math.max(1, uris.length));
       const lower = name.toLowerCase();
       try {
         if (lower.endsWith('.xp3')) {
-          // A bare data.xp3 lands on the app root (beside savedata, like
-          // Windows krkrz), then gets extracted into a loose data/ tree and
-          // deleted. The extraction owns the rest of the flow.
+          this.progressText = '正在导入 ' + name;
+          this.uiEpoch++;
           await this.copyFromUri(uri, this.baseDir + '/data.xp3');
           await this.extractAndFinalize(this.baseDir + '/data.xp3');
           return;
         } else if (lower.endsWith('.zip')) {
-          const tmp = cacheDir + '/' + name;
-          await this.copyFromUri(uri, tmp);
-          // decompressFile REQUIRES sandbox paths for both input and
-          // output (the SDK documents it; a public path silently produces
-          // nothing). Unzip into the sandbox staging dir; installUnzipped
-          // then moves the tree to the public folder.
-          const unzipTmp = this.sandboxFiles + '/unzip.tmp';
-          await taskpool.execute(removeTreeTask, unzipTmp);
-          this.progressText = '正在解压 ' + name;
-          await this.unzipTo(tmp, unzipTmp);
-          try {
-            fs.unlinkSync(tmp);
-          } catch (e) {
-            // ignore
-          }
-          const ok = await this.installUnzipped(unzipTmp);
-          if (!ok) {
-            this.bootState = 2;
-            this.progressValue = 0;
-            this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
-            await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
-          }
-          return;
+          zipUris.push(uri);
         } else if (lower.endsWith('.7z') || lower.endsWith('.001') || lower.endsWith('.002')) {
           this.message = '暂不支持 7z 格式，请使用 zip 压缩包或 data.xp3';
           await this.showNotice('暂不支持 7z 格式', '请选择 zip 压缩包或 data.xp3 文件');
-          continue;
         } else {
           this.message = '不支持的文件类型：' + name;
           await this.showNotice('不支持的文件类型', '请选择 zip 压缩包或 data.xp3 文件');
-          continue;
         }
       } catch (e) {
         this.bootState = 2;
@@ -1422,10 +1440,45 @@ struct Index {
         await this.showNotice('导入失败', detail);
         return;
       }
-      await this.delay(50);
     }
-    await this.finishData();
-    this.uiEpoch++;
+    // Pass 2: extract every selected zip into ONE staging dir (parts merge
+    // there), then install the result.
+    if (zipUris.length > 0) {
+      const unzipTmp = this.sandboxFiles + '/unzip.tmp';
+      await taskpool.execute(removeTreeTask, unzipTmp);
+      for (let i = 0; i < zipUris.length; i++) {
+        const uri = zipUris[i];
+        const name = uri.substring(uri.lastIndexOf('/') + 1);
+        this.progressText = '正在解压 ' + name + '（' + (i + 1) + '/' + zipUris.length + '）';
+        this.progressValue = Math.floor(i * 100 / Math.max(1, zipUris.length));
+        this.uiEpoch++;
+        const tmp = cacheDir + '/' + name;
+        await this.copyFromUri(uri, tmp);
+        try {
+          await this.unzipTo(tmp, unzipTmp);
+        } catch (eZ) {
+          this.bootState = 2;
+          this.message = '导入失败：' + name + ' 不是有效的 zip 压缩包，请重新选择';
+          await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
+          return;
+        }
+        try {
+          fs.unlinkSync(tmp);
+        } catch (e) {
+          // ignore
+        }
+      }
+      const ok = await this.installUnzipped(unzipTmp);
+      if (!ok) {
+        this.bootState = 2;
+        this.progressValue = 0;
+        this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+        await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+      }
+      return;
+    }
+    // Nothing usable was selected: back to the setup page.
+    this.prepare();
   }
 
   /** First data.xp3 candidate: the app root, then the app-owned public
