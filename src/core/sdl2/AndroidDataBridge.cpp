@@ -96,7 +96,7 @@ static bool gExtractRunning = false;
 static std::thread gExtractThread;
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lightwinder_yosuganosora_hdremake_KirikiriSDL2Activity_nativeExtractXp3Start(
+Java_com_lightwinder_yosuganosora_hdremake_BootstrapActivity_nativeExtractXp3Start(
 	JNIEnv *env, jobject thiz, jstring xp3Path, jstring outDir)
 {
 	if (gExtractRunning) return JNI_FALSE;

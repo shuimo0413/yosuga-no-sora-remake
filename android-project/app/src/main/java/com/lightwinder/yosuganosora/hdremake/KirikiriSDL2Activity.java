@@ -49,10 +49,20 @@ public class KirikiriSDL2Activity extends SDLActivity {
 
     private static native void nativeOnMovieFinished();
     private static native void nativeOnMovieError(String message);
+    // External data flow: the bootstrap activity reports the extracted data
+    // directory; the engine resolves ./data/* against it (see
+    // AndroidDataBridge.cpp / StorageImpl.cpp). Empty string keeps the
+    // bundled APK assets as the data source.
+    private static native void nativeSetDataDir(String dataDir);
+    private static native void nativeDetachExtractThread();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        String dataDir = getIntent().getStringExtra("dataDir");
+        if (dataDir != null) {
+            nativeSetDataDir(dataDir);
+        }
         if (mLayout == null) return;
 
         movieView = new TextureView(this);
@@ -466,6 +476,7 @@ public class KirikiriSDL2Activity extends SDLActivity {
     @Override
     protected void onDestroy() {
         releaseMovieOnUiThread(false);
+        nativeDetachExtractThread();
         super.onDestroy();
     }
 }
