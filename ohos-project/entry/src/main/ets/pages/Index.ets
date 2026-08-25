@@ -1,5 +1,5 @@
 import entryNapi from 'libentry.so';
-import { common, wantAgent, Want } from '@kit.AbilityKit';
+import { common, wantAgent, Want, bundleManager } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
@@ -61,72 +61,6 @@ function unzipTask(srcZip: string, outDir: string): string {
     return 'ok';
   } catch (e) {
     return 'err:' + JSON.stringify(e);
-  }
-}
-
-/**
- * TaskPool worker: copy a directory tree iteratively and incrementally
- * (files whose destination already exists with the same size are skipped,
- * so a killed mirror run resumes cheaply). Runs off the UI thread.
- */
-@Concurrent
-function copyTreeTask(srcDir: string, dstDir: string): void {
-  const stack: string[] = [''];
-  while (stack.length > 0) {
-    const rel = stack.pop();
-    if (rel === undefined) {
-      continue;
-    }
-    const src = srcDir + (rel === '' ? '' : '/' + rel);
-    const dst = dstDir + (rel === '' ? '' : '/' + rel);
-    let entries: string[] = [];
-    try {
-      entries = fs.listFileSync(src);
-    } catch (e) {
-      continue;
-    }
-    try {
-      fs.mkdirSync(dst, true);
-    } catch (e) {
-      // may already exist
-    }
-    for (const name of entries) {
-      const s = src + '/' + name;
-      const d = dst + '/' + name;
-      let st: fs.Stat | null = null;
-      try {
-        st = fs.statSync(s);
-      } catch (e) {
-        continue;
-      }
-      if (st.isDirectory()) {
-        stack.push(rel === '' ? name : rel + '/' + name);
-      } else {
-        let same = false;
-        try {
-          const ds = fs.statSync(d);
-          same = ds.isFile() && ds.size === st.size;
-        } catch (e) {
-          // destination missing - copy it
-        }
-        if (!same) {
-          try {
-            fs.copyFileSync(s, d);
-          } catch (e) {
-            // ignore: a retry on the next launch will pick it up
-          }
-        }
-      }
-    }
-  }
-  // Completion marker: the launcher skips the mirror while it exists.
-  try {
-    const fd = fs.openSync(dstDir + '/.complete',
-      fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    fs.writeSync(fd.fd, 'ok');
-    fs.closeSync(fd);
-  } catch (e) {
-    // ignore
   }
 }
 
@@ -202,6 +136,7 @@ struct Index {
   @State debugOut: string = '';
   private autoInitTried: boolean = false;
   private extracting: boolean = false;
+  private confirming: boolean = false;
   @State readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
@@ -280,8 +215,8 @@ struct Index {
         this.extractAndFinalize(this.baseDir + '/data.xp3');
       } else {
         this.readyForGame = true;
-        this.log('ready -> startGame');
-        this.startGame();
+        this.log('ready -> confirm/start');
+        this.confirmDataVersion();
       }
     } else {
       this.bootState = 2;
@@ -312,7 +247,7 @@ struct Index {
     // already starting (black transition screen).
     setTimeout(() => {
       if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
-        this.startingGame) {
+        this.startingGame || this.confirming) {
         return;
       }
       this.prepare();
@@ -326,8 +261,8 @@ struct Index {
 
   async prepare(): Promise<void> {
     if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
-      this.startingGame) {
-      return; // already running / already starting / extracting
+      this.startingGame || this.confirming) {
+      return; // already running / starting / extracting / asking
     }
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
@@ -560,7 +495,7 @@ struct Index {
       // Launch as soon as the data is verified, once the page has had a
       // moment to render (no explicit start button).
       setTimeout(() => {
-        if (this.bootState === 2 && this.readyForGame) {
+        if (this.bootState === 2 && this.readyForGame && !this.confirming) {
           this.startGame();
         }
       }, 400);
@@ -945,11 +880,6 @@ struct Index {
       } catch (e) {
         // none present
       }
-      try {
-        fs.unlinkSync(this.dataDir + '/.complete');
-      } catch (e) {
-        // ignore
-      }
       this.finishData();
       this.uiEpoch++;
     };
@@ -968,32 +898,80 @@ struct Index {
     return false;
   }
 
-  /** Mirror the sandbox data/ tree into the public app folder so it is
-   *  visible in the file manager. Incremental (same-size files skipped)
-   *  and resumable: a killed mirror simply continues on the next launch.
-   *  Runs in the background while the game is already playing. */
-  private mirrorDataToPublic(): void {
+  /** Ask the user ONCE per app version whether to re-import the game
+   *  package (after an app update the sandbox still holds the previous
+   *  data) or keep using the old data. */
+  private async confirmDataVersion(): Promise<void> {
+    this.confirming = true;
     try {
-      // Sandbox-only setup (no granted public folder): nothing to mirror.
-      if (this.dataDir.startsWith(this.sandboxFiles)) {
+      const ver = String(this.getVersionCode());
+      const markerPath = this.sandboxFiles + '/data_confirm.txt';
+      if (this.tryReadFile(markerPath).trim() === ver) {
+        this.startGame();
         return;
       }
-      if (this.tryList(this.dataDir).indexOf('.complete') >= 0) {
-        return; // mirror already finished
+      this.bootState = 2;
+      this.progressText = '游戏数据已就绪';
+      this.uiEpoch++;
+      const reimport = await this.showConfirm(
+        '检测到已有游戏数据',
+        '是否重新导入游戏包？
+“重新导入”将删除现有数据并跳转到导入页面；“使用旧数据”将直接启动。',
+        '重新导入', '使用旧数据');
+      if (reimport) {
+        this.log('user chose re-import; dropping sandbox data');
+        await taskpool.execute(removeTreeTask, this.sandboxFiles + '/data');
+        this.writeTextFile(markerPath, ver);
+        this.readyForGame = false;
+        this.bootState = 2;
+        this.prepare();
+      } else {
+        this.writeTextFile(markerPath, ver);
+        this.startGame();
       }
-      if (this.tryList(this.sandboxFiles + '/data').indexOf('startup.tjs') < 0) {
-        return; // nothing to mirror yet
-      }
-      try {
-        fs.mkdirSync(this.dataDir, true);
-      } catch (e) {
-        // already exists
-      }
-      this.writeNomedia(this.dataDir);
-      this.log('starting public-folder mirror of sandbox data');
-      taskpool.execute(copyTreeTask, this.sandboxFiles + '/data', this.dataDir);
     } catch (e) {
-      this.log('mirror failed to start: ' + JSON.stringify(e));
+      this.log('confirmDataVersion error: ' + this.errText(e));
+      this.startGame();
+    } finally {
+      this.confirming = false;
+    }
+  }
+
+  private async showConfirm(title: string, msg: string, yesText: string,
+    noText: string): Promise<boolean> {
+    try {
+      const res = await promptAction.showDialog({
+        title: title,
+        message: msg,
+        buttons: [
+          { text: yesText, color: '#FF3B30' },
+          { text: noText, color: '#007DFF' }
+        ]
+      });
+      return res.index === 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  private getVersionCode(): number {
+    try {
+      const info = bundleManager.getBundleInfoForSelfSync(
+        bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION);
+      return info.versionCode;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  private writeTextFile(path: string, content: string): void {
+    try {
+      const fd = fs.openSync(path,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(fd.fd, content);
+      fs.closeSync(fd);
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -1258,9 +1236,9 @@ struct Index {
         this.finishData();
         return;
       }
-      // Clear leftover partial temp trees off the UI thread.
-      this.log('extract step: cleaning tmp ' + outTmp);
-      await taskpool.execute(removeTreeTask, outTmp);
+      // KEEP any partial temp tree: the extractor skips files whose size
+      // already matches, so a killed run resumes from where it stopped.
+      this.log('extract step: resuming in ' + outTmp);
       this.log('extract step: calling native extractXp3Start');
       const started = entryNapi.extractXp3Start(xp3Path, outTmp) as boolean;
       this.log('extract step: started=' + started);
@@ -1341,13 +1319,6 @@ struct Index {
       if (!renamed) {
         throw new Error('rename into place failed');
       }
-      // The data changed: invalidate the public-folder mirror marker so
-      // the background mirror rebuilds it on the next launch.
-      try {
-        fs.unlinkSync(this.dataDir + '/.complete');
-      } catch (e) {
-        // ignore
-      }
       this.log('extract done; removing archive files');
       try {
         fs.unlinkSync(outTmp + '.status');
@@ -1427,6 +1398,10 @@ struct Index {
         return;
       }
       this.readyForGame = true;
+      // Record that THIS app version already confirmed the current data,
+      // so an app update asks again exactly once.
+      this.writeTextFile(this.sandboxFiles + '/data_confirm.txt',
+        String(this.getVersionCode()));
       // Go straight to the black transition screen - never flash the setup
       // page after a download/import finished.
       this.bootState = 5;
@@ -1475,11 +1450,6 @@ struct Index {
       this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
       this.bootState = 6;
       this.startingGame = false;
-      // Once the game is up, mirror the sandbox data into the public
-      // folder in the background (incremental, resumable).
-      setTimeout(() => {
-        this.mirrorDataToPublic();
-      }, 15000);
     }, 1000);
   }
 

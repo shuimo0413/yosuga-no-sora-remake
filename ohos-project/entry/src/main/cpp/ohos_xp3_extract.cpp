@@ -650,6 +650,24 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
 
     for (size_t i = 0; i < entries.size(); ++i) {
       std::string full = std::string(outDir) + "/" + entries[i].name;
+      /* Resume support: a killed run may already have written this file
+       * completely. Skip it when its size matches the total original size
+       * of the segments (raw segments: arc == org). */
+      uint64_t totalOrg = 0;
+      for (size_t si = 0; si < entries[i].segments.size(); ++si) {
+        totalOrg += entries[i].segments[si].orgSize;
+      }
+      struct stat st;
+      if (stat(full.c_str(), &st) == 0 &&
+        (uint64_t)st.st_size == totalOrg) {
+        result->filesDone = (int)(i + 1);
+        if (progress && !progress(ctx, result->filesDone,
+          result->filesTotal, entries[i].name.c_str())) {
+          rc = -2;
+          break;
+        }
+        continue;
+      }
       std::string dir = full;
       size_t slash = dir.find_last_of('/');
       if (slash != std::string::npos) {
