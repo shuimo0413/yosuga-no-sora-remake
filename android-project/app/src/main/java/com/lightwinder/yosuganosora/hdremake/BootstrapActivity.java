@@ -81,8 +81,11 @@ public class BootstrapActivity extends Activity {
         DebugLog.log("bootstrap onCreate; sdk=" + Build.VERSION.SDK_INT
                 + " isExternalStorageManager=" + Environment.isExternalStorageManager());
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        applyImmersive();
+        // Build the content view FIRST: the immersive setup below touches
+        // the window insets controller, which NPEs on some Android 16
+        // environments (卓易通) when the DecorView does not exist yet.
         buildUi();
+        applyImmersive();
         requestStoragePermissionIfNeeded();
         probeData();
     }
@@ -131,25 +134,30 @@ public class BootstrapActivity extends Activity {
     /** Fullscreen immersive: hide the status/navigation bars (including the
      * gesture pill area) so the bootstrap page has no bottom black strip. */
     private void applyImmersive() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            getWindow().setDecorFitsSystemWindows(false);
-            android.view.WindowInsetsController controller =
-                    getWindow().getInsetsController();
-            if (controller != null) {
-                controller.hide(android.view.WindowInsets.Type.statusBars()
-                        | android.view.WindowInsets.Type.navigationBars());
-                controller.setSystemBarsBehavior(
-                        android.view.WindowInsetsController
-                                .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                getWindow().setDecorFitsSystemWindows(false);
+                android.view.WindowInsetsController controller =
+                        getWindow().getInsetsController();
+                if (controller != null) {
+                    controller.hide(android.view.WindowInsets.Type.statusBars()
+                            | android.view.WindowInsets.Type.navigationBars());
+                    controller.setSystemBarsBehavior(
+                            android.view.WindowInsetsController
+                                    .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                }
+            } else {
+                getWindow().getDecorView().setSystemUiVisibility(
+                        android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
             }
-        } else {
-            getWindow().getDecorView().setSystemUiVisibility(
-                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        } catch (Throwable t) {
+            // Immersion is cosmetic: never crash the bootstrap over it.
+            DebugLog.log("applyImmersive failed", t);
         }
     }
 
