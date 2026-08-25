@@ -97,6 +97,16 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 	OHNativeWindow *native_window;
 	EGLConfig config = NULL;
 	EGLint num_configs = 0;
+	{
+		const char *dd = SDL_OHOS_GetFilesDir();
+		if (dd && dd[0])
+		{
+			char lpath[512];
+			snprintf(lpath, sizeof(lpath), "%s/diag.txt", dd);
+			FILE *lf = fopen(lpath, "a");
+			if (lf) { fprintf(lf, "egl: CreateContext enter\n"); fclose(lf); }
+		}
+	}
 
 	if (window == NULL || (data = (SDL_WindowData *)window->driverdata) == NULL)
 	{
@@ -182,6 +192,16 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		{
 			SDL_SetError("OHOS: eglMakeCurrent after create failed");
 			return NULL;
+		}
+	}
+	{
+		const char *dd = SDL_OHOS_GetFilesDir();
+		if (dd && dd[0])
+		{
+			char lpath[512];
+			snprintf(lpath, sizeof(lpath), "%s/diag.txt", dd);
+			FILE *lf = fopen(lpath, "a");
+			if (lf) { fprintf(lf, "egl: CreateContext done\n"); fclose(lf); }
 		}
 	}
 	return (SDL_GLContext)g_ohos_egl_context;

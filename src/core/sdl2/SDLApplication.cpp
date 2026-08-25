@@ -11,6 +11,8 @@
 #include <hilog/log.h>
 #endif
 #include <dlfcn.h>
+#include <cstdio>
+#include <chrono>
 #include "WindowImpl.h"
 #include "VirtualKey.h"
 #include "Application.h"
@@ -3588,9 +3590,45 @@ bool TVPGetJoyPadAsyncState(tjs_uint keycode, bool getcurrent)
 	return is_pressed;
 }
 
+#if defined(__OHOS__)
+static void OHOSWindowDiag(const char *msg)
+{
+	typedef const char *(*GetFilesDirFn)(void);
+	static GetFilesDirFn fn = nullptr;
+	static const char *dir = nullptr;
+	if (fn == nullptr)
+	{
+		void *h = dlopen("libentry.so", RTLD_NOW);
+		if (!h)
+			h = RTLD_DEFAULT;
+		fn = (GetFilesDirFn)dlsym(h, "SDL_OHOS_GetFilesDir");
+	}
+	if (fn && dir == nullptr)
+		dir = fn();
+	if (!dir || !dir[0])
+		return;
+	std::string path = std::string(dir) + "/diag.txt";
+	FILE *lf = fopen(path.c_str(), "a");
+	if (lf)
+	{
+		long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+		fprintf(lf, "%lld: %s\n", ms % 100000, msg);
+		fclose(lf);
+	}
+}
+#endif
+
 TTVPWindowForm *TVPCreateAndAddWindow(tTJSNI_Window *w)
 {
-	return new TVPWindowWindow(w);
+#if defined(__OHOS__)
+	OHOSWindowDiag("TVPCreateAndAddWindow enter");
+#endif
+	TTVPWindowForm *ret = new TVPWindowWindow(w);
+#if defined(__OHOS__)
+	OHOSWindowDiag("TVPCreateAndAddWindow done");
+#endif
+	return ret;
 }
 
 tjs_uint32 TVPGetCurrentShiftKeyState()

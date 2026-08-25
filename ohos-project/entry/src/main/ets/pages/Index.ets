@@ -966,6 +966,19 @@ struct Index {
     // a black screen before mounting the XComponent: starting the engine
     // immediately after the page appears crashed libace_compatible.
     this.bootState = 5; // black transition screen
+    // Immersive fullscreen (hide the white navigation bar) - window
+    // properties only, no orientation call.
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
+        mainWindow.setWindowLayoutFullScreen(true);
+        mainWindow.setWindowSystemBarEnable([]);
+      }).catch(() => {
+        // best effort
+      });
+    } catch (e) {
+      // best effort
+    }
     setTimeout(() => {
       this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
       this.bootState = 6;
