@@ -1041,6 +1041,12 @@ struct Index {
     this.uiEpoch++;
     this.log('extractAndFinalize begin: ' + xp3Path);
     try {
+      // Report where a previous (killed) run stopped so crashes during
+      // extraction are diagnosable from debug.log on the next launch.
+      const lastProgress = this.tryReadFile(outTmp + '.progress');
+      if (lastProgress !== '') {
+        this.log('last extract progress: ' + lastProgress.trim());
+      }
       // Recover an interrupted previous run: a finished temp tree without a
       // data tree is renamed straight into place and skips re-extraction.
       const hasTmp = this.tryList(this.baseDir).indexOf('data.extract.tmp') >= 0;

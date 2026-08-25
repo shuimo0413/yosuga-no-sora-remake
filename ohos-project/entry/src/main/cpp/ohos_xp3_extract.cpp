@@ -637,6 +637,15 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       }
       break;
     }
+    /* Keep the media scanner away from the extracted tree while it is
+     * being written: thousands of image files appearing in the public
+     * Download folder trigger thumbnail generation storms that can get
+     * the app killed mid-extraction. */
+    {
+      std::string nomedia = std::string(outDir) + "/.nomedia";
+      FILE *nm = fopen(nomedia.c_str(), "w");
+      if (nm) fclose(nm);
+    }
     if (diag) { fprintf(diag, "output dir ready\n"); fflush(diag); }
 
     for (size_t i = 0; i < entries.size(); ++i) {

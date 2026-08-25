@@ -296,8 +296,9 @@ struct Xp3ExtractContext {
 
 int Xp3ProgressBridge(void *vctx, int done, int total, const char *nameUtf8) {
   Xp3ExtractContext *ctx = static_cast<Xp3ExtractContext *>(vctx);
-  /* Throttle: at most one file write per 128 extracted files. */
-  if (done % 128 != 0 && done < total) {
+  /* Throttle: at most one file write per 512 extracted files (less FUSE
+   * churn while thousands of files land in the public folder). */
+  if (done % 512 != 0 && done < total) {
     return 1;
   }
   FILE *p = fopen(ctx->progressPath.c_str(), "w");
