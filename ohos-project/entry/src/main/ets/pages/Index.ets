@@ -111,7 +111,11 @@ struct Index {
         if (++this.hbTick % 50 === 0) {
           this.log('ui alive t=' + (Date.now() - this.hbStart) + ' boot=' + this.bootState);
         }
+        const wasVideo = this.videoOnTop;
         this.videoOnTop = entryNapi.isVideoPlaying();
+        if (wasVideo !== this.videoOnTop) {
+          this.log('videoOnTop -> ' + this.videoOnTop + ' t=' + (Date.now() - this.hbStart));
+        }
         // The in-game exit button finishes the engine thread; the native
         // side reports "running" until the engine has actually started, so
         // a 0 here only ever means the game really quit. Terminate the app
@@ -1039,14 +1043,15 @@ struct Index {
                 if (ok) {
                   entryNapi.startEngine();
                   this.log('startEngine called');
-                  // Defer the keep-alive and screen-on system IPCs: calling
-                  // them right here awaited BackgroundTaskManager/WMS on the
-                  // UI thread and occasionally froze a first launch
+                  // Defer the keep-alive and screen-on system IPCs far away
+                  // from the engine startup: calling them during the first
+                  // launch window occasionally froze the UI thread
                   // (appfreeze - the system killed the app).
                   setTimeout(() => {
+                    this.log('deferred keepalive timer fired t=' + (Date.now() - this.hbStart));
                     this.startKeepAlive();
                     this.setScreenOn(true);
-                  }, 2000);
+                  }, 15000);
                 } else {
                   this.log('onLoad failed to attach the XComponent');
                 }
