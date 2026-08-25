@@ -352,9 +352,8 @@ int extractSegments(FILE *f, const Entry &entry, const std::string &outPath,
   FILE *out = fopen(outPath.c_str(), "wb");
   if (!out) {
     if (diag) {
-      fprintf(diag, "extract fopen failed: %s (errno=%d %s)
-",
-        outPath.c_str(), errno, strerror(errno));
+      fprintf(diag, "extract fopen failed: %s (errno=%d %s)%c",
+        outPath.c_str(), errno, strerror(errno), (char)10);
       fflush(diag);
     }
     char msg[160];
@@ -454,10 +453,8 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
   std::string diagPath = std::string(outDir) + ".diag";
   FILE *diag = fopen(diagPath.c_str(), "w");
   if (diag) {
-    fprintf(diag, "xp3=%s
-", xp3Path);
-    fprintf(diag, "outDir=%s
-", outDir);
+    fprintf(diag, "xp3=%s\n", xp3Path);
+    fprintf(diag, "outDir=%s\n", outDir);
     fflush(diag);
   }
 
@@ -469,20 +466,17 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (fread(sig, 1, 11, f) != 11 ||
       memcmp(sig, kSignature, 11) != 0) {
       rc = fail(result, "not an XP3 archive", xp3Path);
-      if (diag) { fprintf(diag, "signature mismatch
-"); fflush(diag); }
+      if (diag) { fprintf(diag, "signature mismatch\n"); fflush(diag); }
       break;
     }
-    if (diag) { fprintf(diag, "signature ok
-"); fflush(diag); }
+    if (diag) { fprintf(diag, "signature ok\n"); fflush(diag); }
 
     /* Get the real file size first: both the tail-index recovery and the
      * segment validation below need it. */
     fseeko(f, 0, SEEK_END);
     uint64_t archiveSize = (uint64_t)ftello(f);
     if (diag) {
-      fprintf(diag, "archiveSize=%llu
-", (unsigned long long)archiveSize);
+      fprintf(diag, "archiveSize=%llu\n", (unsigned long long)archiveSize);
       fflush(diag);
     }
 
@@ -497,8 +491,7 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       chainOk = false;
     }
     if (diag) {
-      fprintf(diag, "indexOfs=%llu
-", (unsigned long long)indexOfs);
+      fprintf(diag, "indexOfs=%llu\n", (unsigned long long)indexOfs);
       fflush(diag);
     }
     while (chainOk && indexOfs != 0) {
@@ -508,8 +501,7 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
         break;
       }
       if (diag) {
-        fprintf(diag, "block@%llu flag=0x%02x
-",
+        fprintf(diag, "block@%llu flag=0x%02x\n",
           (unsigned long long)indexOfs, flagByte);
         fflush(diag);
       }
@@ -535,8 +527,7 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
       }
       if (indexSize == 0) {
         /* empty stub block (GARbro style): the real index is in the tail */
-        if (diag) { fprintf(diag, "empty stub block -> tail recovery
-"); fflush(diag); }
+        if (diag) { fprintf(diag, "empty stub block -> tail recovery\n"); fflush(diag); }
         chainOk = false;
         break;
       }
@@ -591,22 +582,19 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (!chainOk) {
       /* Recover the real index from the file tail: GARbro and friends keep
        * a plain contiguous File-chunk chain that ends exactly at EOF. */
-      if (diag) { fprintf(diag, "falling back to tail recovery
-"); fflush(diag); }
+      if (diag) { fprintf(diag, "falling back to tail recovery\n"); fflush(diag); }
       entries.clear();
       result->error[0] = 0;
       if (!carveTailIndex(f, archiveSize, entries, result)) {
         if (diag) {
-          fprintf(diag, "tail recovery failed: %s
-", result->error);
+          fprintf(diag, "tail recovery failed: %s\n", result->error);
           fflush(diag);
         }
         rc = -1;
         break;
       }
       if (diag) {
-        fprintf(diag, "tail recovery found %zu entries
-", entries.size());
+        fprintf(diag, "tail recovery found %zu entries\n", entries.size());
         fflush(diag);
       }
     }
@@ -631,8 +619,7 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (rc != 0) break;
 
     if (diag) {
-      fprintf(diag, "entries=%zu (filesTotal=%d)
-",
+      fprintf(diag, "entries=%zu (filesTotal=%d)\n",
         entries.size(), (int)entries.size());
       fflush(diag);
     }
@@ -642,15 +629,13 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
     if (!mkdirs(std::string(outDir) + "/.")) {
       rc = fail(result, "cannot create output directory", outDir);
       if (diag) {
-        fprintf(diag, "mkdirs(%s) failed (errno=%d %s)
-", outDir,
+        fprintf(diag, "mkdirs(%s) failed (errno=%d %s)\n", outDir,
           errno, strerror(errno));
         fflush(diag);
       }
       break;
     }
-    if (diag) { fprintf(diag, "output dir ready
-"); fflush(diag); }
+    if (diag) { fprintf(diag, "output dir ready\n"); fflush(diag); }
 
     for (size_t i = 0; i < entries.size(); ++i) {
       std::string full = std::string(outDir) + "/" + entries[i].name;
@@ -687,8 +672,7 @@ int OHOS_ExtractXp3(const char *xp3Path, const char *outDir,
   }
 
   if (diag) {
-    fprintf(diag, "final rc=%d ok=%d files=%d/%d error=%s
-", rc,
+    fprintf(diag, "final rc=%d ok=%d files=%d/%d error=%s\n", rc,
       result->ok, result->filesDone, result->filesTotal, result->error);
     fflush(diag);
     fclose(diag);
