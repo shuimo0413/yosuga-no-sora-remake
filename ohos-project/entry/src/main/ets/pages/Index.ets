@@ -58,7 +58,15 @@ interface DataManifest {
 function unzipTask(srcZip: string, outDir: string): string {
   try {
     zlib.decompressFile(srcZip, outDir);
-    return 'ok';
+    // Report the top-level entries so a truncated decompression is
+    // visible in the debug log instead of failing silently.
+    let names: string[] = [];
+    try {
+      names = fs.listFileSync(outDir);
+    } catch (e) {
+      names = ['<listerr>'];
+    }
+    return 'ok:' + names.join(',');
   } catch (e) {
     return 'err:' + JSON.stringify(e);
   }
@@ -856,10 +864,17 @@ struct Index {
   async unzipTo(srcZip: string, outDir: string): Promise<void> {
     // Run the decompression on a TaskPool worker: zlib.decompressFile on a
     // multi-GB archive blocks the UI thread long enough to trigger ANR and
-    // the system kills the app mid-import.
-    const result = await taskpool.execute(unzipTask, srcZip, outDir) as string;
-    if (result !== 'ok') {
-      throw new Error(result);
+    // the system kills the app mid-import. The DATA_TRANSFER continuous
+    // task protects the long decompression from resource reclamation.
+    await this.startExtractTask();
+    try {
+      const result = await taskpool.execute(unzipTask, srcZip, outDir) as string;
+      this.log('unzip result: ' + result.slice(0, 600));
+      if (!result.startsWith('ok:')) {
+        throw new Error(result);
+      }
+    } finally {
+      await this.stopExtractTask();
     }
   }
 
