@@ -934,6 +934,20 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #ifndef __EMSCRIPTEN__
 	window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #endif
+#if defined(__ANDROID__)
+	/* Android: request a GLES2 window up front. Without SDL_WINDOW_OPENGL,
+	 * SDL_GL_CreateContext() reports "window isn't an OpenGL window" and
+	 * GLES2_CreateRenderer() cannot create its EGL context, so
+	 * SDL_CreateRenderer(ACCELERATED) falls back to software. */
+	window_flags |= SDL_WINDOW_OPENGL;
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#endif
 #if defined(__OHOS__)
 	/* OHOS: the OpenGLES render driver requires an OpenGL window. Without
 	 * SDL_WINDOW_OPENGL, SDL_GL_CreateContext() returns "window isn't an
@@ -1004,13 +1018,13 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 	{
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
-#if defined(__OHOS__)
-		/* OHOS: prefer the hardware GLES2 renderer (eglSwapBuffers into the
-		 * XComponent window). The GLES2 probe's EGL initialization is also
-		 * what makes the window's buffer queue present software frames, so
-		 * keep it even when it falls back to software. The software renderer
-		 * paints through the LockBuffer path and TickBeat pauses whichever
-		 * renderer is active while the AVPlayer owns the surface. */
+#if defined(__ANDROID__) || defined(__OHOS__)
+		/* Android/OHOS: prefer the hardware GLES2 renderer. On OHOS the
+		 * GLES2 probe's EGL initialization is also what makes the window's
+		 * buffer queue present software frames, so keep it even when it
+		 * falls back to software. The software renderer paints through the
+		 * LockBuffer path and TickBeat pauses whichever renderer is active
+		 * while the AVPlayer owns the surface. */
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		if (!this->renderer)
 		{
