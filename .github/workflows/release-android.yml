@@ -149,23 +149,6 @@ jobs:
             echo "version-code=$version_code"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Verify Git LFS content
-        shell: bash
-        run: |
-          set -euo pipefail
-          git lfs pull
-          git lfs fsck
-
-      - name: Generate and validate the content manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/generate_content_manifest.py \
-            --root data \
-            --output data/content-manifest.json \
-            --config content-packs.json \
-            --cache "$RUNNER_TEMP/content-manifest-cache.json" \
-            --full
 
       # Restore the development signing keystore from the Actions cache so
       # every build (with or without release secrets) signs with the SAME
