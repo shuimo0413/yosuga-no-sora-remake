@@ -174,7 +174,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 
 @end
 
-@interface TVPIOSBootstrapVC () <UIDocumentPickerDelegate, NSURLSessionDownloadDelegate>
+@interface TVPIOSBootstrapVC () <UIDocumentPickerDelegate, NSURLSessionDownloadDelegate, UITextFieldDelegate>
 @property (nonatomic, copy) NSArray *assetList;
 @property (nonatomic) NSUInteger assetIndex;
 @property (nonatomic) long long doneBytes;
