@@ -78,8 +78,14 @@ public class BootstrapActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         DebugLog.init(this);
+        // Environment.isExternalStorageManager() only exists on API 30+;
+        // calling it below crashes Android 10 with NoSuchMethodError.
+        boolean isStorageManager = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            isStorageManager = Environment.isExternalStorageManager();
+        }
         DebugLog.log("bootstrap onCreate; sdk=" + Build.VERSION.SDK_INT
-                + " isExternalStorageManager=" + Environment.isExternalStorageManager());
+                + " isExternalStorageManager=" + isStorageManager);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         // Build the content view FIRST: the immersive setup below touches
         // the window insets controller, which NPEs on some Android 16
