@@ -520,12 +520,12 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 	const char *ext_data_root = AndroidDataDir_Get();
 	if (ext_data_root && ext_data_root[0] &&
 		nname.length() >= 2 && nname[0] == '.' &&
-		(nname[1] == '/' || nname[1] == '\'))
+		(nname[1] == '/' || (unsigned char)nname[1] == 92))
 	{
 		std::string rel(nname.begin() + 2, nname.end());
 		for (std::string::iterator i = rel.begin(); i != rel.end(); ++i)
 		{
-			if (*i == '\') *i = '/';
+			if ((unsigned char)*i == 92) *i = '/';
 		}
 		bool is_data = false;
 		if (rel.compare(0, 5, "data/") == 0) { rel.erase(0, 5); is_data = true; }
