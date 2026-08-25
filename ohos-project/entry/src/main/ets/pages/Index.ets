@@ -76,8 +76,7 @@ function unzipTask(srcZip: string, outDir: string): string {
  * TaskPool worker: move a directory tree across volumes (copy each file,
  * then remove the source tree). Used when the sandbox staging dir must
  * become the public data/ folder (a rename fails with EXDEV across
- * volumes). Reports progress through <srcDir>.move.progress
- * ("done total" lines, final line "DONE") so the UI can poll it.
+ * volumes). Runs off the UI thread.
  */
 @Concurrent
 function moveTreeTask(srcDir: string, dstDir: string): void {
@@ -169,7 +168,6 @@ function moveTreeTask(srcDir: string, dstDir: string): void {
       }
     }
   }
-
   // Remove the (now empty) source tree bottom-up.
   const dirs: string[] = [];
   const rmStack: string[] = [srcDir];
@@ -218,7 +216,6 @@ function moveTreeTask(srcDir: string, dstDir: string): void {
     // ignore
   }
 }
-
 
 /**
  * TaskPool worker: delete a directory tree iteratively (no recursion:
@@ -1473,3 +1470,521 @@ struct Index {
       }
       // Recover ONLY a fully finished previous run: the worker writes
       // "ok ..." into <outTmp>.status only after every file extracted. A
+      // killed run leaves no status (or a stale one) and its PARTIAL tree
+      // must be discarded and re-extracted - never renamed into place.
+      const lastStatus = this.tryReadFile(outTmp + '.status');
+      const hasTmp = this.tryList(this.baseDir).indexOf('data.extract.tmp') >= 0;
+      const hasData = this.tryList(outDir).indexOf('startup.tjs') >= 0;
+      if (hasTmp && !hasData && lastStatus.startsWith('ok')) {
+        try {
+          fs.renameSync(outTmp, outDir);
+        } catch (e) {
+          // fall through and re-extract
+        }
+      }
+      if (this.tryList(outDir).indexOf('startup.tjs') >= 0) {
+        this.log('recovered extracted tree; removing archive files');
+        try {
+          fs.unlinkSync(xp3Path);
+        } catch (e) {
+          // ignore
+        }
+        try {
+          fs.unlinkSync(DOWNLOAD_ROOT + '/' + APP_FOLDER + '/data.xp3');
+        } catch (e) {
+          // ignore
+        }
+        this.finishData();
+        return;
+      }
+      // KEEP any partial temp tree: the extractor skips files whose size
+      // already matches, so a killed run resumes from where it stopped.
+      this.log('extract step: resuming in ' + outTmp);
+      // Ask the system for a DATA_TRANSFER continuous task: it exempts
+      // this long extraction from resource reclamation.
+      await this.startExtractTask();
+      this.log('extract step: calling native extractXp3Start');
+      const started = entryNapi.extractXp3Start(xp3Path, outTmp) as boolean;
+      this.log('extract step: started=' + started);
+      if (!started) {
+        this.bootState = 2;
+        this.progressText = '解包失败，可重新导入或下载';
+        this.message = '解包失败：无法启动解包线程';
+        this.uiEpoch++;
+        await this.showNotice('解包失败', '无法启动解包线程');
+        return;
+      }
+      // The native worker reports through <outTmp>.status / <outTmp>.progress
+      // (polled - the same pattern as the rest of the shell; the OHOS
+      // napi_threadsafe_function rejected our create call with
+      // napi_invalid_arg, so no NAPI callback is used).
+      const statusPath = outTmp + '.status';
+      const progressPath = outTmp + '.progress';
+      let done = 0;
+      let total = 0;
+      let pollCount = 0;
+      while (true) {
+        await this.delay(400);
+        pollCount++;
+        if (pollCount % 10 === 0) {
+          this.log('extract polling alive, done=' + done + '/' + total);
+        }
+        const st = this.tryReadFile(statusPath);
+        if (st !== '') {
+          this.log('extract step: status=' + st.trim());
+          if (st.startsWith('ok')) {
+            break;
+          }
+          const errMsg = st.startsWith('error ') ? st.substring(6).trim() : st.trim();
+          const diagText = this.tryReadFile(outTmp + '.diag');
+          this.log('extract diag: ' + (diagText !== '' ? diagText.slice(-2000) : '(empty)'));
+          this.bootState = 2;
+          this.progressText = '解包失败，可重新导入或下载';
+          this.message = '解包失败：' + (errMsg !== '' ? errMsg : '未知错误');
+          this.uiEpoch++;
+          await this.showNotice('解包失败', errMsg !== '' ? errMsg : '未知错误');
+          return;
+        }
+        const pg = this.tryReadFile(progressPath);
+        if (pg !== '') {
+          const parts = pg.trim().split(' ');
+          if (parts.length >= 2) {
+            const pd = Number(parts[0]);
+            const pt = Number(parts[1]);
+            /* Guard against partially-written progress lines: only accept
+             * finite positive values (NaN would crash the Progress node). */
+            if (isFinite(pd) && isFinite(pt) && pd >= 0 && pt > 0) {
+              done = pd;
+              total = pt;
+              this.progressValue = Math.floor(done * 100 / total);
+              this.progressText = '正在解包 data.xp3：' + done + ' / ' + total + ' 个文件';
+            }
+          }
+        }
+      }
+      // Swap the extracted tree in, replacing ANY previous data tree
+      // (partial or complete) - rename fails when the target exists.
+      if (this.tryList(this.baseDir).indexOf('data') >= 0) {
+        this.progressText = '正在替换旧数据…';
+        this.uiEpoch++;
+        await taskpool.execute(removeTreeTask, outDir);
+      }
+      let renamed = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          fs.renameSync(outTmp, outDir);
+          renamed = true;
+          break;
+        } catch (eR) {
+          this.log('rename attempt ' + attempt + ' failed: ' + this.errText(eR));
+          await this.delay(800);
+        }
+      }
+      if (!renamed) {
+        throw new Error('rename into place failed');
+      }
+      this.log('extract done; removing archive files');
+      try {
+        fs.unlinkSync(outTmp + '.status');
+      } catch (e) {
+        // ignore
+      }
+      try {
+        fs.unlinkSync(outTmp + '.progress');
+      } catch (e) {
+        // ignore
+      }
+      try {
+        fs.unlinkSync(xp3Path);
+      } catch (e) {
+        // ignore
+      }
+      try {
+        fs.unlinkSync(DOWNLOAD_ROOT + '/' + APP_FOLDER + '/data.xp3');
+      } catch (e) {
+        // ignore
+      }
+      this.finishData();
+    } catch (e) {
+      this.bootState = 2;
+      this.progressText = '解包失败，可重新导入或下载';
+      this.message = '解包失败：' + this.errText(e);
+      this.uiEpoch++;
+      this.log('extractAndFinalize failed: ' + this.errText(e));
+    } finally {
+      await this.stopExtractTask();
+      this.extracting = false;
+    }
+  }
+
+  /** Read a small text file; returns '' when missing/unreadable. */
+  private tryReadFile(path: string): string {
+    try {
+      return fs.readTextSync(path);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /** Best-effort human-readable rendering of a caught value (NAPI errors
+   *  serialize to "{}" with JSON.stringify). */
+  private errText(e: Object): string {
+    try {
+      const s = JSON.stringify(e);
+      if (s !== undefined && s !== '{}') {
+        return s;
+      }
+    } catch (e2) {
+      // fall through
+    }
+    try {
+      const anyE = e as Error;
+      if (anyE.message !== undefined && anyE.message !== '') {
+        return (anyE.name ? anyE.name + ': ' : '') + anyE.message;
+      }
+    } catch (e3) {
+      // fall through
+    }
+    try {
+      return String(e);
+    } catch (e4) {
+      return 'unknown';
+    }
+  }
+
+  finishData(): void {
+    if (this.dataReady()) {
+      // A zip download may have delivered a root-level data.xp3; extract it
+      // into a loose data/ tree before starting (and then remove the xp3).
+      const rootEntries = this.tryList(this.baseDir);
+      const hasLoose = this.hasLooseData();
+      if (rootEntries.indexOf('data.xp3') >= 0 && !hasLoose) {
+        this.extractAndFinalize(this.baseDir + '/data.xp3');
+        return;
+      }
+      this.readyForGame = true;
+      // Record that THIS app version already confirmed the current data,
+      // so an app update asks again exactly once.
+      this.writeTextFile(this.sandboxFiles + '/data_confirm.txt',
+        String(this.getVersionCode()));
+      // Go straight to the black transition screen - never flash the setup
+      // page after a download/import finished.
+      this.bootState = 5;
+      this.progressText = '游戏数据已就绪';
+      this.message = '';
+      this.uiEpoch++;
+      this.log('import/download complete; auto-starting the game');
+      setTimeout(() => {
+        if (this.bootState === 5 && this.readyForGame) {
+          this.startGame();
+        }
+      }, 400);
+      return;
+    }
+    this.bootState = 2;
+    this.progressValue = 0;
+    this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+    this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+  }
+
+  delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  startGame(): void {
+    if (this.bootState === 6 || this.startingGame) {
+      return; // already running / already starting
+    }
+    this.startingGame = true;
+    this.log('startGame begin t=' + (Date.now() - this.hbStart));
+    this.cleanKrkrTmp();
+    // The loose tree lives in the public folder (Download/<bundle>/data);
+    // fall back to the sandbox only for data left by older builds.
+    let engineBase = this.baseDir;
+    if (this.tryList(this.dataDir).indexOf('startup.tjs') < 0 &&
+      this.tryList(this.sandboxFiles + '/data').indexOf('startup.tjs') >= 0) {
+      engineBase = this.sandboxFiles;
+    }
+    this.log('engine base dir: ' + engineBase);
+    entryNapi.setExternalDirs(engineBase, this.saveDir);
+    // Orientation is fixed to landscape in module.json5. Still wait ~1s on
+    // a black screen before mounting the XComponent: starting the engine
+    // immediately after the page appears crashed libace_compatible.
+    this.bootState = 5; // black transition screen
+    setTimeout(() => {
+      this.log('transition done -> bootState=6 t=' + (Date.now() - this.hbStart));
+      this.bootState = 6;
+      this.startingGame = false;
+    }, 1000);
+  }
+
+  private rotateToLandscape(): void {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
+        this.log('rotateToLandscape got window t=' + (Date.now() - this.hbStart));
+        mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
+        mainWindow.setWindowLayoutFullScreen(true);
+        // Hide both system bars so the navigation gesture pill is
+        // immersed too (game runs fullscreen edge to edge).
+        mainWindow.setWindowSystemBarEnable([]);
+      }).catch(() => {
+        // best effort
+      });
+    } catch (e) {
+      // best effort
+    }
+  }
+
+  build() {
+    Stack({ alignContent: Alignment.Center }) {
+      // Title background image shipped inside the HAP (rawfile); only on
+      // the bootstrap page - the running game sits on plain black.
+      if (this.bootState !== 6 && this.bootState !== 5) {
+        Image($rawfile('Background.png'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+      }
+      Column() {
+      if (this.bootState === 0) {
+        Text(this.progressText).fontSize(16).fontColor(Color.Gray)
+      } else if (this.bootState === 5) {
+        // Black screen while the window settles in landscape before the
+        // engine starts.
+        Column() {}
+      } else if (this.bootState === 6) {
+        Stack() {
+          XComponent({
+            id: 'gameview',
+            type: XComponentType.SURFACE,
+            libraryname: 'entry',
+            controller: this.xcController
+          })
+            .onLoad((context: object) => {
+              try {
+                this.log('XComponent onLoad begin t=' + (Date.now() - this.hbStart));
+                // Try to hand the engine a surfaceId so it can create the
+                // native window directly (the legacy surface callbacks do not
+                // fire on this system).
+                let sid = '';
+                try {
+                  sid = this.xcController.getXComponentSurfaceId();
+                } catch (e3) {
+                  this.log('getXComponentSurfaceId failed: ' + JSON.stringify(e3));
+                }
+                this.log('onLoad surfaceId=' + sid);
+                entryNapi.setSurfaceId(sid);
+                this.log('XComponent onLoad native-attach done');
+                const ok: boolean = entryNapi.onLoad(context) as boolean;
+                this.log('XComponent onLoad attached=' + ok);
+                if (ok) {
+                  entryNapi.startEngine();
+                  this.log('startEngine called');
+                  // Defer ALL window/system IPCs away from the engine
+                  // startup: calling them right after an import froze the UI
+                  // thread (appfreeze - the system killed the app).
+                  setTimeout(() => {
+                    this.log('immersive timer fired t=' + (Date.now() - this.hbStart));
+                    this.applyImmersive();
+                  }, 2000);
+                  setTimeout(() => {
+                    this.log('deferred keepalive timer fired t=' + (Date.now() - this.hbStart));
+                    this.startKeepAlive();
+                    this.setScreenOn(true);
+                  }, 15000);
+                } else {
+                  this.log('onLoad failed to attach the XComponent');
+                }
+              } catch (e) {
+                // never let an exception kill the app
+                this.log('onLoad exception: ' + JSON.stringify(e));
+              }
+            })
+            // Full-screen height with 16:9 aspect: the video fills the
+            // screen top-to-bottom and letterboxes on the sides only.
+            .height('100%')
+            .aspectRatio(16 / 9)
+            // Report the real component size to the engine: the native
+            // OnSurfaceChanged callback never fires on this system, so
+            // without this the SDL window size stays at the fallback and
+            // touch coordinates are scaled wrong.
+            .onAreaChange((oldValue: Area, newValue: Area) => {
+              try {
+                const w = newValue.width as number;
+                const h = newValue.height as number;
+                if (w > 0 && h > 0) {
+                  // Record the real component pixel size. This is used ONLY to
+                  // scale touch coordinates from the physical XComponent space
+                  // into the game's logical window space (1920x1080). The SDL
+                  // window size itself must stay at the game resolution -
+                  // resizing it to the physical size made the game crash
+                  // ("Scan line 0 is range over (0 to -1)") because layers are
+                  // laid out in the 1920x1080 coordinate system.
+                  entryNapi.setSurfaceSize(vp2px(w), vp2px(h));
+                  this.log('XComponent size: ' + vp2px(w).toFixed(0) + 'x' + vp2px(h).toFixed(0) + ' px');
+                }
+              } catch (e) {
+                this.log('onAreaChange exception: ' + JSON.stringify(e));
+              }
+            })
+            // Video XComponent: the AVPlayer renders the OP/logo movies into
+            // THIS surface. The native surface layer ignores zIndex/offset,
+            // so the ONLY reliable way to hide it is to unmount the component
+            // entirely when idle (the AVPlayer releases it, else its black
+            // frame covers the engine forever).
+            if (this.videoOnTop) {
+            XComponent({
+              id: 'videoview',
+              type: XComponentType.SURFACE,
+              libraryname: 'entry',
+              controller: this.xcVideoController
+            })
+              .onLoad(() => {
+                try {
+                  let vsid = '';
+                  try {
+                    vsid = this.xcVideoController.getXComponentSurfaceId();
+                  } catch (e3) {
+                    this.log('getVideoXComponentSurfaceId failed: ' + JSON.stringify(e3));
+                  }
+                  this.log('video onLoad surfaceId=' + vsid);
+                  entryNapi.setVideoSurfaceId(vsid);
+                } catch (e) {
+                  this.log('video onLoad exception: ' + JSON.stringify(e));
+                }
+              })
+              .height('100%')
+              .aspectRatio(16 / 9)
+              .zIndex(3)
+            }
+            // No .onTouch here: libace_compatible crashes the UI thread while
+            // processing touches on the XComponent node itself (before any
+            // ArkTS callback runs). Touches are captured by the transparent
+            // overlay below.
+          // Transparent overlay captures ALL touches so the XComponent node
+          // itself never receives them (libace_compatible crashes processing
+          // XComponent touches). Forward to the SDL backend via napi.
+          Column()
+            // Same size as the XComponent so overlay vp coords map directly
+            // onto the SDL window coordinate space.
+            .height('100%')
+            .aspectRatio(16 / 9)
+            .backgroundColor('#00000000')
+            .zIndex(4)
+            .onTouch((event: TouchEvent) => {
+              try {
+                let type = 0; // SDL_OHOS_TOUCH_DOWN
+                if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  type = 1; // SDL_OHOS_TOUCH_UP
+                } else if (event.type === TouchType.Move) {
+                  type = 2; // SDL_OHOS_TOUCH_MOVE
+                }
+                // Primary finger drives the mouse simulation (single-tap
+                // advances text, skips the logo movie).
+                const t = event.touches[0];
+                if (t) {
+                  entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
+                }
+                // EVERY finger must reach SDL as a FINGER event: the engine
+                // maps a two-finger tap onto the right mouse button, which
+                // is how the OP movie is skipped and menus are backed out
+                // of. The old code only forwarded touches[0], so two-finger
+                // gestures never existed on OHOS.
+                const changed = event.changedTouches;
+                for (let i = 0; i < changed.length; i++) {
+                  const f = changed[i];
+                  entryNapi.sendFinger(type, f.id, vp2px(f.x), vp2px(f.y));
+                }
+                this.log('overlay touch: type=' + type + ' fingers=' + event.touches.length +
+                  ' changed=' + changed.length);
+              } catch (e) {
+                this.log('overlay onTouch exception: ' + JSON.stringify(e));
+              }
+            })
+        }
+        .width('100%')
+        .height('100%')
+      } else if (this.bootState === 2) {
+        Column({ space: 8 }) {
+          Text('').height(12)
+          Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
+            .textShadow({ radius: 3, color: '#000000', offsetX: 0, offsetY: 0 })
+          // Error messages show right below the title in a slim reserved
+          // slot so the whole setup page fits one screen.
+          Text(this.message === '' ? ' ' : this.message).fontSize(11).fontColor(Color.Red)
+            .maxLines(1).height(18).textAlign(TextAlign.Center)
+          Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Black)
+          TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })
+            .width('86%')
+            .fontSize(12)
+            .fontColor(Color.White)
+            .placeholderColor(Color.Gray)
+            .caretColor(Color.White)
+            .backgroundColor('#333333')
+            .onChange((value: string) => {
+              this.baseUrl = value;
+            })
+          TextInput({ text: this.proxyUrl, placeholder: '加速代理前缀（留空=直连）' })
+            .width('86%')
+            .fontSize(12)
+            .fontColor(Color.White)
+            .placeholderColor(Color.Gray)
+            .caretColor(Color.White)
+            .backgroundColor('#333333')
+            .onChange((value: string) => {
+              this.proxyUrl = value;
+            })
+          Row({ space: 8 }) {
+            Button('直连').fontSize(12).height(32).backgroundColor('#666666').onClick(() => {
+              this.proxyUrl = '';
+            })
+            Button('gh-proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
+              this.proxyUrl = 'https://gh-proxy.cn/';
+            })
+            Button('Craft-Hello Proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
+              this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
+            })
+          }
+          Text('下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Black).maxLines(2)
+          Row({ space: 12 }) {
+            Button('下载游戏数据').width(150).height(52).onClick(() => {
+              this.downloadAll();
+            })
+            Button('从本地压缩包导入').width(150).height(52).backgroundColor('#3A5BA0').onClick(() => {
+              this.importLocal();
+            })
+          }
+          }
+        .width('100%')
+        .padding({ top: 20, bottom: 40 })
+      } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
+        Column({ space: 14 }) {
+          // Progress component may not repaint on some system versions;
+          // the percentage text is the reliable progress indicator.
+          Text(this.progressText).fontSize(16).fontWeight(FontWeight.Medium)
+            .fontColor(Color.White).maxLines(4)
+            .backgroundColor('#333333').padding(12).borderRadius(8)
+            .textAlign(TextAlign.Center)
+          Progress({ value: this.progressValue, total: 100 }).width(260).color(Color.White)
+        }
+      } else {
+        Column({ space: 14 }) {
+          Text('需要授权').fontSize(18).fontColor(Color.White)
+          Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(6)
+          Button('重新授权并检查').width(200).height(48).onClick(() => {
+            this.prepare();
+          })
+        }
+      }
+      }
+      .width('100%')
+      .height('100%')
+    }
+    .key('boot-' + this.bootState + '-' + this.uiEpoch)
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#000000')
+    .expandSafeArea([SafeAreaType.SYSTEM])
+  }
+};
