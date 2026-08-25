@@ -73,6 +73,93 @@ function unzipTask(srcZip: string, outDir: string): string {
 }
 
 /**
+ * TaskPool worker: move a directory tree across volumes (copy each file,
+ * then remove the source tree). Used when the sandbox staging dir must
+ * become the public data/ folder (a rename fails with EXDEV across
+ * volumes). Runs off the UI thread.
+ */
+@Concurrent
+function moveTreeTask(srcDir: string, dstDir: string): void {
+  const stack: string[] = [''];
+  while (stack.length > 0) {
+    const rel = stack.pop();
+    if (rel === undefined) {
+      continue;
+    }
+    const src = srcDir + (rel === '' ? '' : '/' + rel);
+    const dst = dstDir + (rel === '' ? '' : '/' + rel);
+    let entries: string[] = [];
+    try {
+      entries = fs.listFileSync(src);
+    } catch (e) {
+      continue;
+    }
+    try {
+      fs.mkdirSync(dst, true);
+    } catch (e) {
+      // may already exist
+    }
+    for (const name of entries) {
+      const s = src + '/' + name;
+      const d = dst + '/' + name;
+      let st: fs.Stat | null = null;
+      try {
+        st = fs.statSync(s);
+      } catch (e) {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push(rel === '' ? name : rel + '/' + name);
+      } else {
+        try {
+          fs.copyFileSync(s, d);
+          fs.unlinkSync(s);
+        } catch (e) {
+          // a retry on the next launch picks it up
+        }
+      }
+    }
+  }
+  // Remove the (now empty) source tree bottom-up.
+  const dirs: string[] = [];
+  const rmStack: string[] = [srcDir];
+  while (rmStack.length > 0) {
+    const cur = rmStack.pop();
+    if (cur === undefined || cur === '') {
+      continue;
+    }
+    let entries: string[] = [];
+    try {
+      entries = fs.listFileSync(cur);
+    } catch (e) {
+      continue;
+    }
+    for (const name of entries) {
+      const child = cur + '/' + name;
+      try {
+        fs.unlinkSync(child);
+      } catch (e) {
+        dirs.push(child);
+        rmStack.push(child);
+      }
+    }
+  }
+  dirs.sort((a: string, b: string): number => b.length - a.length);
+  for (const d of dirs) {
+    try {
+      fs.rmdirSync(d);
+    } catch (e) {
+      // ignore
+    }
+  }
+  try {
+    fs.rmdirSync(srcDir);
+  } catch (e) {
+    // ignore
+  }
+}
+
+/**
  * TaskPool worker: delete a directory tree iteratively (no recursion:
  * @Concurrent functions may only reference imported or local variables).
  * Runs off the UI thread because leftover krkr_* video temp dirs can be
@@ -732,11 +819,10 @@ struct Index {
     let doneBytes = 0;
     const totalBytes = this.assets.reduce((sum, asset) => sum + asset.size, 0);
     const startTime = Date.now();
-    // All downloaded zips extract into ONE staging dir on the same
-    // volume as the final public data folder (multi-part archives
-    // accumulate there); the DATA_TRANSFER task protects the long
-    // decompression.
-    const unzipTmp = this.baseDir + '/unzip.tmp';
+    // All downloaded zips extract into ONE sandbox staging dir
+    // (decompressFile requires sandbox paths); installUnzipped moves the
+    // result to the public data folder afterwards.
+    const unzipTmp = this.sandboxFiles + '/unzip.tmp';
     await taskpool.execute(removeTreeTask, unzipTmp);
     for (const asset of this.assets) {
       const originalUrl = this.baseUrl + '/' + asset.name;
@@ -932,19 +1018,29 @@ struct Index {
     }
   }
 
-  /** After unzipping into the staging dir, install the result:
+  /** After unzipping into the sandbox staging dir, install the result:
    *  - "data/" folder  -> becomes the public loose tree
    *  - "data.xp3"      -> handed to the native extractor
    *  - bare tree       -> the staging dir itself becomes the loose tree
-   *  Returns true when game data is ready. The staging dir must live on
-   *  the same volume as the final data dir so the rename is atomic. */
+   *  Returns true when game data is ready. The staging dir lives in the
+   *  sandbox (decompressFile requires sandbox paths) while the data tree
+   *  lives in the public folder - the swap therefore crosses volumes and
+   *  falls back to a copy+delete move when the atomic rename fails. */
   private async installUnzipped(unzipTmp: string): Promise<boolean> {
+    await this.startExtractTask();
+    try {
     const items = this.tryList(unzipTmp);
     const swapIn = async (src: string): Promise<void> => {
       if (this.tryList(this.baseDir).indexOf('data') >= 0) {
         await taskpool.execute(removeTreeTask, this.dataDir);
       }
-      fs.renameSync(src, this.dataDir);
+      try {
+        fs.renameSync(src, this.dataDir);
+      } catch (eR) {
+        // cross-volume (sandbox -> public): move by copy + delete
+        this.log('rename across volumes; moving tree instead');
+        await taskpool.execute(moveTreeTask, src, this.dataDir);
+      }
       try {
         fs.unlinkSync(this.baseDir + '/data.xp3');
       } catch (e) {
@@ -966,6 +1062,9 @@ struct Index {
       return true;
     }
     return false;
+    } finally {
+      await this.stopExtractTask();
+    }
   }
 
   /** Ask the user ONCE per app version whether to re-import the game
@@ -1193,11 +1292,11 @@ struct Index {
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
           await this.copyFromUri(uri, tmp);
-          // Unzip into a staging dir on the same volume as the final
-          // public data folder (atomic rename afterwards). The DATA_TRANSFER
-          // continuous task protects this long decompression from resource
-          // reclamation.
-          const unzipTmp = this.baseDir + '/unzip.tmp';
+          // decompressFile REQUIRES sandbox paths for both input and
+          // output (the SDK documents it; a public path silently produces
+          // nothing). Unzip into the sandbox staging dir; installUnzipped
+          // then moves the tree to the public folder.
+          const unzipTmp = this.sandboxFiles + '/unzip.tmp';
           await taskpool.execute(removeTreeTask, unzipTmp);
           this.progressText = '正在解压 ' + name;
           await this.unzipTo(tmp, unzipTmp);
