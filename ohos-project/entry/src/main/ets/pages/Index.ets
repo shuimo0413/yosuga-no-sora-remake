@@ -57,31 +57,50 @@ function unzipTask(srcZip: string, outDir: string): string {
 }
 
 /**
- * TaskPool worker: recursively delete a directory tree. Runs off the UI
- * thread because leftover krkr_* video temp dirs can be hundreds of MB.
+ * TaskPool worker: delete a directory tree iteratively (no recursion:
+ * @Concurrent functions may only reference imported or local variables).
+ * Runs off the UI thread because leftover krkr_* video temp dirs can be
+ * hundreds of MB.
  */
 @Concurrent
 function removeTreeTask(path: string): void {
-  try {
-    const entries = fs.listFileSync(path);
+  const dirs: string[] = [];
+  const stack: string[] = [path];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (cur === undefined || cur === '') {
+      continue;
+    }
+    let entries: string[] = [];
+    try {
+      entries = fs.listFileSync(cur);
+    } catch (e) {
+      continue;
+    }
     for (const name of entries) {
-      const child = path + '/' + name;
+      const child = cur + '/' + name;
       try {
         fs.unlinkSync(child);
       } catch (e) {
-        removeTreeTask(child);
-        try {
-          fs.rmdirSync(child);
-        } catch (e2) {
-          // ignore
-        }
+        // not a plain file (directory) - descend into it later
+        dirs.push(child);
+        stack.push(child);
       }
     }
+  }
+  // Remove deepest directories first: a child path is always longer than
+  // its parent, so sorting by path length descending visits children
+  // before parents and rmdir (empty-only) succeeds bottom-up.
+  dirs.sort((a: string, b: string): number => b.length - a.length);
+  for (const d of dirs) {
     try {
-      fs.rmdirSync(path);
+      fs.rmdirSync(d);
     } catch (e) {
       // ignore
     }
+  }
+  try {
+    fs.rmdirSync(path);
   } catch (e) {
     // ignore
   }
