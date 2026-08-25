@@ -24,6 +24,9 @@
 #include "SysInitImpl.h"
 #include "StorageIntf.h"
 #include "StorageImpl.h"
+#if defined(__IPHONEOS__)
+#include "../../sdl2/ios/IOSBootstrap.h"
+#endif
 #include "MsgIntf.h"
 #include "GraphicsLoaderIntf.h"
 #include "SystemControl.h"
@@ -1354,6 +1357,42 @@ void TVPBeforeSystemInit()
 		}
 	}
 
+
+#if defined(__IPHONEOS__)
+	// External data flow: the bootstrap page downloads/imports the game
+	// data into Documents/<bundle>/data (or a data.xp3 next to it). Check
+	// that location first so the engine runs entirely outside the bundle.
+	if(!forcedataxp3 && !nosel)
+	{
+		const char *iosRoot = krkrsdl2_ios_data_root();
+		if(iosRoot && iosRoot[0])
+		{
+			tjs_string rootWide;
+			if(TVPUtf8ToUtf16(rootWide, std::string(iosRoot)))
+			{
+				ttstr rootDir = IncludeTrailingBackslash(rootWide);
+				if(DirectoryExists(rootDir + TJS_W("data")))
+				{
+					ttstr tmp = rootDir + TJS_W("data") + TJS_W("/");
+					TJS_strncpy(buf, tmp.c_str(), MAX_PATH - 1);
+					buf[MAX_PATH - 1] = TJS_W('\0');
+					TVPProjectDirSelected = true;
+					bufset = true;
+					nosel = true;
+				}
+				else if(FileExists(rootDir + TJS_W("data.xp3")))
+				{
+					ttstr tmp = rootDir + TJS_W("data.xp3");
+					TJS_strncpy(buf, tmp.c_str(), MAX_PATH - 1);
+					buf[MAX_PATH - 1] = TJS_W('\0');
+					TVPProjectDirSelected = true;
+					bufset = true;
+					nosel = true;
+				}
+			}
+		}
+	}
+#endif
 
 	// check "data" directory
 	if(!forcedataxp3 && !nosel)

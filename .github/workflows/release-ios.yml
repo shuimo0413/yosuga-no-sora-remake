@@ -103,23 +103,9 @@ jobs:
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Verify Git LFS content
-        shell: bash
-        run: |
-          set -euo pipefail
-          git lfs pull
-          git lfs fsck
-
-      - name: Generate complete content manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/generate_content_manifest.py \
-            --root data \
-            --output data/content-manifest.json \
-            --config content-packs.json \
-            --cache "$RUNNER_TEMP/content-manifest-cache.json" \
-            --full
+      # Data-external build: the app does NOT embed the game data. The
+      # bootstrap page fetches data-assets.json from the Release at runtime
+      # and downloads/imports the data zips (same assets as the OHOS build).
 
       - name: Configure optional Apple signing
         id: signing
@@ -258,8 +244,15 @@ jobs:
           IOS_VERSION_NAME: ${{ steps.release.outputs.version-name }}
           IOS_BUILD_NUMBER: ${{ steps.release.outputs.version-code }}
           IOS_BUNDLE_IDENTIFIER: ${{ steps.release.outputs.bundle-identifier }}
+          IOS_EMBED_DATA: 'OFF'
         run: |
           set -euo pipefail
+          # Write the current repository's Release download root into the
+          # bundle so forks/renames track the right repo without editing code.
+          printf '{"baseUrl":"https://github.com/%s/releases/latest/download/","releaseTag":"%s"}\n' \
+            "${{ github.repository }}" "${{ steps.release.outputs.tag }}" \
+            > src/resources/ios/default-manifest.json
+          cat src/resources/ios/default-manifest.json
           ./ios-project/generate.sh
 
       - name: Restore cached Xcode derived data
@@ -319,10 +312,15 @@ jobs:
             -type d -name 'YosugaNoSoraHD.app' -path '*Release-iphoneos*' \
             -print -quit)
           executable="$app/YosugaNoSoraHD"
-          if [[ -z "$app" || ! -x "$executable" || ! -f "$app/data/startup.tjs" ]]; then
+          if [[ -z "$app" || ! -x "$executable" ]]; then
             echo 'The iOS application bundle is incomplete.' >&2
             exit 1
           fi
+          # Data-external build: the bootstrap assets must be present and no
+          # game data may be embedded.
+          [[ -f "$app/Background.png" ]]
+          [[ -f "$app/default-manifest.json" ]]
+          [[ ! -e "$app/data" ]]
           file "$executable" | grep -q 'arm64'
           [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == \
             "$BUNDLE_IDENTIFIER" ]]
@@ -348,8 +346,12 @@ jobs:
           unzip -tq "$ipa"
           ipa_contents="$RUNNER_TEMP/ios-ipa-contents.txt"
           unzip -Z1 "$ipa" > "$ipa_contents"
-          grep -Fx 'Payload/YosugaNoSoraHD.app/data/startup.tjs' \
+          grep -Fx 'Payload/YosugaNoSoraHD.app/Background.png' \
             "$ipa_contents" >/dev/null
+          if grep -F 'Payload/YosugaNoSoraHD.app/data/' "$ipa_contents" >/dev/null; then
+            echo 'Embedded game data found in the data-external IPA.' >&2
+            exit 1
+          fi
 
           rm -rf build/ios data "$package" "$RUNNER_TEMP/ios-derived-data"
           seven_zip=$(command -v 7zz || command -v 7z)
@@ -365,6 +367,7 @@ jobs:
           cat > "$asset_dir/$ipa_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Kirikiri SDL2 for iOS (arm64)
+          Data: external (downloaded/imported by the bootstrap page)
           Release: $RELEASE_TAG
           Commit: $GITHUB_SHA
           Signing: $IOS_SIGNING_MODE

@@ -12,6 +12,7 @@ DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-15.0}"
 CODE_SIGN_IDENTITY="${IOS_CODE_SIGN_IDENTITY:-}"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-}"
 PROVISIONING_PROFILE="${IOS_PROVISIONING_PROFILE:-}"
+EMBED_DATA="${IOS_EMBED_DATA:-ON}"
 
 # Preserve a Development Team selected in Xcode when regenerating the CMake
 # project. An explicitly provided environment value (including CI secrets)
@@ -66,8 +67,9 @@ if [[ -z "$CMAKE_BIN" ]]; then
 	exit 1
 fi
 
-if [[ ! -f "$PROJECT_ROOT/data/startup.tjs" ]]; then
+if [[ "$EMBED_DATA" != "OFF" && ! -f "$PROJECT_ROOT/data/startup.tjs" ]]; then
 	echo "Game data is incomplete: data/startup.tjs was not found." >&2
+	echo "For externalized-data builds set IOS_EMBED_DATA=OFF." >&2
 	exit 1
 fi
 
@@ -105,6 +107,7 @@ fi
 	-DKRKRSDL2_IOS_CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
 	-DKRKRSDL2_IOS_DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
 	-DKRKRSDL2_IOS_PROVISIONING_PROFILE="$PROVISIONING_PROFILE" \
+	-DOPTION_EMBED_IOS_DATA="$EMBED_DATA" \
 	-DKRKRSDL2_GENERATE_CONTENT_MANIFEST=ON \
 	-DOPTION_ENABLE_EXTERNAL_PLUGINS=OFF
 

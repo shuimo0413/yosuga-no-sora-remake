@@ -159,6 +159,10 @@ endif()
 set(EMBED_DATA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/data CACHE FILEPATH "The path to the data file or directory.")
 get_filename_component(EMBED_DATA_PATH_BASENAME ${EMBED_DATA_PATH} NAME)
 
+# iOS data externalization: OFF builds an IPA without embedded game data; the
+# bootstrap page downloads/imports it into Documents/<bundle> at first launch.
+set(OPTION_EMBED_IOS_DATA ON CACHE BOOL "Embed the game data inside the iOS app bundle.")
+
 set(KRKRSDL2_SRC "")
 set(KRKRSDL2_INCLUDES "")
 set(KRKRSDL2COMMON_SRC "")
@@ -426,17 +430,22 @@ endif()
 if(APPLE AND IOS)
 list(APPEND KRKRSDL2COMMON_SRC
 	src/core/visual/ios/IOSVideoOverlay.mm
+	src/core/sdl2/ios/IOSBootstrap.mm
+	src/core/sdl2/zip_extract.cpp
+	src/core/sdl2/xp3_extract.cpp
 )
 list(APPEND KRKRSDL2COMMON_INCLUDES
 	src/core/visual/macos
 )
 set_source_files_properties(
 	src/core/visual/ios/IOSVideoOverlay.mm
+	src/core/sdl2/ios/IOSBootstrap.mm
 	PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
 )
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
 set_source_files_properties(
 	src/core/visual/ios/IOSVideoOverlay.mm
+	src/core/sdl2/ios/IOSBootstrap.mm
 	PROPERTIES SKIP_PRECOMPILE_HEADERS ON
 )
 endif()
@@ -445,6 +454,7 @@ list(APPEND KRKRSDL2_LIBS
 	"-framework AudioToolbox"
 	"-framework CoreMedia"
 	"-framework QuartzCore"
+	"-framework UniformTypeIdentifiers"
 )
 endif()
 
@@ -849,15 +859,24 @@ set_target_properties(${KRKRSDL2_NAME} PROPERTIES
 	XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
 	XCODE_GENERATE_SCHEME TRUE
 )
-set_property(
-	SOURCE ${EMBED_DATA_PATH} ${IOS_RESOURCES_ROOT}/Images.xcassets ${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
-	PROPERTY MACOSX_PACKAGE_LOCATION "Resources"
-)
-target_sources(${KRKRSDL2_NAME} PRIVATE 
-	${EMBED_DATA_PATH}
+set(KRKRSDL2_IOS_RESOURCES
 	${IOS_RESOURCES_ROOT}/Images.xcassets
 	${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
+	${IOS_RESOURCES_ROOT}/Background.png
 )
+if(OPTION_EMBED_IOS_DATA)
+	list(APPEND KRKRSDL2_IOS_RESOURCES ${EMBED_DATA_PATH})
+endif()
+if(EXISTS ${IOS_RESOURCES_ROOT}/default-manifest.json)
+	# Build-time injected download root (the release workflow writes this
+	# file before generating the project; local builds use the built-in URL).
+	list(APPEND KRKRSDL2_IOS_RESOURCES ${IOS_RESOURCES_ROOT}/default-manifest.json)
+endif()
+set_property(
+	SOURCE ${KRKRSDL2_IOS_RESOURCES}
+	PROPERTY MACOSX_PACKAGE_LOCATION "Resources"
+)
+target_sources(${KRKRSDL2_NAME} PRIVATE ${KRKRSDL2_IOS_RESOURCES})
 endif()
 
 if(OPTION_BUILD_MACOS_BUNDLE)

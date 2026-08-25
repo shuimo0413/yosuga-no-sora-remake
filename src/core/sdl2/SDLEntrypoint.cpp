@@ -8,6 +8,7 @@
 #endif
 #if defined(__IPHONEOS__)
 #include <cstdlib>
+#include "ios/IOSBootstrap.h"
 #endif
 
 #if defined(USE_SDL_MAIN)
@@ -26,6 +27,16 @@ extern "C" int main(int argc, char **argv)
 		krkrsdl2_set_args(argc, argv);
 #else
 		krkrsdl2_convert_set_args(argc, argv);
+#endif
+
+#if defined(__IPHONEOS__)
+		/* Data externalization: show the bootstrap page (download / import)
+		 * before the engine initializes when the game data is missing.
+		 * Mirrors the OpenHarmony shell page. */
+		if (!krkrsdl2_ios_run_bootstrap())
+		{
+			exit(0);
+		}
 #endif
 
 		if (krkrsdl2_init_platform())

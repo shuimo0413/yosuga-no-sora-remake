@@ -28,6 +28,9 @@
 #include "FilePathUtil.h"
 #include "TickCount.h"
 #include "../../sdl2/AndroidDataBridge.h"
+#if defined(__IPHONEOS__)
+#include "../../sdl2/ios/IOSBootstrap.h"
+#endif
 
 #include <algorithm>
 #include <vector>
@@ -510,14 +513,21 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 	name = newname;
 #endif
 
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
 #if defined(__ANDROID__)
 	AAssetManager *asset_manager = AndroidAssetManager_Get_AssetManager();
+#endif
 
-	// External data flow: when the bootstrap activity extracted the game
-	// data to a directory (Download/YosugaSoraHD/data or
-	// Android/data/<pkg>/data), resolve ./data/* against that directory
-	// first; the APK assets remain the fallback for bundled installs.
+	// External data flow: when the bootstrap page extracted the game data
+	// to an external directory (Android: Download/YosugaSoraHD/data or
+	// Android/data/<pkg>/data; iOS: Documents/<bundle>/data), resolve
+	// ./data/* against that directory first; the bundled assets remain the
+	// fallback for embedded installs.
+#if defined(__ANDROID__)
 	const char *ext_data_root = AndroidDataDir_Get();
+#else
+	const char *ext_data_root = krkrsdl2_ios_data_root();
+#endif
 	if (ext_data_root && ext_data_root[0] &&
 		nname.length() >= 2 && nname[0] == '.' &&
 		(nname[1] == '/' || (unsigned char)nname[1] == 92))
@@ -532,7 +542,11 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 		else if (rel == "data") { rel.clear(); is_data = true; }
 		if (is_data && !rel.empty())
 		{
+#if defined(__ANDROID__)
 			std::string real = std::string(ext_data_root) + "/" + rel;
+#else
+			std::string real = std::string(ext_data_root) + "/data/" + rel;
+#endif
 			struct stat st;
 			if (stat(real.c_str(), &st) == 0)
 			{
@@ -546,6 +560,7 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 		}
 	}
 
+#if defined(__ANDROID__)
 	// Android APK assets are case-sensitive and already use the exact spelling
 	// emitted by the content pipeline.  Walking every path component through
 	// AAssetManager_openDir() is both unnecessary and extremely expensive for a
