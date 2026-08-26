@@ -267,9 +267,13 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 {
     UITextField *f = [[UITextField alloc] initWithFrame:CGRectZero];
     f.placeholder = placeholder;
+    /* Bright placeholder on a darker field: the default gray placeholder
+     * was hard to tell apart from the #333333 field background. */
+    f.attributedPlaceholder = [[NSAttributedString alloc] initWithString:placeholder
+        attributes:@{NSForegroundColorAttributeName: [self colorFromHex:0xC8C8C8]}];
     f.font = [UIFont systemFontOfSize:13];
     f.textColor = UIColor.whiteColor;
-    f.backgroundColor = [self colorFromHex:0x333333];
+    f.backgroundColor = [self colorFromHex:0x1E1E1E];
     f.layer.cornerRadius = 6;
     f.clipsToBounds = YES;
     f.autocapitalizationType = UITextAutocapitalizationTypeNone;
@@ -307,21 +311,39 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     _container.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_container];
 
-    /* Title: white text with a black outline (matches the OHOS textShadow). */
+    /* Title: white fill with a black OUTLINE ONLY. A negative
+     * NSStrokeWidthAttributeName strokes centered on the glyph edge, so
+     * the stroke bleeds into the glyph interior; use two stacked labels
+     * instead: the bottom one is stroke-only (positive width), the top
+     * one is the plain white fill. */
     _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     _titleLabel.font = [UIFont boldSystemFontOfSize:26];
     _titleLabel.textAlignment = NSTextAlignmentCenter;
-    NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
-        initWithString:@"缘之空：高清重制"];
-    [title addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor
-                  range:NSMakeRange(0, title.length)];
-    [title addAttribute:NSStrokeColorAttributeName value:UIColor.blackColor
-                  range:NSMakeRange(0, title.length)];
-    [title addAttribute:NSStrokeWidthAttributeName value:@(-3.0)
-                  range:NSMakeRange(0, title.length)];
-    _titleLabel.attributedText = title;
     _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    NSMutableAttributedString *stroke = [[NSMutableAttributedString alloc]
+        initWithString:@"缘之空：高清重制"];
+    [stroke addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor
+                   range:NSMakeRange(0, stroke.length)];
+    [stroke addAttribute:NSStrokeColorAttributeName value:UIColor.blackColor
+                   range:NSMakeRange(0, stroke.length)];
+    [stroke addAttribute:NSStrokeWidthAttributeName value:@(3.0)
+                   range:NSMakeRange(0, stroke.length)];
+    _titleLabel.attributedText = stroke;
+
+    UILabel *titleFill = [[UILabel alloc] initWithFrame:CGRectZero];
+    titleFill.font = [UIFont boldSystemFontOfSize:26];
+    titleFill.textAlignment = NSTextAlignmentCenter;
+    titleFill.textColor = UIColor.whiteColor;
+    titleFill.text = @"缘之空：高清重制";
+    titleFill.translatesAutoresizingMaskIntoConstraints = NO;
     [_container addSubview:_titleLabel];
+    [_container addSubview:titleFill];
+    [NSLayoutConstraint activateConstraints:@[
+        [titleFill.topAnchor constraintEqualToAnchor:_titleLabel.topAnchor],
+        [titleFill.leadingAnchor constraintEqualToAnchor:_titleLabel.leadingAnchor],
+        [titleFill.trailingAnchor constraintEqualToAnchor:_titleLabel.trailingAnchor],
+        [titleFill.bottomAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor],
+    ]];
 
     _messageLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     _messageLabel.font = [UIFont systemFontOfSize:11];
@@ -605,6 +627,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     NSString *sha256 = st[@"sha256"];
     NSError *err = nil;
     RemoveTree(tmp);
+    /* The temporary download file is deleted once this delegate method
+     * returns, so the rename must complete synchronously here. */
     if (![[NSFileManager defaultManager] moveItemAtURL:location
         toURL:[NSURL fileURLWithPath:tmp] error:&err])
     {
@@ -612,25 +636,32 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
             @"下载保存失败：%@", err.localizedDescription]];
         return;
     }
-    /* verify sha256 when the manifest provides one */
-    if (sha256.length > 0)
-    {
-        unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-        NSString *hashErr = nil;
-        if (!SHA256OfFile(tmp, digest, &hashErr) ||
-            ![[HexString(digest, CC_SHA256_DIGEST_LENGTH)
-                lowercaseString] isEqualToString:[sha256 lowercaseString]])
+    [self setProgressText:[NSString stringWithFormat:@"正在校验 %@", name] progress:0];
+    /* sha256 over ~1.5 GB must NOT run on the main thread: it blocks the
+     * run loop long enough for the iOS watchdog to kill the app (this was
+     * the ~40% crash). Verify and extract on a background queue. */
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (sha256.length > 0)
         {
-            RemoveTree(tmp);
-            [self downloadFailed:@"下载校验失败（sha256 不匹配），请重试"];
-            return;
+            unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+            NSString *hashErr = nil;
+            if (!SHA256OfFile(tmp, digest, &hashErr) ||
+                ![[HexString(digest, CC_SHA256_DIGEST_LENGTH)
+                    lowercaseString] isEqualToString:[sha256 lowercaseString]])
+            {
+                RemoveTree(tmp);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self downloadFailed:@"下载校验失败（sha256 不匹配），请重试"];
+                });
+                return;
+            }
         }
-    }
-    [self setProgressText:[NSString stringWithFormat:@"正在解压 %@", name] progress:0];
-    self.doneBytes += [st[@"size"] longLongValue];
-    [self finishTask:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self setProgressText:[NSString stringWithFormat:@"正在解压 %@", name] progress:0];
+            self.doneBytes += [st[@"size"] longLongValue];
+        });
         [self processArchive:tmp name:name];
-    }];
+    });
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
@@ -911,6 +942,10 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 int krkrsdl2_ios_run_bootstrap(void)
 {
     @autoreleasepool {
+        /* A previous crash may have left partial downloads/extractions
+         * behind: they are never resumed, so drop them at startup. */
+        RemoveTree(CacheDirPath());
+        RemoveTree(StagingPath());
         if (GameDataReady())
             return 1;
 

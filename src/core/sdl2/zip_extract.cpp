@@ -285,25 +285,30 @@ bool IsSafeEntryName(const std::string &name, std::string *clean)
 
 void Mkdirs(const std::string &path)
 {
+  /* Keep a leading slash so absolute paths (the iOS sandbox) are built
+   * correctly: building "var/mobile/..." relative to the CWD put every
+   * directory in the wrong place and fopen() failed with "cannot create". */
   std::string cur;
   size_t start = 0;
-  while (start < path.size())
+  if (!path.empty() && path[0] == '/')
+  {
+    cur = "/";
+    start = 1;
+  }
+  while (start <= path.size())
   {
     size_t slash = path.find('/', start);
     std::string part = slash == std::string::npos
       ? path.substr(start) : path.substr(start, slash - start);
     if (!part.empty())
     {
-      if (!cur.empty()) cur += '/';
+      if (!cur.empty() && cur.back() != '/') cur += '/';
       cur += part;
-      if (cur.size() > 1 && cur.back() != ':')
-      {
 #if defined(_WIN32)
         _mkdir(cur.c_str());
 #else
         mkdir(cur.c_str(), 0755);
 #endif
-      }
     }
     if (slash == std::string::npos) break;
     start = slash + 1;
