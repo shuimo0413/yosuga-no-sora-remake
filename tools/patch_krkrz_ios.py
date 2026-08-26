@@ -57,6 +57,34 @@ BLOCK1_NEW = """void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context
 	if(!TVPScriptEngine) TVPThrowInternalError;
 """
 
+BLOCK3_OLD = """	if(TVPScriptEngine)
+	{
+		if(!isexpression)
+			TVPScriptEngine->ExecScript(buffer, result, context,
+				&shortname);
+		else
+			TVPScriptEngine->EvalExpression(buffer, result, context,
+				&shortname);
+	}
+"""
+
+BLOCK3_NEW = """	if(TVPScriptEngine)
+	{
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("script: compiling & executing");
+#endif
+		if(!isexpression)
+			TVPScriptEngine->ExecScript(buffer, result, context,
+				&shortname);
+		else
+			TVPScriptEngine->EvalExpression(buffer, result, context,
+				&shortname);
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("script: executed");
+#endif
+	}
+"""
+
 BLOCK2_OLD = """			TVPAddLog( TVPInfoLoadingStartupScript + TVPStartupScriptName );
 			TVPExecuteStorage(TVPStartupScriptName);
 			TVPAddLog( (const tjs_char*)TVPInfoStartupScriptEnded );
@@ -92,6 +120,7 @@ def main() -> None:
     apply(TARGET, BLOCK0_OLD, BLOCK0_NEW, "file-scope declarations")
     apply(TARGET, BLOCK1_OLD, BLOCK1_NEW, "TVPExecuteStorage diag")
     apply(TARGET, BLOCK2_OLD, BLOCK2_NEW, "TVPExecuteStartupScript diag")
+    apply(TARGET, BLOCK3_OLD, BLOCK3_NEW, "ExecScript boundaries diag")
 
 
 if __name__ == "__main__":
