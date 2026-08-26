@@ -80,8 +80,10 @@ static NSString *StagingPath(void)
 
 static BOOL GameDataReady(void)
 {
+    NSFileManager *fm = [NSFileManager defaultManager];
     NSString *startup = [DataDirPath() stringByAppendingPathComponent:@"startup.tjs"];
-    return [[NSFileManager defaultManager] fileExistsAtPath:startup];
+    NSString *marker = [DataRootPath() stringByAppendingPathComponent:@".complete"];
+    return [fm fileExistsAtPath:startup] && [fm fileExistsAtPath:marker];
 }
 
 /* Append a diagnostic line to Documents/<bundle>/bootstrap.log so a crash
@@ -125,6 +127,50 @@ static void EnsureDir(NSString *path)
                                                     error:nil];
 }
 
+/* Merge src into dst recursively: directories descend, files replace.
+ * This matters for the multi-volume data zips: every volume carries its
+ * own copy of the data/<subdir>/ tree with DIFFERENT files, and replacing
+ * a whole subdirectory wiped the files extracted from the previous volume
+ * (the engine then crashed on startup with missing files). */
+static BOOL MergeTree(NSString *src, NSString *dst, NSString **errOut)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    BOOL isDir = NO;
+    if (![fm fileExistsAtPath:src isDirectory:&isDir])
+        return YES;
+    if (!isDir)
+    {
+        RemoveTree(dst);
+        NSError *err = nil;
+        if (![fm moveItemAtPath:src toPath:dst error:&err])
+        {
+            if (errOut) *errOut = err.localizedDescription;
+            return NO;
+        }
+        return YES;
+    }
+    EnsureDir(dst);
+    NSArray *items = [fm contentsOfDirectoryAtPath:src error:nil];
+    for (NSString *item in items)
+    {
+        if (!MergeTree([src stringByAppendingPathComponent:item],
+            [dst stringByAppendingPathComponent:item], errOut))
+            return NO;
+    }
+    return YES;
+}
+
+static void MarkDataComplete(void)
+{
+    NSString *marker = [DataRootPath() stringByAppendingPathComponent:@".complete"];
+    [@"ok" writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
+static void ClearDataComplete(void)
+{
+    RemoveTree([DataRootPath() stringByAppendingPathComponent:@".complete"]);
+}
+
 /* Merge the staging tree into <root>/data: entries under staging/data are
  * used when present (the CI packer prefixes everything with data/). */
 static BOOL MergeIntoDataDir(NSString *staging, NSString **errOut)
@@ -144,15 +190,9 @@ static BOOL MergeIntoDataDir(NSString *staging, NSString **errOut)
     }
     for (NSString *item in items)
     {
-        NSString *from = [src stringByAppendingPathComponent:item];
-        NSString *to = [dataDir stringByAppendingPathComponent:item];
-        RemoveTree(to);
-        NSError *err = nil;
-        if (![fm moveItemAtPath:from toPath:to error:&err])
-        {
-            if (errOut) *errOut = err.localizedDescription;
+        if (!MergeTree([src stringByAppendingPathComponent:item],
+            [dataDir stringByAppendingPathComponent:item], errOut))
             return NO;
-        }
     }
     return YES;
 }
@@ -598,10 +638,17 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                 self->_totalBytes += size.longLongValue;
         }
         EnsureDir(CacheDirPath());
-        RemoveTree(DataDirPath()); /* whole-tree swap, replaces ANY previous data */
         IosLog([NSString stringWithFormat:@"manifest ok, assets=%lu totalBytes=%lld",
             (unsigned long)assets.count, self->_totalBytes]);
-        [self downloadNextAsset];
+        /* Deleting a previous multi-GB data tree must not block the main
+         * thread (watchdog); do the whole-tree swap on a worker queue. */
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            RemoveTree(DataDirPath());
+            ClearDataComplete();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self downloadNextAsset];
+            });
+        });
     }];
 }
 
@@ -831,6 +878,8 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 
 - (void)dataInstalled
 {
+    MarkDataComplete();
+    IosLog(@"data installed, engine starting");
     [self setMessage:@""];
     [self setBusy:NO];
     [self finishWithResult:1];
@@ -910,6 +959,7 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
     [self setProgressText:@"正在导入，请稍等" progress:0];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         RemoveTree(DataDirPath()); /* whole-tree swap, replaces ANY previous data */
+        ClearDataComplete();
         [self importArchives:urls];
     });
 }
