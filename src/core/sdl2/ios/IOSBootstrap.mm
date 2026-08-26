@@ -732,6 +732,14 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 - (void)downloadFailed:(NSString *)message
 {
     IosLog([NSString stringWithFormat:@"FAILED: %@", message]);
+    NSDictionary *st = self.activeTaskState;
+    if (st)
+    {
+        NSString *tmp = st[@"tmp"];
+        if (tmp.length > 0)
+            RemoveTree(tmp);
+    }
+    RemoveTree(StagingPath());
     [self setMessage:message];
     [self setProgressText:message progress:0];
     [self setBusy:NO];
@@ -790,6 +798,8 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
             }
             else
             {
+                RemoveTree(path);   /* downloaded/imported archive */
+                RemoveTree(staging); /* partial extraction tree */
                 NSString *detail = errMsg.length > 0 ? errMsg
                     : (cErr ?: @"");
                 [self downloadFailed:[NSString stringWithFormat:
@@ -996,6 +1006,16 @@ int krkrsdl2_ios_run_bootstrap(void)
          * behind: they are never resumed, so drop them at startup. */
         RemoveTree(CacheDirPath());
         RemoveTree(StagingPath());
+        {
+            NSArray *tmpItems = [[NSFileManager defaultManager]
+                contentsOfDirectoryAtPath:NSTemporaryDirectory() error:nil];
+            for (NSString *item in tmpItems)
+            {
+                if ([item hasPrefix:@"krkr-dl-"])
+                    RemoveTree([NSTemporaryDirectory()
+                        stringByAppendingPathComponent:item]);
+            }
+        }
         IosLog(@"bootstrap start");
         if (GameDataReady())
             return 1;
