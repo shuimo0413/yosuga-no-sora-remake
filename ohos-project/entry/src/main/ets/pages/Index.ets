@@ -980,6 +980,32 @@ struct Index {
     return this.tryDirectAt(this.appDir);
   }
 
+  /** Uri-level write test for a picked folder (folderUri + '/.granted').
+   *  Some systems (KaihongOS) deny raw path writes while the picker grant
+   *  itself is valid; this probes through the granted uri instead. */
+  private tryDirectAtUri(uriStr: string): boolean {
+    try {
+      const markerUri = uriStr + '/.granted';
+      const marker = fs.openSync(markerUri,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(marker.fd, 'granted-ok');
+      fs.closeSync(marker);
+      const readBack = fs.readTextSync(markerUri);
+      if (readBack !== 'granted-ok') {
+        this.lastDirectError = 'uri read-back mismatch: ' + readBack;
+        this.log('tryDirectAtUri: ' + this.lastDirectError);
+        return false;
+      }
+      this.lastDirectError = '';
+      this.log('tryDirectAtUri: ok ' + uriStr);
+      return true;
+    } catch (e) {
+      this.lastDirectError = 'uri: ' + JSON.stringify(e);
+      this.log('tryDirectAtUri failed: ' + this.lastDirectError);
+      return false;
+    }
+  }
+
   /** Whether this device can pick folders with the document picker. */
   private supportsFolderPicker(): boolean {
     try {
@@ -1127,6 +1153,11 @@ struct Index {
   async chooseDataFolder(): Promise<boolean> {
     this.message = '';
     try {
+      // KaihongOS: the folder-picker grant alone may not cover writes into
+      // the picked directory (13900012 Permission denied); the Download
+      // directory permission does. Ask once before opening the picker
+      // (a no-op dialog when the permission was already granted).
+      await this.requestDownloadPermission();
       const dp = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
       const opts = new picker.DocumentSelectOptions();
       opts.selectMode = picker.DocumentSelectMode.FOLDER;
@@ -1151,8 +1182,14 @@ struct Index {
         return false;
       }
       if (!this.tryDirectAt(dirPath)) {
-        this.message = '所选文件夹不可写：' + this.lastDirectError + '\nuri=' + uris[0] + '\npath=' + dirPath;
-        return false;
+        // Fall back to a uri-level write test: some systems deny raw path
+        // writes even when the picker grant is fine (virtualized public
+        // trees). When the uri works we keep the path for the data dir.
+        if (!this.tryDirectAtUri(uris[0])) {
+          this.message = '所选文件夹不可写：' + this.lastDirectError + '\nuri=' + uris[0] + '\npath=' + dirPath;
+          return false;
+        }
+        this.lastDirectError = '';
       }
       // Persist the picker grant where the system supports it
       // (OpenHarmony 5 / API 12 fileShare.FolderAuthorization): without
