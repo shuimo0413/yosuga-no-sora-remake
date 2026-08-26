@@ -1070,8 +1070,14 @@ struct Index {
         this.log('FolderAuthorization unsupported; grant stays session-only');
         return;
       }
-      const fileShare = await import('@ohos.fileshare');
-      await fileShare.persistPermission(uris);
+      const mod = await import('@ohos.fileshare');
+      const fileShare = mod.default;
+      // API 12 signature: persistPermission(policies: PolicyInfo[]) with
+      // { uri, operationMode } - READ_MODE(0b1) | WRITE_MODE(0b10).
+      const policies: Array<{ uri: string; operationMode: number }> = uris.map((u: string) => {
+        return { uri: u, operationMode: 0b11 };
+      });
+      await fileShare.persistPermission(policies);
       this.saveChosenUris(uris);
       this.log('folder permission persisted for ' + uris.length + ' uri(s)');
     } catch (e) {
@@ -1093,8 +1099,12 @@ struct Index {
         this.log('FolderAuthorization unsupported; cannot re-activate');
         return;
       }
-      const fileShare = await import('@ohos.fileshare');
-      await fileShare.activatePermission(uris);
+      const mod = await import('@ohos.fileshare');
+      const fileShare = mod.default;
+      const policies: Array<{ uri: string; operationMode: number }> = uris.map((u: string) => {
+        return { uri: u, operationMode: 0b11 };
+      });
+      await fileShare.activatePermission(policies);
       this.log('folder permission activated');
     } catch (e) {
       this.log('activatePermission failed: ' + JSON.stringify(e));
