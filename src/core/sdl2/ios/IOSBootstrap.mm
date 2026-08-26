@@ -176,14 +176,18 @@ static void ClearDataComplete(void)
 }
 
 /* Merge the staging tree into <root>/data: entries under staging/data are
- * used when present (the CI packer prefixes everything with data/). */
+ * used when present (the CI packer prefixes everything with data/). The
+ * prefix check must be structural: startup.tjs lives only in the FIRST
+ * volume, and a per-file check made the later volumes merge their whole
+ * data/ folder into data/data/ (11 top-level folders missing). */
 static BOOL MergeIntoDataDir(NSString *staging, NSString **errOut)
 {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *dataDir = DataDirPath();
     NSString *src = staging;
     NSString *prefixed = [staging stringByAppendingPathComponent:@"data"];
-    if ([fm fileExistsAtPath:[prefixed stringByAppendingPathComponent:@"startup.tjs"]])
+    BOOL prefixedIsDir = NO;
+    if ([fm fileExistsAtPath:prefixed isDirectory:&prefixedIsDir] && prefixedIsDir)
         src = prefixed;
     EnsureDir(dataDir);
     NSArray *items = [fm contentsOfDirectoryAtPath:src error:nil];
