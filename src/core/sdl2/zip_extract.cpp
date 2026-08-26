@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <cerrno>
 #include <string>
 #include <vector>
 
@@ -283,7 +284,7 @@ bool IsSafeEntryName(const std::string &name, std::string *clean)
   return !clean->empty();
 }
 
-void Mkdirs(const std::string &path)
+bool Mkdirs(const std::string &path, std::string *errOut)
 {
   /* Keep a leading slash so absolute paths (the iOS sandbox) are built
    * correctly: building "var/mobile/..." relative to the CWD put every
@@ -305,14 +306,20 @@ void Mkdirs(const std::string &path)
       if (!cur.empty() && cur.back() != '/') cur += '/';
       cur += part;
 #if defined(_WIN32)
-        _mkdir(cur.c_str());
+      if (_mkdir(cur.c_str()) != 0 && errno != EEXIST && errOut)
 #else
-        mkdir(cur.c_str(), 0755);
+      if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST && errOut)
 #endif
+      {
+        if (errOut->empty())
+          *errOut = "mkdir failed for '" + cur + "' errno=" +
+            std::to_string(errno);
+      }
     }
     if (slash == std::string::npos) break;
     start = slash + 1;
   }
+  return errOut == NULL || errOut->empty();
 }
 
 bool CopyStored(FILE *in, uint64_t size, FILE *out)
@@ -435,10 +442,15 @@ int Krkr_ExtractZip(const char *zipPath, const char *outDir,
   }
   const int total = (int)files.size();
 
-  Mkdirs(outDir);
   int done = 0;
   int rc = 0;
   std::string errStr;
+  if (!Mkdirs(outDir, &errStr))
+  {
+    fclose(f);
+    if (err) snprintf(err, errSize, "%s", errStr.c_str());
+    return -1;
+  }
   for (size_t i = 0; i < files.size(); ++i)
   {
     const Entry &e = *files[i];
@@ -448,7 +460,11 @@ int Krkr_ExtractZip(const char *zipPath, const char *outDir,
       continue; /* skip unsafe entry, keep going */
     }
     std::string target = SafeJoin(outDir, clean);
-    Mkdirs(target);
+    if (!Mkdirs(target, &errStr))
+    {
+      rc = -1;
+      break;
+    }
 
     if (fseek(f, (long)e.localHeaderOffset, SEEK_SET) != 0)
     {
@@ -489,7 +505,8 @@ int Krkr_ExtractZip(const char *zipPath, const char *outDir,
     FILE *out = fopen(target.c_str(), "wb");
     if (!out)
     {
-      errStr = "cannot create " + target;
+      errStr = "cannot create " + target + " (errno=" +
+        std::to_string(errno) + " " + strerror(errno) + ")";
       rc = -1;
       break;
     }

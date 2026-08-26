@@ -84,6 +84,32 @@ static BOOL GameDataReady(void)
     return [[NSFileManager defaultManager] fileExistsAtPath:startup];
 }
 
+/* Append a diagnostic line to Documents/<bundle>/bootstrap.log so a crash
+ * can be located after the fact (the file is reachable via the Files app). */
+static void IosLog(NSString *message)
+{
+    @autoreleasepool {
+        const char *root = krkrsdl2_ios_data_root();
+        if (!root || !root[0]) return;
+        NSString *path = [[NSString stringWithUTF8String:root]
+            stringByAppendingPathComponent:@"bootstrap.log"];
+        NSString *line = [NSString stringWithFormat:@"%@ %@\n",
+            NSDate.date, message];
+        NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (h)
+        {
+            [h seekToEndOfFile];
+            [h writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [h closeFile];
+        }
+        else
+        {
+            [line writeToFile:path atomically:NO
+                encoding:NSUTF8StringEncoding error:nil];
+        }
+    }
+}
+
 static void RemoveTree(NSString *path)
 {
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -349,6 +375,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     _messageLabel.font = [UIFont systemFontOfSize:11];
     _messageLabel.textColor = UIColor.redColor;
     _messageLabel.textAlignment = NSTextAlignmentCenter;
+    _messageLabel.numberOfLines = 6;
     _messageLabel.text = @" ";
     _messageLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [_container addSubview:_messageLabel];
@@ -536,6 +563,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 {
     NSString *baseUrl = [self effectiveBaseUrl];
     NSString *manifestUrl = [baseUrl stringByAppendingString:@"data-assets.json"];
+    IosLog([NSString stringWithFormat:@"downloadAll baseUrl=%@", baseUrl]);
     [self fetchJson:manifestUrl completion:^(id json, NSString *error) {
         if (!json || error.length > 0)
         {
@@ -561,6 +589,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
         }
         EnsureDir(CacheDirPath());
         RemoveTree(DataDirPath()); /* whole-tree swap, replaces ANY previous data */
+        IosLog([NSString stringWithFormat:@"manifest ok, assets=%lu totalBytes=%lld",
+            (unsigned long)assets.count, self->_totalBytes]);
         [self downloadNextAsset];
     }];
 }
@@ -585,6 +615,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     NSString *tmp = [NSTemporaryDirectory()
         stringByAppendingPathComponent:[NSString stringWithFormat:@"krkr-dl-%@", name]];
     RemoveTree(tmp);
+    IosLog([NSString stringWithFormat:@"downloading %@ (%@ bytes, url=%@)",
+        name, size, url]);
     [self setProgressText:[NSString stringWithFormat:@"正在下载 %@", name] progress:0];
 
     NSURLSessionConfiguration *cfg =
@@ -660,6 +692,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
             [self setProgressText:[NSString stringWithFormat:@"正在解压 %@", name] progress:0];
             self.doneBytes += [st[@"size"] longLongValue];
         });
+        IosLog([NSString stringWithFormat:@"verified %@, extracting", name]);
         [self processArchive:tmp name:name];
     });
 }
@@ -688,6 +721,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 
 - (void)downloadFailed:(NSString *)message
 {
+    IosLog([NSString stringWithFormat:@"FAILED: %@", message]);
     [self setMessage:message];
     [self setProgressText:message progress:0];
     [self setBusy:NO];
@@ -734,6 +768,8 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
         NSString *errMsg = nil;
         NSString *cErr = rc != 0 ? [NSString stringWithUTF8String:err] : nil;
         BOOL ok = (rc == 0) && [self mergeOnMain:staging err:&errMsg];
+        IosLog([NSString stringWithFormat:@"extract %@ rc=%d cErr=%@ mergeErr=%@",
+            name, rc, cErr ?: @"", errMsg ?: @""]);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (ok)
             {
@@ -849,6 +885,7 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 {
     if (urls.count == 0)
         return;
+    IosLog([NSString stringWithFormat:@"import picked %lu file(s)", (unsigned long)urls.count]);
     [self setBusy:YES];
     [self setProgressText:@"正在导入，请稍等" progress:0];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -864,6 +901,7 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 
 - (void)importArchives:(NSArray<NSURL *> *)urls
 {
+    IosLog(@"importArchives begin");
     EnsureDir(CacheDirPath());
     NSFileManager *fm = [NSFileManager defaultManager];
     NSMutableArray *local = [NSMutableArray array];
@@ -915,6 +953,8 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
         NSString *mergeErr = nil;
         NSString *cErr = rc != 0 ? [NSString stringWithUTF8String:err] : nil;
         BOOL ok = (rc == 0) && [self mergeOnMain:staging err:&mergeErr];
+        IosLog([NSString stringWithFormat:@"import extract %@ rc=%d cErr=%@ mergeErr=%@",
+            item[@"name"], rc, cErr ?: @"", mergeErr ?: @""]);
         RemoveTree(staging);
         RemoveTree(path);
         if (!ok)
@@ -946,8 +986,10 @@ int krkrsdl2_ios_run_bootstrap(void)
          * behind: they are never resumed, so drop them at startup. */
         RemoveTree(CacheDirPath());
         RemoveTree(StagingPath());
+        IosLog(@"bootstrap start");
         if (GameDataReady())
             return 1;
+        IosLog(@"showing bootstrap UI");
 
         TVPIOSBootstrapVC *vc = [[TVPIOSBootstrapVC alloc] init];
         UIWindowScene *scene = nil;
