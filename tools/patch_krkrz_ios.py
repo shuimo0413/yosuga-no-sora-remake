@@ -29,12 +29,11 @@ BLOCK0_OLD = """#include "tjsCommHead.h"
 BLOCK0_NEW = """#include "tjsCommHead.h"
 #include <string>
 
-#if defined(__IPHONEOS__)
 /* File-scope declarations (linkage specifications are not allowed at
- * block scope). */
+ * block scope). Plain extern declarations produce no symbols, so they are
+ * harmless on platforms where krkrsdl2_ios_log is never called. */
 extern "C" void krkrsdl2_ios_log(const char *);
 extern bool TVPUtf16ToUtf8( std::string& out, const tjs_string& in );
-#endif
 """
 
 BLOCK1_OLD = """void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context, tTJSVariant *result, bool isexpression,
