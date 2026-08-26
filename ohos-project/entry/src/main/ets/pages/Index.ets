@@ -490,6 +490,11 @@ struct Index {
         this.prepare();
       }
     }
+    // Re-activate the persisted folder grant from a previous run (async;
+    // re-probes the data dir afterwards). The synchronous probe above
+    // cannot wait for it, so the second pass in prepare() adopts the
+    // folder once activatePermission completes.
+    this.restoreFolderAccess();
   }
 
   // Capture ArkTS page errors so UI-thread crashes do not wedge the page.
@@ -744,9 +749,12 @@ struct Index {
     // silently succeed without storing anything).
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
     // A folder the user picked earlier (DocumentViewPicker FOLDER mode)
-    // wins over the default Download location.
+    // wins over the default Download location. Verify with a real write,
+    // not just the .granted marker: after a restart the picker grant is
+    // inactive until activatePermission, and on KaihongOS a stale grant
+    // leaves the folder readable but not writable (mkdir then fails).
     const chosen = this.readChosenDir();
-    if (chosen !== '' && this.tryList(chosen).indexOf('.granted') >= 0) {
+    if (chosen !== '' && this.tryDirectAt(chosen)) {
       this.appDir = chosen;
     }
     let publicOk = false;
@@ -1027,6 +1035,74 @@ struct Index {
     }
   }
 
+  private saveChosenUris(uris: string[]): void {
+    try {
+      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
+      pref.putSync('chosenUris', uris);
+      pref.flush();
+    } catch (e) {
+      this.log('saveChosenUris failed: ' + JSON.stringify(e));
+    }
+  }
+
+  private readChosenUris(): string[] {
+    try {
+      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
+      const v = pref.getSync('chosenUris', [] as string[]);
+      if (Array.isArray(v)) {
+        return v as string[];
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** Persist the folder-picker grant (OpenHarmony 5 / API 12 fileShare):
+   *  persistPermission turns the session grant into a persistent one and
+   *  the URIs are stored in Preferences so activatePermission can bring
+   *  them back after the next launch. Devices without the
+   *  FolderAuthorization capability keep the session-only grant (the
+   *  bootstrap page then asks the user to pick the folder again). */
+  private async persistFolderUris(uris: string[]): Promise<void> {
+    try {
+      if (!canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization')) {
+        this.log('FolderAuthorization unsupported; grant stays session-only');
+        return;
+      }
+      const fileShare = await import('@ohos.fileshare');
+      await fileShare.persistPermission(uris);
+      this.saveChosenUris(uris);
+      this.log('folder permission persisted for ' + uris.length + ' uri(s)');
+    } catch (e) {
+      this.log('persistPermission failed: ' + JSON.stringify(e));
+    }
+  }
+
+  /** Startup: re-activate the persisted folder grant and re-probe the data
+   *  directory. The chosen folder stays read-only until activated, so the
+   *  first probe may fall back to the sandbox; after activation this
+   *  second pass adopts the real folder (create dirs / data works again). */
+  private async restoreFolderAccess(): Promise<void> {
+    const uris = this.readChosenUris();
+    if (uris.length === 0) {
+      return;
+    }
+    try {
+      if (!canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization')) {
+        this.log('FolderAuthorization unsupported; cannot re-activate');
+        return;
+      }
+      const fileShare = await import('@ohos.fileshare');
+      await fileShare.activatePermission(uris);
+      this.log('folder permission activated');
+    } catch (e) {
+      this.log('activatePermission failed: ' + JSON.stringify(e));
+      return;
+    }
+    await this.prepare();
+  }
+
   /**
    * Let the user pick a folder that becomes the app data directory
    * (DocumentViewPicker FOLDER mode, API 11+). The picker returns a
@@ -1065,6 +1141,11 @@ struct Index {
         this.message = '所选文件夹不可写：' + this.lastDirectError + '\nuri=' + uris[0] + '\npath=' + dirPath;
         return false;
       }
+      // Persist the picker grant where the system supports it
+      // (OpenHarmony 5 / API 12 fileShare.FolderAuthorization): without
+      // this the folder becomes read-only again after the next launch and
+      // the data directory can no longer be created.
+      await this.persistFolderUris(uris);
       this.saveChosenDir(dirPath);
       this.appDir = dirPath;
       this.adoptPublicDir();
