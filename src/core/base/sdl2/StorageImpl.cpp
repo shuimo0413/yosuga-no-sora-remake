@@ -557,27 +557,14 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 		}
 	}
 #else
-	// iOS: once the external data is installed (Documents/<bundle>/data
-	// exists), every project-relative path must resolve inside that
-	// directory. Falling through to the generic component walk below is
-	// not an option: it matches path components case-insensitively against
-	// the filesystem root, so "./system/" would end up as the OS's own
-	// /System directory and the auto-path rebuild would enumerate it
-	// (hangs on device).
+	// iOS: krkrz normalizes every path as "./<path>" (media domain "."
+	// concatenated either with an absolute path such as /var/mobile/... or,
+	// while the current directory is still "/", with a project-relative
+	// path). Resolve both forms directly instead of the generic component
+	// walk below, which matches components case-insensitively against the
+	// filesystem root ("./system/" would hit the OS's own /System and the
+	// auto-path rebuild would enumerate it, hanging on device).
 	{
-		// Absolute filesystem paths are already real on iOS: pass them
-		// through instead of the generic case-insensitive walk.
-		if (!nname.empty() && nname[0] == '/')
-		{
-			tjs_string wide_real;
-			if (TVPUtf8ToUtf16(wide_real, nname))
-			{
-				name = ttstr(wide_real);
-				return;
-			}
-			name.Clear();
-			return;
-		}
 		std::string ios_data_dir;
 		bool ios_ext_ready = false;
 		if (ext_data_root && ext_data_root[0])
@@ -586,25 +573,53 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 			struct stat dst;
 			ios_ext_ready = (stat(ios_data_dir.c_str(), &dst) == 0 && S_ISDIR(dst.st_mode));
 		}
-		if (ios_ext_ready)
+		if (nname.length() >= 2 && nname[0] == '.' &&
+			(nname[1] == '/' || (unsigned char)nname[1] == 92))
 		{
-			std::string rel;
-			if (nname.length() >= 2 && nname[0] == '.' &&
-				(nname[1] == '/' || (unsigned char)nname[1] == 92))
-				rel.assign(nname.begin() + 2, nname.end());
-			else
-				rel = nname; // bare project-relative path
+			std::string rel(nname.begin() + 2, nname.end());
 			for (std::string::iterator i = rel.begin(); i != rel.end(); ++i)
 			{
 				if ((unsigned char)*i == 92) *i = '/';
 			}
-			// krkrz scripts address resources as ./data/<name> while the
-			// unpacked tree already IS the data directory: drop the prefix.
-			if (rel.compare(0, 5, "data/") == 0) { rel.erase(0, 5); }
-			else if (rel == "data") { rel.clear(); }
-			std::string real = ios_data_dir + "/" + rel;
+			// Absolute form ("./var/mobile/..."): restore the leading slash
+			// and pass through when the path exists on the real filesystem.
+			std::string abs_path = "/" + rel;
+			struct stat st;
+			if (stat(abs_path.c_str(), &st) == 0)
+			{
+				tjs_string wide_real;
+				if (TVPUtf8ToUtf16(wide_real, abs_path))
+				{
+					name = ttstr(wide_real);
+					return;
+				}
+				name.Clear();
+				return;
+			}
+			// Project-relative form ("./startup.tjs", "./system/"): resolve
+			// inside the external data directory once it is installed.
+			if (ios_ext_ready)
+			{
+				// krkrz scripts address resources as ./data/<name> while the
+				// unpacked tree already IS the data directory: drop it.
+				if (rel.compare(0, 5, "data/") == 0) { rel.erase(0, 5); }
+				else if (rel == "data") { rel.clear(); }
+				std::string real = ios_data_dir + "/" + rel;
+				tjs_string wide_real;
+				if (TVPUtf8ToUtf16(wide_real, real))
+				{
+					name = ttstr(wide_real);
+					return;
+				}
+				name.Clear();
+				return;
+			}
+		}
+		else if (!nname.empty() && nname[0] == '/')
+		{
+			// Bare absolute path: pass through untouched.
 			tjs_string wide_real;
-			if (TVPUtf8ToUtf16(wide_real, real))
+			if (TVPUtf8ToUtf16(wide_real, nname))
 			{
 				name = ttstr(wide_real);
 				return;
