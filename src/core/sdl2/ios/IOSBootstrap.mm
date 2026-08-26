@@ -32,8 +32,12 @@ static std::string g_ios_data_root;
 
 const char *krkrsdl2_ios_data_root(void)
 {
-    if (g_ios_data_root.empty())
-    {
+    /* The engine resolves ./data/* through this function from several
+     * threads (image loader, storage lookups) during startup; a racy
+     * first initialization of the std::string cache would corrupt memory.
+     * dispatch_once makes the lazy init thread-safe. */
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
         NSArray *paths = NSSearchPathForDirectoriesInDomains(
             NSDocumentDirectory, NSUserDomainMask, YES);
         NSString *documents = paths.firstObject;
@@ -51,7 +55,7 @@ const char *krkrsdl2_ios_data_root(void)
             if (utf8)
                 g_ios_data_root = utf8;
         }
-    }
+    });
     return g_ios_data_root.empty() ? NULL : g_ios_data_root.c_str();
 }
 
@@ -1048,6 +1052,12 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 /* ------------------------------------------------------------------ */
 /* Entry point                                                         */
 /* ------------------------------------------------------------------ */
+
+/* Engine-side logging into the same bootstrap.log (C interface). */
+void krkrsdl2_ios_log(const char *message)
+{
+    IosLog([NSString stringWithUTF8String:message ? message : ""]);
+}
 
 int krkrsdl2_ios_run_bootstrap(void)
 {

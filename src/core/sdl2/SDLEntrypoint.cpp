@@ -37,6 +37,7 @@ extern "C" int main(int argc, char **argv)
 		{
 			exit(0);
 		}
+		krkrsdl2_ios_log("engine: bootstrap done, initializing platform");
 #endif
 
 		if (krkrsdl2_init_platform())
@@ -45,7 +46,15 @@ extern "C" int main(int argc, char **argv)
 			return TVPTerminateCode;
 		}
 
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: platform init done, entering main loop");
+#endif
+
 		krkrsdl2_run_main_loop();
+
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: main loop exited");
+#endif
 
 #ifndef __EMSCRIPTEN__
 		krkrsdl2_cleanup();

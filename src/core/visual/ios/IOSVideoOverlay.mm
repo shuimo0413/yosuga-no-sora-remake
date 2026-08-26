@@ -170,24 +170,26 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
        Documents/ directory.  The bundle identifier is unique per app;
        fall back to a fixed product name when it is unavailable. */
     static std::string cached;
-    if(!cached.empty()) return cached.c_str();
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(
-        NSDocumentDirectory, NSUserDomainMask, YES);
-    NSString *documents = paths.firstObject;
-    if(documents && documents.length > 0)
-    {
-        NSString *folder = NSBundle.mainBundle.bundleIdentifier;
-        if(folder.length == 0)
-            folder = @"YosugaSoraHD";
-        NSString *saveDir = [documents stringByAppendingPathComponent:folder];
-        saveDir = [saveDir stringByAppendingPathComponent:@"savedata"];
-        [[NSFileManager defaultManager] createDirectoryAtPath:saveDir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        const char *utf8 = saveDir.fileSystemRepresentation;
-        if(utf8) cached = utf8;
-    }
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(
+            NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documents = paths.firstObject;
+        if(documents && documents.length > 0)
+        {
+            NSString *folder = NSBundle.mainBundle.bundleIdentifier;
+            if(folder.length == 0)
+                folder = @"YosugaSoraHD";
+            NSString *saveDir = [documents stringByAppendingPathComponent:folder];
+            saveDir = [saveDir stringByAppendingPathComponent:@"savedata"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:saveDir
+                                      withIntermediateDirectories:YES
+                                                       attributes:nil
+                                                            error:nil];
+            const char *utf8 = saveDir.fileSystemRepresentation;
+            if(utf8) cached = utf8;
+        }
+    });
     return cached.empty() ? NULL : cached.c_str();
 }
 

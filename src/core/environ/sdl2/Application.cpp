@@ -38,6 +38,9 @@
 #include "SystemIntf.h"
 
 #include "Exception.h"
+#if defined(__IPHONEOS__)
+#include "../sdl2/ios/IOSBootstrap.h"
+#endif
 #if 0
 #include "WindowFormUnit.h"
 #include "Resource.h"
@@ -498,6 +501,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: script engine inited");
 #endif
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: script engine inited");
+#endif
 
 		// banner
 		TVPAddImportantLog( TVPFormatMessage(TVPProgramStartedOn, TVPGetOSName(), TVPGetPlatformName()) );
@@ -506,6 +512,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		TVPInitializeBaseSystems();
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: base systems inited");
+#endif
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: base systems inited");
 #endif
 
 #if 0
@@ -522,6 +531,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		TVPSystemInit();
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: system init done");
+#endif
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: system init done");
 #endif
 
 #if defined(__OHOS__)
@@ -599,6 +611,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: startup script done");
 #endif
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: startup script done");
+#endif
 
 #if 0
 		Run();
@@ -623,6 +638,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		// nothing to do
 	} catch( const Exception &exception ) {
 		TVPOnError();
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("engine: EXCEPTION in StartApplication");
+#endif
 		if(!TVPSystemUninitCalled)
 			ShowException(exception.what());
 	} catch( const TJS::eTJSScriptError &e ) {

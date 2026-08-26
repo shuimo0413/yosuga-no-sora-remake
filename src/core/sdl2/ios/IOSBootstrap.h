@@ -25,6 +25,10 @@ int krkrsdl2_ios_run_bootstrap(void);
  * unavailable. */
 const char *krkrsdl2_ios_data_root(void);
 
+/* Appends a diagnostic line to Documents/<bundle>/bootstrap.log (the same
+ * file the bootstrap page writes; reachable via the Files app). */
+void krkrsdl2_ios_log(const char *message);
+
 #ifdef __cplusplus
 }
 #endif
