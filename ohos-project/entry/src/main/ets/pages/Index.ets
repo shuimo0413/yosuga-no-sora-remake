@@ -3,6 +3,7 @@ import deviceInfo from '@ohos.deviceInfo';
 import { common, wantAgent, Want, bundleManager, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
+import fileShare from '@ohos.fileshare';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
 import { taskpool, util, uri } from '@kit.ArkTS';
@@ -1076,8 +1077,6 @@ struct Index {
         this.log('FolderAuthorization unsupported; grant stays session-only');
         return;
       }
-      const mod = await import('@ohos.fileshare');
-      const fileShare = mod.default;
       // API 12 signature: persistPermission(policies: PolicyInfo[]) with
       // { uri, operationMode } - READ_MODE(0b1) | WRITE_MODE(0b10).
       const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
@@ -1105,8 +1104,6 @@ struct Index {
         this.log('FolderAuthorization unsupported; cannot re-activate');
         return;
       }
-      const mod = await import('@ohos.fileshare');
-      const fileShare = mod.default;
       const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
         return { uri: u, operationMode: 0b11 };
       });
