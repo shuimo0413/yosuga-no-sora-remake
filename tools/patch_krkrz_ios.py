@@ -19,6 +19,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 KRKRZ = REPO / "external" / "krkrz"
 TARGET = KRKRZ / "base" / "ScriptMgnIntf.cpp"
+STORAGE_INTF = KRKRZ / "base" / "StorageIntf.cpp"
 
 MARKER = "#if defined(__IPHONEOS__)"
 
@@ -108,6 +109,24 @@ BLOCK6_NEW = """#if defined(__IPHONEOS__)
 #endif
 """
 
+BLOCK7_OLD = "const ttstr & path = *it;"
+
+BLOCK7_NEW = ("const ttstr & path = *it;\n"
+              "#if defined(__IPHONEOS__)\n"
+              "\t\t{\n"
+              "\t\t\tstd::string n8;\n"
+              "\t\t\tif (TVPUtf16ToUtf8(n8, path.AsStdString()))\n"
+              "\t\t\t\tkrkrsdl2_ios_log((\"script: scanning auto path \" + n8).c_str());\n"
+              "\t\t}\n"
+              "#endif")
+
+BLOCK8_OLD = "totalcount += count;"
+
+BLOCK8_NEW = ("#if defined(__IPHONEOS__)\n"
+              "\tkrkrsdl2_ios_log(\"script: auto path scan done\");\n"
+              "#endif\n"
+              "\ttotalcount += count;")
+
 BLOCK3_OLD = """	if(TVPScriptEngine)
 	{
 		if(!isexpression)
@@ -156,6 +175,12 @@ def apply(path: Path, old: str, new: str, what: str) -> None:
         print(f"already patched: {what}")
         return
     if old in text:
+        # count occurrences so ambiguous anchors surface instead of silently
+        # patching the wrong spot
+        if text.count(old) != 1:
+            print(f"ERROR: ambiguous patch anchor ({text.count(old)}x): {what}",
+                  file=sys.stderr)
+            sys.exit(1)
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
         print(f"patched: {what}")
         return
@@ -164,10 +189,11 @@ def apply(path: Path, old: str, new: str, what: str) -> None:
 
 
 def main() -> None:
-    if not TARGET.exists():
-        print(f"ERROR: {TARGET} not found (run after submodule checkout)",
-              file=sys.stderr)
-        sys.exit(1)
+    for target in (TARGET, STORAGE_INTF):
+        if not target.exists():
+            print(f"ERROR: {target} not found (run after submodule checkout)",
+                  file=sys.stderr)
+            sys.exit(1)
     apply(TARGET, BLOCK0_OLD, BLOCK0_NEW, "file-scope declarations")
     apply(TARGET, BLOCK1_OLD, BLOCK1_NEW, "TVPExecuteStorage diag")
     apply(TARGET, BLOCK2_OLD, BLOCK2_NEW, "TVPExecuteStartupScript diag")
@@ -175,6 +201,8 @@ def main() -> None:
     apply(TARGET, BLOCK4_OLD, BLOCK4_NEW, "bytecode path steps diag")
     apply(TARGET, BLOCK5_OLD, BLOCK5_NEW, "bytecode load diag")
     apply(TARGET, BLOCK6_OLD, BLOCK6_NEW, "text path steps diag")
+    apply(STORAGE_INTF, BLOCK7_OLD, BLOCK7_NEW, "auto path scan diag")
+    apply(STORAGE_INTF, BLOCK8_OLD, BLOCK8_NEW, "auto path scan done diag")
 
 
 if __name__ == "__main__":
