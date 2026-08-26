@@ -1358,42 +1358,6 @@ void TVPBeforeSystemInit()
 	}
 
 
-#if defined(__IPHONEOS__)
-	// External data flow: the bootstrap page downloads/imports the game
-	// data into Documents/<bundle>/data (or a data.xp3 next to it). Check
-	// that location first so the engine runs entirely outside the bundle.
-	if(!forcedataxp3 && !nosel)
-	{
-		const char *iosRoot = krkrsdl2_ios_data_root();
-		if(iosRoot && iosRoot[0])
-		{
-			tjs_string rootWide;
-			if(TVPUtf8ToUtf16(rootWide, std::string(iosRoot)))
-			{
-				ttstr rootDir = IncludeTrailingBackslash(rootWide);
-				if(DirectoryExists(rootDir + TJS_W("data")))
-				{
-					ttstr tmp = rootDir + TJS_W("data") + TJS_W("/");
-					TJS_strncpy(buf, tmp.c_str(), MAX_PATH - 1);
-					buf[MAX_PATH - 1] = TJS_W('\0');
-					TVPProjectDirSelected = true;
-					bufset = true;
-					nosel = true;
-				}
-				else if(FileExists(rootDir + TJS_W("data.xp3")))
-				{
-					ttstr tmp = rootDir + TJS_W("data.xp3");
-					TJS_strncpy(buf, tmp.c_str(), MAX_PATH - 1);
-					buf[MAX_PATH - 1] = TJS_W('\0');
-					TVPProjectDirSelected = true;
-					bufset = true;
-					nosel = true;
-				}
-			}
-		}
-	}
-#endif
-
 	// check "data" directory
 	if(!forcedataxp3 && !nosel)
 	{
@@ -1511,6 +1475,23 @@ void TVPBeforeSystemInit()
 #endif
 	tjs_string base_path_utf16;
 	TVPUtf8ToUtf16(base_path_utf16, base_path_utf8);
+#if defined(__IPHONEOS__)
+	// External data flow: the bootstrap page installed the game data into
+	// Documents/<bundle>/data. Treat Documents/<bundle> as the base so the
+	// "data" probe below selects that directory as the project dir (in an
+	// externalized build the bundle has no data, and the getcwd fallback
+	// would leave the engine pointed at the .app bundle).
+	{
+		const char *iosRoot = krkrsdl2_ios_data_root();
+		if (iosRoot && iosRoot[0])
+		{
+			std::string root_dir = std::string(iosRoot) + "/";
+			tjs_string root_utf16;
+			if (TVPUtf8ToUtf16(root_utf16, root_dir))
+				base_path_utf16 = root_utf16;
+		}
+	}
+#endif
 
 	if (base_path_utf16.length() != 0 && !TVPGetCommandLine(TJS_W("-nosel")))
 	{
@@ -1565,10 +1546,10 @@ void TVPBeforeSystemInit()
 		}
 		if (found_dir.length() != 0)
 		{
-#if defined(__OHOS__)
-			// OHOS: keep the raw absolute public path; NormalizeStorageName
-			// would turn /storage/... into a relative path that fails to resolve
-			// after chdir into the public Download folder.
+#if defined(__OHOS__) || defined(__IPHONEOS__)
+			// OHOS/iOS: keep the raw absolute path; NormalizeStorageName would
+			// turn /storage/... or /var/mobile/... into a relative path that
+			// fails to resolve after chdir into the public data folder.
 			TVPProjectDir = found_dir;
 #else
 			TVPProjectDir = TVPNormalizeStorageName(found_dir);
