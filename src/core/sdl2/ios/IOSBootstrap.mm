@@ -589,7 +589,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     NSString *name = st[@"name"];
     long long doneTotal = self.doneBytes + totalBytesWritten;
     float pct = self.totalBytes > 0
-        ? (float)(doneTotal * 100 / self.totalBytes) : 0;
+        ? (float)((double)doneTotal * 100.0 / (double)self.totalBytes) : 0.0f;
     [self setProgressText:[NSString stringWithFormat:
         @"正在下载 %@  %.0f%%  %@ / %@", name, pct,
         [self fmtSize:doneTotal], [self fmtSize:self.totalBytes]]
