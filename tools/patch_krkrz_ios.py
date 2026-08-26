@@ -22,6 +22,21 @@ TARGET = KRKRZ / "base" / "ScriptMgnIntf.cpp"
 
 MARKER = "#if defined(__IPHONEOS__)"
 
+BLOCK0_OLD = """#include "tjsCommHead.h"
+#include <string>
+"""
+
+BLOCK0_NEW = """#include "tjsCommHead.h"
+#include <string>
+
+#if defined(__IPHONEOS__)
+/* File-scope declarations (linkage specifications are not allowed at
+ * block scope). */
+extern "C" void krkrsdl2_ios_log(const char *);
+extern bool TVPUtf16ToUtf8( std::string& out, const tjs_string& in );
+#endif
+"""
+
 BLOCK1_OLD = """void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context, tTJSVariant *result, bool isexpression,
 	const tjs_char * modestr)
 {
@@ -34,8 +49,6 @@ BLOCK1_NEW = """void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context
 {
 #if defined(__IPHONEOS__)
 	{
-		extern "C" void krkrsdl2_ios_log(const char *);
-		extern bool TVPUtf16ToUtf8( std::string& out, const tjs_string& in );
 		std::string n8;
 		if (TVPUtf16ToUtf8(n8, name.AsStdString()))
 			krkrsdl2_ios_log(("script: executing " + n8).c_str());
@@ -53,7 +66,6 @@ BLOCK2_OLD = """			TVPAddLog( TVPInfoLoadingStartupScript + TVPStartupScriptName
 BLOCK2_NEW = """			TVPAddLog( TVPInfoLoadingStartupScript + TVPStartupScriptName );
 			TVPExecuteStorage(TVPStartupScriptName);
 #if defined(__IPHONEOS__)
-			extern "C" void krkrsdl2_ios_log(const char *);
 			krkrsdl2_ios_log("script: startup.tjs executed");
 #endif
 			TVPAddLog( (const tjs_char*)TVPInfoStartupScriptEnded );
@@ -62,14 +74,15 @@ BLOCK2_NEW = """			TVPAddLog( TVPInfoLoadingStartupScript + TVPStartupScriptName
 
 def apply(path: Path, old: str, new: str, what: str) -> None:
     text = path.read_text(encoding="utf-8")
+    if new in text:
+        print(f"already patched: {what}")
+        return
     if old in text:
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
         print(f"patched: {what}")
-    elif new in text:
-        print(f"already patched: {what}")
-    else:
-        print(f"ERROR: patch target not found: {what}", file=sys.stderr)
-        sys.exit(1)
+        return
+    print(f"ERROR: patch target not found: {what}", file=sys.stderr)
+    sys.exit(1)
 
 
 def main() -> None:
@@ -77,6 +90,7 @@ def main() -> None:
         print(f"ERROR: {TARGET} not found (run after submodule checkout)",
               file=sys.stderr)
         sys.exit(1)
+    apply(TARGET, BLOCK0_OLD, BLOCK0_NEW, "file-scope declarations")
     apply(TARGET, BLOCK1_OLD, BLOCK1_NEW, "TVPExecuteStorage diag")
     apply(TARGET, BLOCK2_OLD, BLOCK2_NEW, "TVPExecuteStartupScript diag")
 
