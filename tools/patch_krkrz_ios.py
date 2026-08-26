@@ -57,6 +57,57 @@ BLOCK1_NEW = """void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context
 	if(!TVPScriptEngine) TVPThrowInternalError;
 """
 
+BLOCK4_OLD = """	{ // for bytecode
+		ttstr place(TVPSearchPlacedPath(name));
+		ttstr shortname(TVPExtractStorageName(place));
+		tTJSBinaryStream* stream = TVPCreateBinaryStreamForRead(place, modestr);
+"""
+
+BLOCK4_NEW = """	{ // for bytecode
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("script: searching placed path");
+#endif
+		ttstr place(TVPSearchPlacedPath(name));
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("script: placed path found");
+#endif
+		ttstr shortname(TVPExtractStorageName(place));
+#if defined(__IPHONEOS__)
+		krkrsdl2_ios_log("script: creating binary stream");
+#endif
+		tTJSBinaryStream* stream = TVPCreateBinaryStreamForRead(place, modestr);
+"""
+
+BLOCK5_OLD = """				isbytecode = TVPScriptEngine->LoadByteCode( stream, result, context, shortname.c_str() );
+"""
+
+BLOCK5_NEW = """#if defined(__IPHONEOS__)
+				krkrsdl2_ios_log("script: loading bytecode");
+#endif
+				isbytecode = TVPScriptEngine->LoadByteCode( stream, result, context, shortname.c_str() );
+#if defined(__IPHONEOS__)
+				krkrsdl2_ios_log("script: bytecode load done");
+#endif
+"""
+
+BLOCK6_OLD = """	ttstr place(TVPSearchPlacedPath(name));
+	ttstr shortname(TVPExtractStorageName(place));
+
+	iTJSTextReadStream * stream = TVPCreateTextStreamForReadByEncoding(place, modestr,TVPScriptTextEncoding);
+"""
+
+BLOCK6_NEW = """#if defined(__IPHONEOS__)
+	krkrsdl2_ios_log("script: searching text path");
+#endif
+	ttstr place(TVPSearchPlacedPath(name));
+	ttstr shortname(TVPExtractStorageName(place));
+
+	iTJSTextReadStream * stream = TVPCreateTextStreamForReadByEncoding(place, modestr,TVPScriptTextEncoding);
+#if defined(__IPHONEOS__)
+	krkrsdl2_ios_log("script: text stream created");
+#endif
+"""
+
 BLOCK3_OLD = """	if(TVPScriptEngine)
 	{
 		if(!isexpression)
@@ -121,6 +172,9 @@ def main() -> None:
     apply(TARGET, BLOCK1_OLD, BLOCK1_NEW, "TVPExecuteStorage diag")
     apply(TARGET, BLOCK2_OLD, BLOCK2_NEW, "TVPExecuteStartupScript diag")
     apply(TARGET, BLOCK3_OLD, BLOCK3_NEW, "ExecScript boundaries diag")
+    apply(TARGET, BLOCK4_OLD, BLOCK4_NEW, "bytecode path steps diag")
+    apply(TARGET, BLOCK5_OLD, BLOCK5_NEW, "bytecode load diag")
+    apply(TARGET, BLOCK6_OLD, BLOCK6_NEW, "text path steps diag")
 
 
 if __name__ == "__main__":
