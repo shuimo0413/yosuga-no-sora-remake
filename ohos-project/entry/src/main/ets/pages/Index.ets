@@ -11,6 +11,12 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
+/** fileShare.PolicyInfo shape (API 12): a persisted-folder grant. */
+interface FolderPolicy {
+  uri: string;
+  operationMode: number;
+}
+
 /** data-assets.json entry. */
 interface DataAsset {
   name: string;
@@ -1074,7 +1080,7 @@ struct Index {
       const fileShare = mod.default;
       // API 12 signature: persistPermission(policies: PolicyInfo[]) with
       // { uri, operationMode } - READ_MODE(0b1) | WRITE_MODE(0b10).
-      const policies: Array<{ uri: string; operationMode: number }> = uris.map((u: string) => {
+      const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
         return { uri: u, operationMode: 0b11 };
       });
       await fileShare.persistPermission(policies);
@@ -1101,7 +1107,7 @@ struct Index {
       }
       const mod = await import('@ohos.fileshare');
       const fileShare = mod.default;
-      const policies: Array<{ uri: string; operationMode: number }> = uris.map((u: string) => {
+      const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
         return { uri: u, operationMode: 0b11 };
       });
       await fileShare.activatePermission(policies);
