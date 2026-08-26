@@ -1057,12 +1057,6 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 /* Entry point                                                         */
 /* ------------------------------------------------------------------ */
 
-/* Engine-side logging into the same bootstrap.log (C interface). */
-void krkrsdl2_ios_log(const char *message)
-{
-    IosLog([NSString stringWithUTF8String:message ? message : ""]);
-}
-
 int krkrsdl2_ios_run_bootstrap(void)
 {
     @autoreleasepool {

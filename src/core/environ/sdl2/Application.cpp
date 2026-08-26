@@ -38,9 +38,6 @@
 #include "SystemIntf.h"
 
 #include "Exception.h"
-#if defined(__IPHONEOS__)
-#include "../sdl2/ios/IOSBootstrap.h"
-#endif
 #if 0
 #include "WindowFormUnit.h"
 #include "Resource.h"
@@ -501,9 +498,7 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: script engine inited");
 #endif
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: script engine inited");
-#endif
+
 
 		// banner
 		TVPAddImportantLog( TVPFormatMessage(TVPProgramStartedOn, TVPGetOSName(), TVPGetPlatformName()) );
@@ -513,9 +508,7 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: base systems inited");
 #endif
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: base systems inited");
-#endif
+
 
 #if 0
 		Initialize();
@@ -532,9 +525,7 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: system init done");
 #endif
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: system init done");
-#endif
+
 
 #if defined(__OHOS__)
 		/* data.xp3 mode: register archive-scoped auto paths natively once
@@ -581,25 +572,19 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		// Load external patch archives (patch.xp3, ...) from the public game
 		// data folder once SDL/JNI is fully initialized, so users can apply
 		// updates without reinstalling the app.
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: loading external patch archives");
-#endif
+
 #if defined(__ANDROID__)
 		TVPLoadExternalPatchArchives(TVPAndroidGetPublicSaveDirectory());
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
 		TVPLoadExternalPatchArchives(TVPIOSGetDocumentsDirectory());
 #endif
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: external patches done");
-#endif
+
 
 		if(TVPCheckAbout()) return true; // version information dialog box;
 
 		SetTitle( tjs_string(TVPKirikiri) );
 		TVPSystemControl = new tTVPSystemControl();
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: system control created");
-#endif
+
 #if 0
 #ifndef TVP_IGNORE_LOAD_TPM_PLUGIN
 		TVPLoadPluigins(); // load plugin module *.tpm
@@ -616,16 +601,12 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: running startup script");
 #endif
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: running startup script");
-#endif
+
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
 #if defined(__OHOS__)
 		OHOSAppDiag("StartApplication: startup script done");
 #endif
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: startup script done");
-#endif
+
 
 #if 0
 		Run();
@@ -650,34 +631,24 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		// nothing to do
 	} catch( const Exception &exception ) {
 		TVPOnError();
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: EXCEPTION in StartApplication");
-#endif
+
 		if(!TVPSystemUninitCalled)
 			ShowException(exception.what());
 	} catch( const TJS::eTJSScriptError &e ) {
 		TVPOnError();
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: SCRIPT ERROR in StartApplication");
-#endif
+
 		if(!TVPSystemUninitCalled)
 			ShowException( e.GetMessage().c_str() );
 	} catch( const TJS::eTJS &e) {
 		TVPOnError();
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: TJS ERROR in StartApplication");
-#endif
+
 		if(!TVPSystemUninitCalled)
 			ShowException( e.GetMessage().c_str() );
 	} catch( const std::exception &e ) {
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: STD EXCEPTION in StartApplication");
-#endif
+
 		ShowException( ttstr(e.what()).c_str() );
 	} catch( const char* e ) {
-#if defined(__IPHONEOS__)
-		krkrsdl2_ios_log("engine: CHAR EXCEPTION in StartApplication");
-#endif
+
 		ShowException( ttstr(e).c_str() );
 	} catch( const tjs_char* e ) {
 		ShowException( e );

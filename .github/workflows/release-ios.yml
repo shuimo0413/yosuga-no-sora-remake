@@ -201,12 +201,6 @@ jobs:
             echo "keychain=$keychain"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Patch krkrz for iOS diagnostics
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/patch_krkrz_ios.py
-
       - name: Generate iOS app icon from the shared PNG
         shell: bash
         run: |
