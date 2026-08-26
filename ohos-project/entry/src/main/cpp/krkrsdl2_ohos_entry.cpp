@@ -170,6 +170,15 @@ void OnSurfaceCreated(OH_NativeXComponent *component, void *window)
 
 void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
 {
+	// A window resize races the surface teardown on KaihongOS: the
+	// framework can deliver a null window here, and
+	// OH_NativeXComponent_GetXComponentSize then dereferences it
+	// (SIGSEGV inside libace XComponentPattern::OnSurfaceChanged).
+	if (component == nullptr || window == nullptr)
+	{
+		OHOS_DiagLog("OnSurfaceChanged(ui) null component/window; ignoring");
+		return;
+	}
 	uint64_t width = 0;
 	uint64_t height = 0;
 	int32_t sz = OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);

@@ -141,14 +141,21 @@ async function sha256Task(path: string): Promise<string> {
 @Concurrent
 async function copyUriTask(uri: string, dest: string): Promise<string> {
   try {
+    // Prefer copyFileSync: it resolves the picker grant through the
+    // datashare/file-manager path. fs.openSync(uri) on KaihongOS goes
+    // through the MediaLibrary permission check instead and is denied
+    // (-13 / 13900002) for Download files, hanging the import.
+    try {
+      fs.copyFileSync(uri, dest);
+      return 'ok';
+    } catch (e) {
+      // fall through to the streaming copy below
+    }
     let src: fs.File | null = null;
     try {
       src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
     } catch (e) {
-      // Some systems hand out datashare:// uris that openSync rejects; the
-      // copyFile helper understands more uri schemes.
-      fs.copyFileSync(uri, dest);
-      return 'ok';
+      return 'err:' + JSON.stringify(e);
     }
     const dst = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     const buf = new ArrayBuffer(1024 * 1024);
@@ -258,6 +265,14 @@ function moveTreeTask(srcDir: string, dstDir: string): void {
           fs.unlinkSync(s);
         } catch (e) {
           // a retry on the next launch picks it up
+          try {
+            const ef = fs.openSync(srcDir + '.move.err',
+              fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
+            fs.writeSync(ef.fd, d + ' | ' + JSON.stringify(e) + '\n');
+            fs.closeSync(ef);
+          } catch (e2) {
+            // ignore
+          }
         }
         done++;
         if (done % 512 === 0 || done === total) {
@@ -1139,6 +1154,9 @@ struct Index {
       this.log('activatePermission failed: ' + JSON.stringify(e));
       return;
     }
+    // The share mount is established asynchronously after activation;
+    // wait a moment so the re-probe sees the folder as writable.
+    await this.delay(1200);
     await this.prepare();
   }
 
@@ -1181,15 +1199,46 @@ struct Index {
         this.message = '无法解析所选文件夹，数据将保存在应用私有目录';
         return false;
       }
-      if (!this.tryDirectAt(dirPath)) {
-        // Fall back to a uri-level write test: some systems deny raw path
-        // writes even when the picker grant is fine (virtualized public
-        // trees). When the uri works we keep the path for the data dir.
+      // The share mount is established asynchronously right after the
+      // picker returns; the first writes can race it (KaihongOS). Retry
+      // the write test for a few seconds before giving up.
+      let writable = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (this.tryDirectAt(dirPath)) {
+          writable = true;
+          break;
+        }
+        await this.delay(300);
+      }
+      if (!writable) {
+        // Last resort: uri-level write test. KaihongOS does not support
+        // creating files through doc sub-uris (13900002), so this only
+        // distinguishes a real grant failure from the mount race above.
+        const pathErr = this.lastDirectError;
         if (!this.tryDirectAtUri(uris[0])) {
-          this.message = '所选文件夹不可写：' + this.lastDirectError + '\nuri=' + uris[0] + '\npath=' + dirPath;
+          this.message = '所选文件夹不可写\npath写: ' + pathErr +
+            '\nuri写: ' + this.lastDirectError +
+            '\nuri=' + uris[0] + '\npath=' + dirPath;
           return false;
         }
         this.lastDirectError = '';
+      }
+      // Subdirectory write test: the KaihongOS sharefs mount only allows
+      // writing files directly inside the mount point - every nested
+      // directory is read-only, so a game data tree (thousands of files
+      // in subfolders) can never live there. Stay on the sandbox instead.
+      let subdirWritable = false;
+      try {
+        fs.mkdirSync(dirPath + '/.dirtest');
+        subdirWritable = true;
+        fs.rmdirSync(dirPath + '/.dirtest');
+      } catch (e) {
+        subdirWritable = false;
+      }
+      if (!subdirWritable) {
+        this.message = '此设备不支持在所选文件夹中创建子目录，无法存放游戏数据；' +
+          '数据将保存在应用私有目录（仍可正常游玩，但文件管理器不可见）';
+        return false;
       }
       // Persist the picker grant where the system supports it
       // (OpenHarmony 5 / API 12 fileShare.FolderAuthorization): without
@@ -1216,6 +1265,10 @@ struct Index {
     await this.setScreenOn(false);
     if (ok) {
       this.prepare();
+    } else if (this.message !== '') {
+      // The inline message label is too short for the multi-line
+      // diagnostic; show the full text in a dialog instead.
+      await this.showNotice('选择数据文件夹失败', this.message);
     }
   }
 
@@ -1267,7 +1320,12 @@ struct Index {
    */
   private isKaihong(): boolean {
     try {
-      return deviceInfo.osFullName.indexOf('Kaihong') >= 0;
+      // osFullName alone is NOT enough: Kaihong BotBook reports
+      // "OpenHarmony-5.0.2.123" there. The manufacturer and product
+      // model carry the Kaihong brand reliably.
+      const hay = deviceInfo.osFullName + '|' + deviceInfo.productModel +
+        '|' + deviceInfo.manufacture;
+      return hay.toLowerCase().indexOf('kaihong') >= 0;
     } catch (e) {
       return false;
     }
@@ -1389,6 +1447,13 @@ struct Index {
     } catch (e) {
       // folder missing: fall through to the grant routes
     }
+    if (this.isKaihong()) {
+      // KaihongOS: no public data dir is possible (the sharefs grant
+      // mount cannot hold a directory tree). Stay on the sandbox and do
+      // NOT prompt - the import/download picker must open right away.
+      this.log('KaihongOS: staying on sandbox, no public-dir prompts');
+      return false;
+    }
     if (this.publicDenied) {
       this.log('public dir unusable; staying on sandbox');
       return false;
@@ -1425,8 +1490,12 @@ struct Index {
     } else {
       // OpenHarmony/KaihongOS: the save picker cannot grant the folder, so
       // prefer the folder picker (user picks or creates the data folder;
-      // the grant persists across launches).
-      if (!this.folderTried && this.supportsFolderPicker()) {
+      // the grant persists across launches). KaihongOS is excluded: its
+      // sharefs grant mount only allows writing files directly inside the
+      // mount point (no nested directories), so a game data tree can never
+      // live there - stay on the sandbox and let the import picker select
+      // the zip right away.
+      if (!this.folderTried && this.supportsFolderPicker() && !this.isKaihong()) {
         this.folderTried = true;
         if (await this.chooseDataFolder()) {
           return true;
@@ -1644,6 +1713,36 @@ struct Index {
     try {
       const result = await taskpool.execute(unzipTask, srcZip, outDir) as string;
       this.log('unzip result: ' + result.slice(0, 600));
+      // Diagnostic: keep the unzip outcome + tree for hdc inspection.
+      try {
+        let tree = '';
+        try {
+          const walk = (d: string, depth: number): void => {
+            if (depth > 3) {
+              return;
+            }
+            let entries: string[] = [];
+            try {
+              entries = fs.listFileSync(d);
+            } catch (e) {
+              return;
+            }
+            for (const n of entries.slice(0, 30)) {
+              tree += '  '.repeat(depth) + n + '\n';
+              walk(d + '/' + n, depth + 1);
+            }
+          };
+          walk(outDir, 0);
+        } catch (e) {
+          tree = '<tree-err> ' + JSON.stringify(e);
+        }
+        const diagFd = fs.openSync(this.sandboxFiles + '/unzip.diag',
+          fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        fs.writeSync(diagFd.fd, 'result=' + result + '\noutDir=' + outDir + '\n' + tree);
+        fs.closeSync(diagFd);
+      } catch (e) {
+        // ignore
+      }
       if (!result.startsWith('ok:')) {
         throw new Error(result);
       }
@@ -1725,6 +1824,35 @@ struct Index {
         this.progressText = '正在移动数据到下载目录…';
         this.progressValue = 0;
         this.uiEpoch++;
+        // The picker grant's rw mount degrades to read-only some time
+        // after selection (persistPermission is unsupported here); the
+        // copy below then fails with 13900002 for every file. Re-activate
+        // the grant first so the rw mount is rebuilt.
+        if (!this.tryDirectAt(this.appDir)) {
+          const uris = this.readChosenUris();
+          if (uris.length > 0) {
+            try {
+              const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
+                return { uri: u, operationMode: 0b11 };
+              });
+              await fileShare.activatePermission(policies);
+              await this.delay(1500);
+            } catch (e) {
+              // activation unsupported: fall through and let the copies fail loudly
+            }
+          }
+        }
+        // Pre-create the destination directory on the UI thread: the
+        // sharefs (KaihongOS) rw mount may reject mkdir calls made from
+        // the TaskPool worker, which silently breaks every copy below.
+        try {
+          fs.mkdirSync(this.dataDir, true);
+        } catch (e) {
+          // already exists or the mount is not writable
+        }
+        if (!this.tryDirectAt(this.appDir)) {
+          throw new Error('数据目录不可写：' + this.lastDirectError + '（授权已失效，请重新选择文件夹）');
+        }
         const movePromise = taskpool.execute(moveTreeTask, src, this.dataDir);
         let moved = 0;
         let total = 0;
@@ -1747,6 +1875,19 @@ struct Index {
           }
         }
         await movePromise;
+        // Persist any per-file copy failures for diagnosis (the staging
+        // dir is removed right after, so this copy survives).
+        const errText = this.tryReadFile(src + '.move.err');
+        if (errText !== '') {
+          try {
+            const diagFd = fs.openSync(this.sandboxFiles + '/move.diag',
+              fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+            fs.writeSync(diagFd.fd, errText);
+            fs.closeSync(diagFd);
+          } catch (e) {
+            // ignore
+          }
+        }
         try {
           fs.unlinkSync(progressPath);
         } catch (e) {
@@ -1929,6 +2070,18 @@ struct Index {
     this.progressValue = 0;
     await this.ensurePublic();
     this.uiEpoch++; // force a rebuild after the permission dialog closes
+    // Ask for FILE_ACCESS_PERSIST BEFORE opening the picker: otherwise the
+    // system raises the permission dialog while the picker UIExtension is
+    // up, and the select() promise can hang after the dialog closes
+    // (KaihongOS shows the dialog on the first import).
+    try {
+      const atManager = abilityAccessCtrl.createAtManager();
+      await atManager.requestPermissionsFromUser(
+        getContext(this) as common.UIAbilityContext,
+        ['ohos.permission.FILE_ACCESS_PERSIST']);
+    } catch (e) {
+      // permission unsupported: continue without it
+    }
     const documentPicker = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
     let uris: string[] = [];
     try {
@@ -2330,16 +2483,55 @@ struct Index {
     }, 1000);
   }
 
+  // Locked game window size (px). KaihongOS ArkUI crashes inside
+  // XComponentPattern::OnSurfaceChanged when an XComponent is resized, so
+  // the window is pinned and any WM resize is bounced straight back.
+  private winLockW: number = 0;
+  private winLockH: number = 0;
+
   private rotateToLandscape(): void {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
         this.log('rotateToLandscape got window t=' + (Date.now() - this.hbStart));
         mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
-        mainWindow.setWindowLayoutFullScreen(true);
+        if (this.isKaihong()) {
+          // KaihongOS is a desktop OS: run WINDOWED from the start. The
+          // fullscreen -> windowed transition resizes the XComponent and
+          // crashes the ArkUI framework (XComponentPattern::
+          // OnSurfaceChanged, SIGSEGV), so never enter fullscreen at all.
+          mainWindow.setFullScreen(false).catch(() => {});
+          mainWindow.resize(1280, 720).catch(() => {});
+        } else {
+          mainWindow.setWindowLayoutFullScreen(true);
+        }
         // Hide both system bars so the navigation gesture pill is
         // immersed too (game runs fullscreen edge to edge).
         mainWindow.setWindowSystemBarEnable([]);
+        try {
+          const props = mainWindow.getWindowProperties();
+          this.winLockW = props.windowRect.width;
+          this.winLockH = props.windowRect.height;
+          mainWindow.setAspectRatio(this.winLockH > 0 ? this.winLockW / this.winLockH : 16 / 9)
+            .catch(() => {});
+        } catch (e) {
+          // best effort
+        }
+        // Bounce any WM resize / windowed-mode switch back to the locked
+        // fullscreen size: resizing an XComponent (the fullscreen ->
+        // windowed transition) crashes the KaihongOS ArkUI framework
+        // inside XComponentPattern::OnSurfaceChanged.
+        try {
+          mainWindow.on('windowSizeChange', (size: window.Size) => {
+            if (this.winLockW > 0 && this.winLockH > 0 &&
+              (size.width !== this.winLockW || size.height !== this.winLockH)) {
+              mainWindow.setWindowLayoutFullScreen(true).catch(() => {});
+              mainWindow.resize(this.winLockW, this.winLockH).catch(() => {});
+            }
+          });
+        } catch (e) {
+          // best effort
+        }
       }).catch(() => {
         // best effort
       });
@@ -2524,7 +2716,7 @@ struct Index {
             .textShadow({ radius: 3, color: '#000000', offsetX: 0, offsetY: 0 })
           // Error messages show right below the title in a slim reserved
           // slot so the whole setup page fits one screen.
-          Text(this.message === '' ? ' ' : this.message).fontSize(11).fontColor(Color.Red)
+          Text(this.message === '' ? ' ' : this.message).fontSize(11).fontColor(Color.Red).maxLines(8)
             .maxLines(1).height(18).textAlign(TextAlign.Center)
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Black)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })

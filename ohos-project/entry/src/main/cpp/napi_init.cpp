@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <string>
+#include <unistd.h>
 
 #include <filemanagement/file_uri/oh_file_uri.h>
 
@@ -419,9 +420,25 @@ static napi_value UriToPath(napi_env env, napi_callback_info info)
 	std::string uri_str(length, '\0');
 	napi_get_value_string_utf8(env, args[0], &uri_str[0], length + 1, &length);
 
+	napi_value r = nullptr;
+	// KaihongOS: the official conversion returns the virtualized
+	// /storage/Users/... path that the app sandbox denies (13900012).
+	// The granted folder is really mounted read-write inside the app's
+	// sharefs view at /data/storage/el2/share/rw/docs/<path> (the
+	// /data/service/el2/.../share path only exists in the root mount
+	// namespace, not in the app's), so build that path directly for
+	// file://docs/ uris.
+	if (uri_str.compare(0, 12, "file://docs/") == 0)
+	{
+		char share[512];
+		snprintf(share, sizeof(share),
+			"/data/storage/el2/share/rw/docs/%s", uri_str.c_str() + 12);
+		napi_create_string_utf8(env, share, NAPI_AUTO_LENGTH, &r);
+		return r;
+	}
+
 	char *path = nullptr;
 	FileManagement_ErrCode rc = OH_FileUri_GetPathFromUri(uri_str.c_str(), uri_str.size(), &path);
-	napi_value r = nullptr;
 	if (rc == 0 && path != nullptr && path[0] != '\0')
 	{
 		napi_create_string_utf8(env, path, NAPI_AUTO_LENGTH, &r);
