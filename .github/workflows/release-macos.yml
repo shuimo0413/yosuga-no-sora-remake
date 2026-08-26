@@ -194,7 +194,11 @@ jobs:
           ln -s /Applications "$staging/Applications"
           dmg_name="Yosuga-no-Sora-HD-Remake-macOS-arm64-$RELEASE_TAG.dmg"
           dmg="$RUNNER_TEMP/$dmg_name"
-          hdiutil create -quiet -fs HFS+ -format UDZO -imagekey zlib-level=1 \
+          # Verbose on purpose: a create failure used to be invisible
+          # (-quiet) and the step died without an error message. APFS
+          # instead of HFS+ (creating HFS+ images is unreliable on
+          # recent macOS runners).
+          hdiutil create -verbose -fs APFS -format UDZO \
             -volname 'Yosuga no Sora HD Remake' -srcfolder "$staging" "$dmg"
           hdiutil verify "$dmg"
 
