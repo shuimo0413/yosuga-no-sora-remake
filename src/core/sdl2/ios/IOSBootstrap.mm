@@ -172,10 +172,20 @@ static BOOL SHA256OfFile(NSString *path, unsigned char out[CC_SHA256_DIGEST_LENG
     }
     CC_SHA256_CTX ctx;
     CC_SHA256_Init(&ctx);
-    unsigned char buf[1024 * 1024];
+    /* Heap buffer: this runs on a GCD worker thread whose stack is only
+     * ~512 KB, and the previous 1 MB on-stack buffer tripped the stack
+     * guard ("Thread stack size exceeded", SIGBUS). */
+    unsigned char *buf = (unsigned char *)malloc(256 * 1024);
+    if (!buf)
+    {
+        fclose(f);
+        if (errOut) *errOut = @"内存不足";
+        return NO;
+    }
     size_t n = 0;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+    while ((n = fread(buf, 1, 256 * 1024, f)) > 0)
         CC_SHA256_Update(&ctx, buf, (CC_LONG)n);
+    free(buf);
     fclose(f);
     CC_SHA256_Final(out, &ctx);
     return YES;

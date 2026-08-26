@@ -324,7 +324,7 @@ bool Mkdirs(const std::string &path, std::string *errOut)
 
 bool CopyStored(FILE *in, uint64_t size, FILE *out)
 {
-  unsigned char buf[64 * 1024];
+  unsigned char buf[32 * 1024];
   while (size > 0)
   {
     size_t chunk = size > sizeof(buf) ? sizeof(buf) : (size_t)size;
@@ -345,8 +345,11 @@ bool InflateEntry(FILE *in, uint64_t compressedSize, uint64_t uncompressedSize,
     *err = "inflateInit2 failed";
     return false;
   }
-  unsigned char inBuf[64 * 1024];
-  unsigned char outBuf[64 * 1024];
+  /* 32 KB buffers keep the combined frame small: this also runs on the
+   * GCD worker thread whose stack is ~512 KB (a 1 MB stack buffer in the
+   * sha256 path already caused a "Thread stack size exceeded" SIGBUS). */
+  unsigned char inBuf[32 * 1024];
+  unsigned char outBuf[32 * 1024];
   uint64_t remaining = compressedSize;
   uint64_t produced = 0;
   bool ok = true;
