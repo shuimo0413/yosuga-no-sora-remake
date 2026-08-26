@@ -93,6 +93,76 @@ function copyFileTask(src: string, dst: string): void {
   }
 }
 
+/** TaskPool worker: sha256 of a multi-GB file. Reading a 1.7GB zip
+ *  chunk-by-chunk on the UI thread blocks it long enough to trip
+ *  THREAD_BLOCK_6S (the system kills the app right after a download
+ *  finishes). Returns the hex digest or 'err:<json>'. */
+@Concurrent
+async function sha256Task(path: string): Promise<string> {
+  try {
+    const md = cryptoFramework.createMd('SHA256');
+    const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    const chunk = new ArrayBuffer(1024 * 1024);
+    try {
+      while (true) {
+        const len = fs.readSync(file.fd, chunk);
+        if (len <= 0) {
+          break;
+        }
+        const view = new Uint8Array(chunk.slice(0, len));
+        await md.update({ data: view });
+      }
+    } finally {
+      fs.closeSync(file);
+    }
+    const digest = await md.digest();
+    const bytes = digest.data;
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) {
+      hex += bytes[i].toString(16).padStart(2, '0');
+    }
+    return hex.toUpperCase();
+  } catch (e) {
+    return 'err:' + JSON.stringify(e);
+  }
+}
+
+/** TaskPool worker: copy a picked uri (content://) into the sandbox
+ *  cache. The synchronous uri read can block on datashare IPC for
+ *  seconds; running it on the UI thread trips THREAD_BLOCK_6S and the
+ *  system kills the app. Returns 'ok' or 'err:<json>'. */
+@Concurrent
+async function copyUriTask(uri: string, dest: string): Promise<string> {
+  try {
+    let src: fs.File | null = null;
+    try {
+      src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+    } catch (e) {
+      // Some systems hand out datashare:// uris that openSync rejects; the
+      // copyFile helper understands more uri schemes.
+      fs.copyFileSync(uri, dest);
+      return 'ok';
+    }
+    const dst = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    const buf = new ArrayBuffer(1024 * 1024);
+    try {
+      while (true) {
+        const n = fs.readSync(src.fd, buf);
+        if (n <= 0) {
+          break;
+        }
+        fs.writeSync(dst.fd, buf.slice(0, n));
+      }
+    } finally {
+      fs.closeSync(src);
+      fs.closeSync(dst);
+    }
+    return 'ok';
+  } catch (e) {
+    return 'err:' + JSON.stringify(e);
+  }
+}
+
 /**
  * TaskPool worker: move a directory tree across volumes (copy each file,
  * then remove the source tree). Used when the sandbox staging dir must
@@ -1669,28 +1739,13 @@ struct Index {
   }
 
   async verifySha256(path: string, expected: string): Promise<boolean> {
-    const md = cryptoFramework.createMd('SHA256');
-    const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
-    const chunk = new ArrayBuffer(1024 * 1024);
-    try {
-      while (true) {
-        const len = fs.readSync(file.fd, chunk);
-        if (len <= 0) {
-          break;
-        }
-        const view = new Uint8Array(chunk.slice(0, len));
-        await md.update({ data: view });
-      }
-    } finally {
-      fs.closeSync(file);
+    // Run on a TaskPool worker: hashing a 1.7GB zip on the UI thread
+    // blocks it for seconds and the system kills the app.
+    const hex = await taskpool.execute(sha256Task, path) as string;
+    if (hex.startsWith('err:')) {
+      throw new Error('SHA-256 计算失败：' + hex);
     }
-    const digest = await md.digest();
-    const bytes = digest.data;
-    let hex = '';
-    for (let i = 0; i < bytes.length; i++) {
-      hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    return hex.toUpperCase() === expected.toUpperCase();
+    return hex === expected.toUpperCase();
   }
 
   async showNotice(title: string, msg: string): Promise<void> {
@@ -1710,38 +1765,13 @@ struct Index {
     } catch (e) {
       // destination may not exist yet - fine
     }
-    let src: fs.File | null = null;
-    try {
-      src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
-    } catch (e) {
-      // Some systems hand out datashare:// uris that openSync rejects; the
-      // copyFile helper understands more uri schemes.
-      fs.copyFileSync(uri, dest);
-      return;
-    }
-    const dst = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    const buf = new ArrayBuffer(1024 * 1024);
-    let bytes = 0;
-    try {
-      while (true) {
-        const n = fs.readSync(src.fd, buf);
-        if (n <= 0) {
-          break;
-        }
-        const chunk = buf.slice(0, n);
-        fs.writeSync(dst.fd, chunk);
-        bytes += n;
-        // Yield to the UI thread periodically: copying a multi-GB zip in
-        // one synchronous loop stalls rendering and the system may kill
-        // the app (the import crashed after a small part was copied).
-        if (bytes >= 32 * 1024 * 1024) {
-          bytes = 0;
-          await this.delay(0);
-        }
-      }
-    } finally {
-      fs.closeSync(src);
-      fs.closeSync(dst);
+    // The picker uri read runs on a TaskPool worker: a content:// read of
+    // a multi-GB zip can block the UI thread for seconds (libuv pool
+    // contention / datashare IPC), tripping THREAD_BLOCK_6S and the system
+    // kills the app mid-import.
+    const result = await taskpool.execute(copyUriTask, uri, dest) as string;
+    if (!result.startsWith('ok')) {
+      throw new Error('复制文件失败：' + result);
     }
   }
 
