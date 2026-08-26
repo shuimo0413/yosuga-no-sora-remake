@@ -463,7 +463,13 @@ int Krkr_ExtractZip(const char *zipPath, const char *outDir,
       continue; /* skip unsafe entry, keep going */
     }
     std::string target = SafeJoin(outDir, clean);
-    if (!Mkdirs(target, &errStr))
+    /* Create only the PARENT directory: Mkdirs on the full target also
+     * created the file name itself as a directory, so fopen() then failed
+     * with errno=21 (Is a directory). */
+    size_t lastSlash = target.find_last_of('/');
+    std::string parent = (lastSlash == std::string::npos)
+      ? outDir : target.substr(0, lastSlash);
+    if (!Mkdirs(parent, &errStr))
     {
       rc = -1;
       break;
