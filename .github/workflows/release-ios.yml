@@ -354,16 +354,8 @@ jobs:
           fi
 
           rm -rf build/ios data "$package" "$RUNNER_TEMP/ios-derived-data"
-          seven_zip=$(command -v 7zz || command -v 7z)
-          "$seven_zip" a -t7z -mx=0 -mmt=on -v1900m \
-            "$asset_dir/$ipa_name.7z" "$ipa"
-          shopt -s nullglob
-          volumes=("$asset_dir/$ipa_name.7z."*)
-          [[ "${#volumes[@]}" -gt 0 ]]
-          "$seven_zip" t "${volumes[0]}"
-          for volume in "${volumes[@]}"; do
-            [[ "$(stat -f '%z' "$volume")" -lt 2147483648 ]]
-          done
+          # The IPA is data-external and small: upload it directly, no split.
+          mv "$ipa" "$asset_dir/$ipa_name"
           cat > "$asset_dir/$ipa_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Kirikiri SDL2 for iOS (arm64)
