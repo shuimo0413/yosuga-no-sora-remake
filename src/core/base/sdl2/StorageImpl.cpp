@@ -586,6 +586,7 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 		return;
 	}
 #endif
+#endif
 
 #if defined(__OHOS__)
 	// OHOS: the engine paths are already local filesystem paths; return them
