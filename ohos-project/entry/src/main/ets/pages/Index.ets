@@ -2358,6 +2358,7 @@ struct Index {
               this.importLocal();
             })
           }
+          .justifyContent(FlexAlign.Center)
           .width('100%')
           .padding({ top: 20, bottom: 40 })
         }

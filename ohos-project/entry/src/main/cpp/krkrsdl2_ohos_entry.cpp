@@ -178,7 +178,7 @@ static void OnUIInputEvent(OH_NativeXComponent *component, ArkUI_UIInputEvent *e
 	{
 		SDL_OHOS_OnMouseEvent(2, 0, yv, xv);
 	}
-}
+	}
 
 void OnSurfaceCreated(OH_NativeXComponent *component, void *window)
 {
