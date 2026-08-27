@@ -1270,6 +1270,32 @@ void TVPWindowWindow::TranslateWindowToDrawArea(int &x, int &y)
 	x = MulDiv(x, this->GetInnerWidth(), this->LastSentDrawDeviceDestRect.get_width());
 	y = MulDiv(y, this->GetInnerHeight(), this->LastSentDrawDeviceDestRect.get_height());
 #endif
+#if defined(__OHOS__)
+	/* OHOS: the XComponent surface is the physical window while the game
+	 * frame renders at the engine resolution through the SDL renderer's
+	 * logical size/viewport. Convert window (physical) coords to engine
+	 * coords exactly like GetCursorPos() so mouse clicks land on the right
+	 * layer (touch input goes through a separate normalized path). */
+	if (this->window && this->renderer)
+	{
+		float scale_x = 1, scale_y = 1;
+		SDL_Rect viewport;
+		int window_w = 0, window_h = 0, output_w = 0, output_h = 0;
+		SDL_RenderGetScale(this->renderer, &scale_x, &scale_y);
+		SDL_RenderGetViewport(this->renderer, &viewport);
+		SDL_GetWindowSize(this->window, &window_w, &window_h);
+		SDL_GetRendererOutputSize(this->renderer, &output_w, &output_h);
+		if (output_w > 0 && output_h > 0 && scale_x > 0 && scale_y > 0)
+		{
+			float dpi_scale_x = (float)window_w / output_w;
+			float dpi_scale_y = (float)window_h / output_h;
+			x -= (int)(viewport.x * dpi_scale_x);
+			y -= (int)(viewport.y * dpi_scale_y);
+			x = (int)(x / (scale_x * dpi_scale_x));
+			y = (int)(y / (scale_y * dpi_scale_y));
+		}
+	}
+#endif
 }
 
 void TVPWindowWindow::TranslateDrawAreaToWindow(int &x, int &y)
@@ -3617,44 +3643,10 @@ bool TVPGetJoyPadAsyncState(tjs_uint keycode, bool getcurrent)
 	return is_pressed;
 }
 
-#if defined(__OHOS__)
-static void OHOSWindowDiag(const char *msg)
-{
-	typedef const char *(*GetFilesDirFn)(void);
-	static GetFilesDirFn fn = nullptr;
-	static const char *dir = nullptr;
-	if (fn == nullptr)
-	{
-		void *h = dlopen("libentry.so", RTLD_NOW);
-		if (!h)
-			h = RTLD_DEFAULT;
-		fn = (GetFilesDirFn)dlsym(h, "SDL_OHOS_GetFilesDir");
-	}
-	if (fn && dir == nullptr)
-		dir = fn();
-	if (!dir || !dir[0])
-		return;
-	std::string path = std::string(dir) + "/diag.txt";
-	FILE *lf = fopen(path.c_str(), "a");
-	if (lf)
-	{
-		long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
-			std::chrono::steady_clock::now().time_since_epoch()).count();
-		fprintf(lf, "%lld: %s\n", ms % 100000, msg);
-		fclose(lf);
-	}
-}
-#endif
 
 TTVPWindowForm *TVPCreateAndAddWindow(tTJSNI_Window *w)
 {
-#if defined(__OHOS__)
-	OHOSWindowDiag("TVPCreateAndAddWindow enter");
-#endif
 	TTVPWindowForm *ret = new TVPWindowWindow(w);
-#if defined(__OHOS__)
-	OHOSWindowDiag("TVPCreateAndAddWindow done");
-#endif
 	return ret;
 }
 

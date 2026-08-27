@@ -228,7 +228,10 @@ int OHOS_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext context)
 int OHOS_GL_SetSwapInterval(_THIS, int interval)
 {
 	(void)_this;
-	return eglSwapInterval(g_ohos_egl_display, interval) ? 0 : SDL_SetError("OHOS: eglSwapInterval failed");
+		/* OHOS: the composer presents via the shared native window; keep the
+	 * swap unthrottled so krkz's 60fps DrawCycleTimer drives the frame
+	 * pacing instead of the display refresh. */
+	return eglSwapInterval(g_ohos_egl_display, 0) ? 0 : SDL_SetError("OHOS: eglSwapInterval failed");
 }
 
 int OHOS_GL_GetSwapInterval(_THIS)

@@ -2088,12 +2088,6 @@ struct Index {
     }, 1000);
   }
 
-  // Locked game window size (px). KaihongOS ArkUI crashes inside
-  // XComponentPattern::OnSurfaceChanged when an XComponent is resized, so
-  // the window is pinned and any WM resize is bounced straight back.
-  private winLockW: number = 0;
-  private winLockH: number = 0;
-
   private rotateToLandscape(): void {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
@@ -2104,30 +2098,6 @@ struct Index {
         // Hide both system bars so the navigation gesture pill is
         // immersed too (game runs fullscreen edge to edge).
         mainWindow.setWindowSystemBarEnable([]);
-        try {
-          const props = mainWindow.getWindowProperties();
-          this.winLockW = props.windowRect.width;
-          this.winLockH = props.windowRect.height;
-          mainWindow.setAspectRatio(this.winLockH > 0 ? this.winLockW / this.winLockH : 16 / 9)
-            .catch(() => {});
-        } catch (e) {
-          // best effort
-        }
-        // Bounce any WM resize / windowed-mode switch back to the locked
-        // fullscreen size: resizing an XComponent (the fullscreen ->
-        // windowed transition) crashes the KaihongOS ArkUI framework
-        // inside XComponentPattern::OnSurfaceChanged.
-        try {
-          mainWindow.on('windowSizeChange', (size: window.Size) => {
-            if (this.winLockW > 0 && this.winLockH > 0 &&
-              (size.width !== this.winLockW || size.height !== this.winLockH)) {
-              mainWindow.setWindowLayoutFullScreen(true).catch(() => {});
-              mainWindow.resize(this.winLockW, this.winLockH).catch(() => {});
-            }
-          });
-        } catch (e) {
-          // best effort
-        }
       }).catch(() => {
         // best effort
       });
@@ -2272,24 +2242,25 @@ struct Index {
             .aspectRatio(16 / 9)
             .backgroundColor('#00000000')
             .zIndex(4)
-            .onMouse((event: MouseEvent) => {
-              try {
-                const b = event.button === MouseButton.Right ? 3 :
-                  (event.button === MouseButton.Middle ? 2 : 1);
-                if (event.action === MouseAction.Press) {
-                  entryNapi.sendMouse(0, b, vp2px(event.x), vp2px(event.y));
-                } else if (event.action === MouseAction.Release) {
-                  entryNapi.sendMouse(1, b, vp2px(event.x), vp2px(event.y));
-                }
-                // Mouse wheel: neither the ArkUI MouseEvent nor the native
-                // XComponent mouse event expose scroll deltas on API 12/14,
-                // so wheel input cannot be forwarded.
-              } catch (e) {
-                // ignore malformed events
-              }
-            })
             .onTouch((event: TouchEvent) => {
               try {
+                // Physical mouse on phones is delivered as a touch-source
+                // event (SourceType.Mouse): emulate a finger tap
+                // event (SourceType.Mouse): forward it exactly like a finger tap so
+                // KAG buttons react identically; no separate mouse event is sent.
+                if (event.source === SourceType.Mouse) {
+                  // LEFT BUTTON: the touch path is the only reliable one on
+                  // phones (ArkUI mouse events never arrive there), so
+                  // emulate the finger tap exactly: sendTouch.
+                  if (event.type === TouchType.Down) {
+                    const mt = event.touches[0];
+                    if (mt) entryNapi.sendTouch(0, vp2px(mt.x), vp2px(mt.y));
+                  } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                    const mt = event.touches[0];
+                    if (mt) entryNapi.sendTouch(1, vp2px(mt.x), vp2px(mt.y));
+                  }
+                  return;
+                }
                 let type = 0; // SDL_OHOS_TOUCH_DOWN
                 if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
                   type = 1; // SDL_OHOS_TOUCH_UP
@@ -2312,10 +2283,26 @@ struct Index {
                   const f = changed[i];
                   entryNapi.sendFinger(type, f.id, vp2px(f.x), vp2px(f.y));
                 }
-                this.log('overlay touch: type=' + type + ' fingers=' + event.touches.length +
-                  ' changed=' + changed.length);
               } catch (e) {
                 this.log('overlay onTouch exception: ' + JSON.stringify(e));
+              }
+            })
+            .onMouse((event: MouseEvent) => {
+              try {
+                const b = event.button === MouseButton.Right ? 3 :
+                  (event.button === MouseButton.Middle ? 2 : 1);
+                if (event.action === MouseAction.Press) {
+                  // LEFT button skipped here (phones deliver it as a touch-source
+                  // event handled in onTouch); right/middle buttons stay on
+                  // this ArkUI mouse callback, as do move/hover.
+                  if (b !== 1) { entryNapi.sendMouse(0, b, vp2px(event.x), vp2px(event.y)); }
+                } else if (event.action === MouseAction.Release) {
+                  if (b !== 1) { entryNapi.sendMouse(1, b, vp2px(event.x), vp2px(event.y)); }
+                } else if (event.action === MouseAction.Move || event.action === MouseAction.Hover) {
+                  entryNapi.sendMouse(3, b, vp2px(event.x), vp2px(event.y));
+                }
+              } catch (e) {
+                // ignore malformed events
               }
             })
         }
@@ -2371,8 +2358,8 @@ struct Index {
               this.importLocal();
             })
           }
-        .width('100%')
-        .padding({ top: 20, bottom: 40 })
+          .width('100%')
+          .padding({ top: 20, bottom: 40 })
         }
       } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
         // Download / import / extraction progress: centered on screen.

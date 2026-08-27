@@ -348,6 +348,20 @@ void SDL_OHOS_OnMouseEvent(int action, int button, int x, int y)
 	}
 	SDL_Event ev;
 	SDL_zero(ev);
+	if (action == 3)
+	{
+		/* move: engine cursor tracking and button hover feedback. */
+		ev.type = SDL_MOUSEMOTION;
+		ev.motion.windowID = SDL_GetWindowID(window);
+		ev.motion.which = SDL_TOUCH_MOUSEID;
+		ev.motion.x = x;
+		ev.motion.y = y;
+		ev.motion.xrel = 0;
+		ev.motion.yrel = 0;
+		ev.motion.state = 0;
+	SDL_PushEvent(&ev);
+	}
+	else if (action == 2)
 	if (action == 2)
 	{
 		/* wheel: x = vertical delta, y = horizontal delta */

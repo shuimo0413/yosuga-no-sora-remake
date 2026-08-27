@@ -9,6 +9,9 @@ cmake_minimum_required(VERSION 3.15)
 
 # OHOS: define __OHOS__ for all targets in this build (engine + entry source use it)
 add_definitions(-D__OHOS__=1)
+# krkz's vendored ANGLE EGL headers pick the X11 branch on __unix__;
+# USE_SYSTEM_EGL selects the intptr_t native types instead.
+add_definitions(-DUSE_SYSTEM_EGL=1)
 project(yosuga_ohos_entry)
 
 set(ENTRY_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -104,7 +107,7 @@ set(SDL2_LIBRARIES ${SDL2_TARGET} CACHE STRING "SDL2 libraries" FORCE)
 # ---- Kirikiri SDL2 engine (repository root CMakeLists) ---------------------
 set(_DISABLE_INSTALLATION TRUE CACHE BOOL "" FORCE)
 set(OPTION_ENABLE_EXTERNAL_PLUGINS OFF CACHE BOOL "" FORCE)
-set(OPTION_ENABLE_CANVAS OFF CACHE BOOL "" FORCE)
+set(OPTION_ENABLE_CANVAS ON CACHE BOOL "" FORCE)
 set(KRKRSDL2_GENERATE_CONTENT_MANIFEST OFF CACHE BOOL "" FORCE)
 set(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${REPO_ROOT} krkrsdl2_ohos EXCLUDE_FROM_ALL)
