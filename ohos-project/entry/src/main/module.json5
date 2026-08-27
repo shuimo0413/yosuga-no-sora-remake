@@ -25,16 +25,6 @@
           ],
           "when": "inuse"
         }
-      },
-      {
-        "name": "ohos.permission.FILE_ACCESS_PERSIST",
-        "reason": "$string:folder_access_reason",
-        "usedScene": {
-          "abilities": [
-            "EntryAbility"
-          ],
-          "when": "inuse"
-        }
       }
     ],
     "pages": "$profile:main_pages",

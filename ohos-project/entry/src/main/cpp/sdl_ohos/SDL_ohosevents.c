@@ -310,3 +310,151 @@ void SDL_OHOS_OnSurfaceChanged(int width, int height)
 		SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESIZED, width, height);
 	}
 }
+
+void SDL_OHOS_OnMouseEvent(int action, int button, int x, int y)
+{
+	SDL_Window *window = SDL_GetKeyboardFocus();
+	if (window == NULL)
+	{
+		window = SDL_GetMouseFocus();
+	}
+	if (window == NULL)
+	{
+		SDL_VideoDevice *device = SDL_GetVideoDevice();
+		if (device != NULL && device->windows != NULL)
+		{
+			window = device->windows;
+		}
+	}
+	if (window == NULL)
+	{
+		return;
+	}
+	/* Physical pixels -> logical window space (same as touch). */
+	{
+		int pw = 0, ph = 0, ww = 0, wh = 0;
+		SDL_OHOS_GetPhysicalSize(&pw, &ph);
+		SDL_GetWindowSize(window, &ww, &wh);
+		if (pw > 0 && ph > 0 && ww > 0 && wh > 0 && (pw != ww || ph != wh))
+		{
+			x = (int)((float)x * (float)ww / (float)pw + 0.5f);
+			y = (int)((float)y * (float)wh / (float)ph + 0.5f);
+		}
+	}
+	SDL_mutex *mutex = OHOS_EventMutex();
+	if (mutex)
+	{
+		SDL_LockMutex(mutex);
+	}
+	SDL_Event ev;
+	SDL_zero(ev);
+	if (action == 2)
+	{
+		/* wheel: x = vertical delta, y = horizontal delta */
+		ev.type = SDL_MOUSEWHEEL;
+		ev.wheel.windowID = SDL_GetWindowID(window);
+		ev.wheel.which = SDL_TOUCH_MOUSEID;
+		ev.wheel.x = (Sint32)y;
+		ev.wheel.y = (Sint32)x;
+		ev.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+		SDL_PushEvent(&ev);
+	}
+	else
+	{
+		ev.type = (action == 0) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+		ev.button.windowID = SDL_GetWindowID(window);
+		ev.button.which = SDL_TOUCH_MOUSEID;
+		ev.button.button = (button == 3) ? SDL_BUTTON_RIGHT :
+			(button == 2 ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT);
+		ev.button.state = (action == 0) ? SDL_PRESSED : SDL_RELEASED;
+		ev.button.clicks = 1;
+		ev.button.x = x;
+		ev.button.y = y;
+		SDL_PushEvent(&ev);
+	}
+	if (mutex)
+	{
+		SDL_UnlockMutex(mutex);
+	}
+}
+
+/* OHOS KeyCode (ohos.multimodalInput.keyCode) -> SDL_Scancode for the
+ * keys the game uses. Unknown keys return SDL_SCANCODE_UNKNOWN. */
+static SDL_Scancode OHOS_KeyToScancode(int code)
+{
+	if (code >= 2000 && code <= 2009)
+	{
+		return (SDL_Scancode)(SDL_SCANCODE_0 + (code - 2000));
+	}
+	if (code >= 2017 && code <= 2042)
+	{
+		return (SDL_Scancode)(SDL_SCANCODE_A + (code - 2017));
+	}
+	if (code >= 2090 && code <= 2101)
+	{
+		return (SDL_Scancode)(SDL_SCANCODE_F1 + (code - 2090));
+	}
+	switch (code)
+	{
+	case 2012: return SDL_SCANCODE_UP;
+	case 2013: return SDL_SCANCODE_DOWN;
+	case 2014: return SDL_SCANCODE_LEFT;
+	case 2015: return SDL_SCANCODE_RIGHT;
+	case 2054: return SDL_SCANCODE_RETURN;
+	case 2070: return SDL_SCANCODE_ESCAPE;
+	case 2050: return SDL_SCANCODE_SPACE;
+	case 2055: return SDL_SCANCODE_BACKSPACE;
+	case 2049: return SDL_SCANCODE_TAB;
+	case 2072: return SDL_SCANCODE_LCTRL;
+	case 2047: return SDL_SCANCODE_LSHIFT;
+	case 2045: return SDL_SCANCODE_LALT;
+	case 2043: return SDL_SCANCODE_COMMA;
+	case 2044: return SDL_SCANCODE_PERIOD;
+	case 2057: return SDL_SCANCODE_MINUS;
+	case 2058: return SDL_SCANCODE_EQUALS;
+	case 2062: return SDL_SCANCODE_SEMICOLON;
+	case 2064: return SDL_SCANCODE_SLASH;
+	default: return SDL_SCANCODE_UNKNOWN;
+	}
+}
+
+void SDL_OHOS_OnKeyEvent(int down, int keycode)
+{
+	SDL_Scancode sc = OHOS_KeyToScancode(keycode);
+	if (sc == SDL_SCANCODE_UNKNOWN)
+	{
+		return;
+	}
+	SDL_Window *window = SDL_GetKeyboardFocus();
+	if (window == NULL)
+	{
+		SDL_VideoDevice *device = SDL_GetVideoDevice();
+		if (device != NULL && device->windows != NULL)
+		{
+			window = device->windows;
+		}
+	}
+	if (window == NULL)
+	{
+		return;
+	}
+	SDL_mutex *mutex = OHOS_EventMutex();
+	if (mutex)
+	{
+		SDL_LockMutex(mutex);
+	}
+	SDL_Event ev;
+	SDL_zero(ev);
+	ev.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+	ev.key.windowID = SDL_GetWindowID(window);
+	ev.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+	ev.key.repeat = 0;
+	ev.key.keysym.scancode = sc;
+	ev.key.keysym.sym = SDL_GetKeyFromScancode(sc);
+	ev.key.keysym.mod = KMOD_NONE;
+	SDL_PushEvent(&ev);
+	if (mutex)
+	{
+		SDL_UnlockMutex(mutex);
+	}
+}

@@ -3,7 +3,6 @@ import deviceInfo from '@ohos.deviceInfo';
 import { common, wantAgent, Want, bundleManager, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
-import fileShare from '@ohos.fileshare';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
 import { taskpool, util, uri } from '@kit.ArkTS';
@@ -12,11 +11,6 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
-/** fileShare.PolicyInfo shape (API 12): a persisted-folder grant. */
-interface FolderPolicy {
-  uri: string;
-  operationMode: number;
-}
 
 /** data-assets.json entry. */
 interface DataAsset {
@@ -467,6 +461,15 @@ struct Index {
           this.setScreenOn(false);
           try {
             (getContext(this) as common.UIAbilityContext).terminateSelf();
+            // terminateSelf leaves a black window behind on some devices
+            // (KaihongOS): hard-exit the process shortly after.
+            setTimeout(() => {
+              try {
+                entryNapi.forceExit();
+              } catch (eF) {
+                // best effort
+              }
+            }, 800);
           } catch (eTerm) {
             // best effort: fall back to the bootstrap page
             this.bootState = 2;
@@ -512,11 +515,6 @@ struct Index {
         this.prepare();
       }
     }
-    // Re-activate the persisted folder grant from a previous run (async;
-    // re-probes the data dir afterwards). The synchronous probe above
-    // cannot wait for it, so the second pass in prepare() adopts the
-    // folder once activatePermission completes.
-    this.restoreFolderAccess();
   }
 
   // Capture ArkTS page errors so UI-thread crashes do not wedge the page.
@@ -770,15 +768,6 @@ struct Index {
     // platforms virtualize the public tree and make un-permissioned writes
     // silently succeed without storing anything).
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    // A folder the user picked earlier (DocumentViewPicker FOLDER mode)
-    // wins over the default Download location. Verify with a real write,
-    // not just the .granted marker: after a restart the picker grant is
-    // inactive until activatePermission, and on KaihongOS a stale grant
-    // leaves the folder readable but not writable (mkdir then fails).
-    const chosen = this.readChosenDir();
-    if (chosen !== '' && this.tryDirectAt(chosen)) {
-      this.appDir = chosen;
-    }
     let publicOk = false;
     try {
       const entries = fs.listFileSync(this.appDir);
@@ -875,16 +864,13 @@ struct Index {
    * The HarmonyOS build uses the save(DOWNLOAD) route (silent, creates
    * Download/<bundleName>); the OpenHarmony build uses the experimental
    * routes (folder picker / permission dialog). Unflavored local builds
-   * fall back to the runtime KaihongOS detection.
+   * behave like the OpenHarmony build.
    */
   private useSaveDownloadRoute(): boolean {
     if (this.buildFlavor === 'harmonyos') {
       return true;
     }
-    if (this.buildFlavor === 'openharmony') {
-      return false;
-    }
-    return !this.isKaihong();
+    return false;
   }
 
   /** Read the build-time-injected default base URL from rawfile
@@ -995,342 +981,12 @@ struct Index {
     return this.tryDirectAt(this.appDir);
   }
 
-  /** Uri-level write test for a picked folder (folderUri + '/.granted').
-   *  Some systems (KaihongOS) deny raw path writes while the picker grant
-   *  itself is valid; this probes through the granted uri instead. */
-  private tryDirectAtUri(uriStr: string): boolean {
-    try {
-      const markerUri = uriStr + '/.granted';
-      const marker = fs.openSync(markerUri,
-        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      fs.writeSync(marker.fd, 'granted-ok');
-      fs.closeSync(marker);
-      const readBack = fs.readTextSync(markerUri);
-      if (readBack !== 'granted-ok') {
-        this.lastDirectError = 'uri read-back mismatch: ' + readBack;
-        this.log('tryDirectAtUri: ' + this.lastDirectError);
-        return false;
-      }
-      this.lastDirectError = '';
-      this.log('tryDirectAtUri: ok ' + uriStr);
-      return true;
-    } catch (e) {
-      this.lastDirectError = 'uri: ' + JSON.stringify(e);
-      this.log('tryDirectAtUri failed: ' + this.lastDirectError);
-      return false;
-    }
-  }
-
-  /** Whether this device can pick folders with the document picker. */
-  private supportsFolderPicker(): boolean {
-    try {
-      return canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection');
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /** Convert a picker document URI (file://docs/...) to the sandbox path
-   *  the fs APIs accept. Prefers the official native conversion
-   *  (OH_FileUri_GetPathFromUri); falls back to manual parsing. */
-  private uriToPath(uriStr: string): string {
-    try {
-      const p = entryNapi.uriToPath(uriStr) as string | undefined;
-      if (typeof p === 'string' && p !== '') {
-        return p;
-      }
-    } catch (e) {
-      this.log('native uriToPath failed: ' + JSON.stringify(e));
-    }
-    try {
-      const p = new uri.URI(uriStr).path;
-      if (p !== '') {
-        return p;
-      }
-    } catch (e) {
-      // fall through to the prefix strips
-    }
-    if (uriStr.indexOf('file://docs/') === 0) {
-      return uriStr.substring('file://docs'.length);
-    }
-    if (uriStr.indexOf('file://') === 0) {
-      return uriStr.substring('file://'.length);
-    }
-    return '';
-  }
-
-  /** Persisted user-chosen data folder (DocumentViewPicker FOLDER mode). */
-  private readChosenDir(): string {
-    try {
-      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
-      const v = pref.getSync('chosenDir', '');
-      if (typeof v === 'string') {
-        return v;
-      }
-      return '';
-    } catch (e) {
-      return '';
-    }
-  }
-
-  private saveChosenDir(dir: string): void {
-    try {
-      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
-      pref.putSync('chosenDir', dir);
-      pref.flush();
-    } catch (e) {
-      this.log('saveChosenDir failed: ' + JSON.stringify(e));
-    }
-  }
-
-  private saveChosenUris(uris: string[]): void {
-    try {
-      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
-      pref.putSync('chosenUris', uris);
-      pref.flush();
-    } catch (e) {
-      this.log('saveChosenUris failed: ' + JSON.stringify(e));
-    }
-  }
-
-  private readChosenUris(): string[] {
-    try {
-      const pref = preferences.getPreferencesSync(getContext(this), { name: 'dataDirStore' });
-      const v = pref.getSync('chosenUris', [] as string[]);
-      if (Array.isArray(v)) {
-        return v as string[];
-      }
-      return [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  /** Persist the folder-picker grant (OpenHarmony 5 / API 12 fileShare):
-   *  persistPermission turns the session grant into a persistent one and
-   *  the URIs are stored in Preferences so activatePermission can bring
-   *  them back after the next launch. Devices without the
-   *  FolderAuthorization capability keep the session-only grant (the
-   *  bootstrap page then asks the user to pick the folder again). */
-  private async persistFolderUris(uris: string[]): Promise<void> {
-    try {
-      if (!canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization')) {
-        this.log('FolderAuthorization unsupported; grant stays session-only');
-        return;
-      }
-      // API 12 signature: persistPermission(policies: PolicyInfo[]) with
-      // { uri, operationMode } - READ_MODE(0b1) | WRITE_MODE(0b10).
-      const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
-        return { uri: u, operationMode: 0b11 };
-      });
-      await fileShare.persistPermission(policies);
-      this.saveChosenUris(uris);
-      this.log('folder permission persisted for ' + uris.length + ' uri(s)');
-    } catch (e) {
-      this.log('persistPermission failed: ' + JSON.stringify(e));
-    }
-  }
-
-  /** Startup: re-activate the persisted folder grant and re-probe the data
-   *  directory. The chosen folder stays read-only until activated, so the
-   *  first probe may fall back to the sandbox; after activation this
-   *  second pass adopts the real folder (create dirs / data works again). */
-  private async restoreFolderAccess(): Promise<void> {
-    const uris = this.readChosenUris();
-    if (uris.length === 0) {
-      return;
-    }
-    try {
-      if (!canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization')) {
-        this.log('FolderAuthorization unsupported; cannot re-activate');
-        return;
-      }
-      const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
-        return { uri: u, operationMode: 0b11 };
-      });
-      await fileShare.activatePermission(policies);
-      this.log('folder permission activated');
-    } catch (e) {
-      this.log('activatePermission failed: ' + JSON.stringify(e));
-      return;
-    }
-    // The share mount is established asynchronously after activation;
-    // wait a moment so the re-probe sees the folder as writable.
-    await this.delay(1200);
-    await this.prepare();
-  }
-
-  /**
-   * Let the user pick a folder that becomes the app data directory
-   * (DocumentViewPicker FOLDER mode, API 11+). The picker returns a
-   * document URI whose access grant persists across launches; the folder
-   * is verified with a marker round-trip and remembered in Preferences.
-   * This is the most reliable route on platforms where
-   * Download/<bundleName> cannot be granted any other way.
-   */
-  async chooseDataFolder(): Promise<boolean> {
-    this.message = '';
-    try {
-      // KaihongOS: the folder-picker grant alone may not cover writes into
-      // the picked directory (13900012 Permission denied); the Download
-      // directory permission does. Ask once before opening the picker
-      // (a no-op dialog when the permission was already granted).
-      await this.requestDownloadPermission();
-      const dp = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
-      const opts = new picker.DocumentSelectOptions();
-      opts.selectMode = picker.DocumentSelectMode.FOLDER;
-      opts.maxSelectNumber = 1;
-      this.log('chooseDataFolder: opening folder picker');
-      let uris: string[] = [];
-      try {
-        uris = await dp.select(opts);
-      } catch (e) {
-        this.log('chooseDataFolder: canceled/failed: ' + JSON.stringify(e));
-        this.message = '未选择文件夹，数据将保存在应用私有目录';
-        return false;
-      }
-      if (uris.length === 0) {
-        this.message = '未选择文件夹';
-        return false;
-      }
-      const dirPath = this.uriToPath(uris[0]);
-      this.log('chooseDataFolder: uri=' + uris[0] + ' path=' + dirPath);
-      if (dirPath === '') {
-        this.message = '无法解析所选文件夹，数据将保存在应用私有目录';
-        return false;
-      }
-      // The share mount is established asynchronously right after the
-      // picker returns; the first writes can race it (KaihongOS). Retry
-      // the write test for a few seconds before giving up.
-      let writable = false;
-      for (let attempt = 0; attempt < 12; attempt++) {
-        if (this.tryDirectAt(dirPath)) {
-          writable = true;
-          break;
-        }
-        await this.delay(300);
-      }
-      if (!writable) {
-        // Last resort: uri-level write test. KaihongOS does not support
-        // creating files through doc sub-uris (13900002), so this only
-        // distinguishes a real grant failure from the mount race above.
-        const pathErr = this.lastDirectError;
-        if (!this.tryDirectAtUri(uris[0])) {
-          this.message = '所选文件夹不可写\npath写: ' + pathErr +
-            '\nuri写: ' + this.lastDirectError +
-            '\nuri=' + uris[0] + '\npath=' + dirPath;
-          return false;
-        }
-        this.lastDirectError = '';
-      }
-      // Subdirectory write test: the KaihongOS sharefs mount only allows
-      // writing files directly inside the mount point - every nested
-      // directory is read-only, so a game data tree (thousands of files
-      // in subfolders) can never live there. Stay on the sandbox instead.
-      let subdirWritable = false;
-      try {
-        fs.mkdirSync(dirPath + '/.dirtest');
-        subdirWritable = true;
-        fs.rmdirSync(dirPath + '/.dirtest');
-      } catch (e) {
-        subdirWritable = false;
-      }
-      if (!subdirWritable) {
-        this.message = '此设备不支持在所选文件夹中创建子目录，无法存放游戏数据；' +
-          '数据将保存在应用私有目录（仍可正常游玩，但文件管理器不可见）';
-        return false;
-      }
-      // Persist the picker grant where the system supports it
-      // (OpenHarmony 5 / API 12 fileShare.FolderAuthorization): without
-      // this the folder becomes read-only again after the next launch and
-      // the data directory can no longer be created.
-      await this.persistFolderUris(uris);
-      this.saveChosenDir(dirPath);
-      this.appDir = dirPath;
-      this.adoptPublicDir();
-      this.message = '';
-      this.log('data folder chosen: ' + dirPath);
-      return true;
-    } finally {
-      // The picker is a UIExtension; rebuild after it closes.
-      this.uiEpoch++;
-    }
-  }
-
-  /** Bootstrap page button: manually pick the data folder. */
-  async pickDataFolder(): Promise<void> {
-    await this.setScreenOn(true);
-    this.applyImmersive();
-    const ok = await this.chooseDataFolder();
-    await this.setScreenOn(false);
-    if (ok) {
-      this.prepare();
-    } else if (this.message !== '') {
-      // The inline message label is too short for the multi-line
-      // diagnostic; show the full text in a dialog instead.
-      await this.showNotice('选择数据文件夹失败', this.message);
-    }
-  }
-
-  /** Bootstrap page button: manually trigger the picker save DOWNLOAD route
-   *  (diagnostic; the automatic flow calls this on HarmonyOS). */
-  async manualInitPublicDir(): Promise<void> {
-    await this.setScreenOn(true);
-    this.applyImmersive();
-    const ok = await this.initPublicDir();
-    await this.setScreenOn(false);
-    if (ok) {
-      this.prepare();
-    }
-  }
-
-  /**
-   * Standard user permission for the Download folder (API 11+). Shows the
-   * system authorization dialog. Returns 1 = granted, -1 = denied by the
-   * user, 0 = the request itself failed (permission unsupported on this
-   * platform). Note: the dialog text is rendered by the OS permission
-   * service, not by the app; some forks (e.g. KaihongOS) show a
-   * differently-worded privacy dialog for the same permission.
-   */
-  private async requestDownloadPermission(): Promise<number> {
-    try {
-      const atManager = abilityAccessCtrl.createAtManager();
-      const perms: Permissions[] = ['ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY'];
-      const result = await atManager.requestPermissionsFromUser(
-        getContext(this) as common.UIAbilityContext, perms);
-      const auth = result.authResults.length > 0 ? result.authResults[0] : -1;
-      this.log('download permission result: ' + JSON.stringify(result.authResults));
-      return auth === 0 ? 1 : -1;
-    } catch (e) {
-      this.log('download permission request failed: ' + JSON.stringify(e));
-      return 0;
-    }
-  }
-
   /**
    * HarmonyOS (NEXT) uses the picker as the official silent route for the
    * app-owned Download folder; OpenHarmony/KaihongOS use the standard
    * permission dialog instead. osFullName distinguishes them
    * ("HarmonyOS 5.0.0" vs "OpenHarmony-5.0.2.54" / "KaihongOS x86 ...").
    */
-  /**
-   * KaihongOS ships a picker without the DOWNLOAD mode (its
-   * DocumentSaveOptions has no pickerMode), so the picker always opens the
-   * generic save dialog and never grants Download/<bundleName>; skip it.
-   */
-  private isKaihong(): boolean {
-    try {
-      // osFullName alone is NOT enough: Kaihong BotBook reports
-      // "OpenHarmony-5.0.2.123" there. The manufacturer and product
-      // model carry the Kaihong brand reliably.
-      const hay = deviceInfo.osFullName + '|' + deviceInfo.productModel +
-        '|' + deviceInfo.manufacture;
-      return hay.toLowerCase().indexOf('kaihong') >= 0;
-    } catch (e) {
-      return false;
-    }
-  }
-
   /** Point baseDir/saveDir/dataDir at the public folder (already verified). */
   private adoptPublicDir(): void {
     this.baseDir = this.appDir;
@@ -1395,17 +1051,6 @@ struct Index {
         this.log('public dir initialised: ' + this.appDir);
         return true;
       }
-      // Other platforms: resolve the real directory from the returned URI
-      // and adopt only when the marker round-trip proves write access.
-      if (savedUris.length > 0) {
-        const filePath = this.uriToPath(savedUris[0]);
-        this.log('initPublicDir: saved uri=' + savedUris[0] + ' path=' + filePath);
-        const slash = filePath.lastIndexOf('/');
-        if (slash > 0) {
-          this.appDir = filePath.substring(0, slash);
-          this.log('initPublicDir: resolved appDir=' + this.appDir);
-        }
-      }
       if (!this.tryPublicDirect()) {
         this.log('initPublicDir: folder still unusable after picker');
         this.message = '下载目录仍不可写：' + this.lastDirectError + '\nappDir=' + this.appDir;
@@ -1430,6 +1075,26 @@ struct Index {
   }
 
   /**
+   * Standard user permission for the Download folder (API 11+). Shows the
+   * system authorization dialog. Returns 1 = granted, -1 = denied by the
+   * user, 0 = the request itself failed (permission unsupported on this
+   * platform).
+   */
+  private async requestDownloadPermission(): Promise<number> {
+    try {
+      const atManager = abilityAccessCtrl.createAtManager();
+      const perms: Permissions[] = ['ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY'];
+      const result = await atManager.requestPermissionsFromUser(
+        getContext(this) as common.UIAbilityContext, perms);
+      const auth = result.authResults.length > 0 ? result.authResults[0] : -1;
+      this.log('download permission result: ' + JSON.stringify(result.authResults));
+      return auth;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /**
    * Make sure baseDir/saveDir/dataDir point at a usable location.
    * HarmonyOS keeps the original picker-save-DOWNLOAD route (silent,
    * official); OpenHarmony/KaihongOS prefer the folder picker, then the
@@ -1446,13 +1111,6 @@ struct Index {
       }
     } catch (e) {
       // folder missing: fall through to the grant routes
-    }
-    if (this.isKaihong()) {
-      // KaihongOS: no public data dir is possible (the sharefs grant
-      // mount cannot hold a directory tree). Stay on the sandbox and do
-      // NOT prompt - the import/download picker must open right away.
-      this.log('KaihongOS: staying on sandbox, no public-dir prompts');
-      return false;
     }
     if (this.publicDenied) {
       this.log('public dir unusable; staying on sandbox');
@@ -1480,28 +1138,9 @@ struct Index {
           return true;
         }
       }
-      // Last resort: folder picker.
-      if (!this.folderTried && this.supportsFolderPicker()) {
-        this.folderTried = true;
-        if (await this.chooseDataFolder()) {
-          return true;
-        }
-      }
     } else {
-      // OpenHarmony/KaihongOS: the save picker cannot grant the folder, so
-      // prefer the folder picker (user picks or creates the data folder;
-      // the grant persists across launches). KaihongOS is excluded: its
-      // sharefs grant mount only allows writing files directly inside the
-      // mount point (no nested directories), so a game data tree can never
-      // live there - stay on the sandbox and let the import picker select
-      // the zip right away.
-      if (!this.folderTried && this.supportsFolderPicker() && !this.isKaihong()) {
-        this.folderTried = true;
-        if (await this.chooseDataFolder()) {
-          return true;
-        }
-      }
-      // Standard permission dialog.
+      // OpenHarmony: standard permission dialog, then the legacy save
+      // picker as last resort.
       if (!this.permRequested) {
         this.permRequested = true;
         const auth = await this.requestDownloadPermission();
@@ -1519,9 +1158,8 @@ struct Index {
         }
         // auth === 0: permission unsupported here; fall through to picker.
       }
-      // Legacy save picker last resort (not on KaihongOS: its picker has
-      // no DOWNLOAD mode, so the save dialog can never grant the folder).
-      if (!this.pickerTried && !this.isKaihong()) {
+      // Legacy save picker last resort.
+      if (!this.pickerTried) {
         this.pickerTried = true;
         if (await this.initPublicDir()) {
           return true;
@@ -1529,7 +1167,7 @@ struct Index {
       }
     }
     this.publicDenied = true;
-    this.message = '数据将保存在应用私有目录（可在引导页点击「选择数据文件夹」手动指定位置）';
+    this.message = '数据将保存在应用私有目录';
     return false;
   }
 
@@ -1824,24 +1462,6 @@ struct Index {
         this.progressText = '正在移动数据到下载目录…';
         this.progressValue = 0;
         this.uiEpoch++;
-        // The picker grant's rw mount degrades to read-only some time
-        // after selection (persistPermission is unsupported here); the
-        // copy below then fails with 13900002 for every file. Re-activate
-        // the grant first so the rw mount is rebuilt.
-        if (!this.tryDirectAt(this.appDir)) {
-          const uris = this.readChosenUris();
-          if (uris.length > 0) {
-            try {
-              const policies: FolderPolicy[] = uris.map((u: string): FolderPolicy => {
-                return { uri: u, operationMode: 0b11 };
-              });
-              await fileShare.activatePermission(policies);
-              await this.delay(1500);
-            } catch (e) {
-              // activation unsupported: fall through and let the copies fail loudly
-            }
-          }
-        }
         // Pre-create the destination directory on the UI thread: the
         // sharefs (KaihongOS) rw mount may reject mkdir calls made from
         // the TaskPool worker, which silently breaks every copy below.
@@ -2067,21 +1687,6 @@ struct Index {
     this.bootState = 4;
     this.message = '';
     this.progressText = '正在导入，请稍等';
-    this.progressValue = 0;
-    await this.ensurePublic();
-    this.uiEpoch++; // force a rebuild after the permission dialog closes
-    // Ask for FILE_ACCESS_PERSIST BEFORE opening the picker: otherwise the
-    // system raises the permission dialog while the picker UIExtension is
-    // up, and the select() promise can hang after the dialog closes
-    // (KaihongOS shows the dialog on the first import).
-    try {
-      const atManager = abilityAccessCtrl.createAtManager();
-      await atManager.requestPermissionsFromUser(
-        getContext(this) as common.UIAbilityContext,
-        ['ohos.permission.FILE_ACCESS_PERSIST']);
-    } catch (e) {
-      // permission unsupported: continue without it
-    }
     const documentPicker = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
     let uris: string[] = [];
     try {
@@ -2495,16 +2100,7 @@ struct Index {
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
         this.log('rotateToLandscape got window t=' + (Date.now() - this.hbStart));
         mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
-        if (this.isKaihong()) {
-          // KaihongOS is a desktop OS: run WINDOWED from the start. The
-          // fullscreen -> windowed transition resizes the XComponent and
-          // crashes the ArkUI framework (XComponentPattern::
-          // OnSurfaceChanged, SIGSEGV), so never enter fullscreen at all.
-          mainWindow.setFullScreen(false).catch(() => {});
-          mainWindow.resize(1280, 720).catch(() => {});
-        } else {
-          mainWindow.setWindowLayoutFullScreen(true);
-        }
+        mainWindow.setWindowLayoutFullScreen(true);
         // Hide both system bars so the navigation gesture pill is
         // immersed too (game runs fullscreen edge to edge).
         mainWindow.setWindowSystemBarEnable([]);
@@ -2676,6 +2272,22 @@ struct Index {
             .aspectRatio(16 / 9)
             .backgroundColor('#00000000')
             .zIndex(4)
+            .onMouse((event: MouseEvent) => {
+              try {
+                const b = event.button === MouseButton.Right ? 3 :
+                  (event.button === MouseButton.Middle ? 2 : 1);
+                if (event.action === MouseAction.Press) {
+                  entryNapi.sendMouse(0, b, vp2px(event.x), vp2px(event.y));
+                } else if (event.action === MouseAction.Release) {
+                  entryNapi.sendMouse(1, b, vp2px(event.x), vp2px(event.y));
+                }
+                // Mouse wheel: neither the ArkUI MouseEvent nor the native
+                // XComponent mouse event expose scroll deltas on API 12/14,
+                // so wheel input cannot be forwarded.
+              } catch (e) {
+                // ignore malformed events
+              }
+            })
             .onTouch((event: TouchEvent) => {
               try {
                 let type = 0; // SDL_OHOS_TOUCH_DOWN
@@ -2759,22 +2371,9 @@ struct Index {
               this.importLocal();
             })
           }
-          // The harmonyos flavor uses the automatic save(DOWNLOAD) route
-          // only; the two experimental buttons exist in the openharmony
-          // flavor (and unflavored local builds).
-          if (this.buildFlavor !== 'harmonyos') {
-            Row({ space: 12 }) {
-              Button('选择数据文件夹').width(150).height(52).backgroundColor('#444444').onClick(() => {
-                this.pickDataFolder();
-              })
-              Button('初始化下载目录').width(150).height(52).backgroundColor('#555555').onClick(() => {
-                this.manualInitPublicDir();
-              })
-            }
-          }
-          }
         .width('100%')
         .padding({ top: 20, bottom: 40 })
+        }
       } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
         // Download / import / extraction progress: centered on screen.
         Column({ space: 14 }) {
@@ -2810,5 +2409,18 @@ struct Index {
     .height('100%')
     .backgroundColor('#000000')
     .expandSafeArea([SafeAreaType.SYSTEM])
+    .focusable(true)
+    .defaultFocus(true)
+    .onKeyEvent((event: KeyEvent) => {
+      // Physical keyboard (desktop OpenHarmony / KaihongOS): forward the
+      // OHOS key code; the SDL backend maps it to a scancode.
+      try {
+        if (this.bootState === 6) {
+          entryNapi.sendKey(event.type === KeyType.Down ? 1 : 0, event.keyCode);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })
   }
 };

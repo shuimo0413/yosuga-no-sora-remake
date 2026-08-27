@@ -240,6 +240,63 @@ static napi_value SendFinger(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+/* sendMouse(action, button, x, y): forward an ArkTS .onMouse() event to the
+ * SDL OHOS backend. action 0 = down, 1 = up, 2 = wheel (x = vertical scroll
+ * delta, y = horizontal scroll delta). button 1 = left, 2 = middle, 3 = right. */
+static napi_value SendMouse(napi_env env, napi_callback_info info)
+{
+	size_t argc = 4;
+	napi_value args[4] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 4)
+	{
+		return nullptr;
+	}
+	int32_t action = 0, button = 0;
+	double x = 0.0, y = 0.0;
+	if (napi_get_value_int32(env, args[0], &action) != napi_ok ||
+		napi_get_value_int32(env, args[1], &button) != napi_ok ||
+		napi_get_value_double(env, args[2], &x) != napi_ok ||
+		napi_get_value_double(env, args[3], &y) != napi_ok)
+	{
+		return nullptr;
+	}
+	SDL_OHOS_OnMouseEvent(static_cast<int>(action), static_cast<int>(button),
+		static_cast<int>(x), static_cast<int>(y));
+	return nullptr;
+}
+
+/* sendKey(down, keycode): forward an ArkTS key event to the SDL OHOS
+ * backend. keycode is the OHOS KeyCode; the backend maps it to a scancode. */
+static napi_value SendKey(napi_env env, napi_callback_info info)
+{
+	size_t argc = 2;
+	napi_value args[2] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 2)
+	{
+		return nullptr;
+	}
+	int32_t down = 0, keycode = 0;
+	if (napi_get_value_int32(env, args[0], &down) != napi_ok ||
+		napi_get_value_int32(env, args[1], &keycode) != napi_ok)
+	{
+		return nullptr;
+	}
+	SDL_OHOS_OnKeyEvent(static_cast<int>(down), static_cast<int>(keycode));
+	return nullptr;
+}
+
+/* forceExit(): hard-terminate the process (terminateSelf leaves a black
+ * window behind on some devices). */
+static napi_value ForceExit(napi_env env, napi_callback_info info)
+{
+	(void)env;
+	(void)info;
+	exit(0);
+	return nullptr;
+}
+
 /* setVideoSurfaceId(sid): create a SEPARATE native window from the video
  * XComponent's surfaceId; the AVPlayer renders into it. */
 static napi_value SetVideoSurfaceId(napi_env env, napi_callback_info info)
@@ -466,6 +523,9 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"setExternalDirs", nullptr, SetExternalDirs, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"sendTouch", nullptr, SendTouch, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"sendFinger", nullptr, SendFinger, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"sendMouse", nullptr, SendMouse, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"sendKey", nullptr, SendKey, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"forceExit", nullptr, ForceExit, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setVideoSurfaceId", nullptr, SetVideoSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"isVideoPlaying", nullptr, IsVideoPlaying, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"isEngineRunning", nullptr, IsEngineRunning, nullptr, nullptr, nullptr, napi_default, nullptr},

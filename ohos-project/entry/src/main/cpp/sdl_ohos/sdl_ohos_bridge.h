@@ -89,6 +89,16 @@ OHOS_EXPORT void SDL_OHOS_OnFingerEvent(int finger_id, int touch_type, float x, 
 /* Notify the SDL video driver that the surface size changed. */
 OHOS_EXPORT void SDL_OHOS_OnSurfaceChanged(int width, int height) __attribute__((weak));
 
+/* Deliver a mouse event. action: 0 = button down, 1 = button up,
+ * 2 = wheel (x = vertical scroll delta, y = horizontal scroll delta).
+ * button: 1 = left, 2 = middle, 3 = right. x/y are physical pixels. */
+OHOS_EXPORT void SDL_OHOS_OnMouseEvent(int action, int button, int x, int y) __attribute__((weak));
+
+/* Deliver a key event. down: 1 = pressed, 0 = released. keycode is the
+ * OHOS KeyCode (ohos.multimodalInput.keyCode); the SDL backend maps it to
+ * a scancode for the keys the game uses. */
+OHOS_EXPORT void SDL_OHOS_OnKeyEvent(int down, int keycode) __attribute__((weak));
+
 #ifdef __cplusplus
 }
 #endif

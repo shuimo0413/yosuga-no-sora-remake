@@ -19,10 +19,6 @@
     {
       "name": "download_dir_reason",
       "value": "用于在下载目录中保存游戏数据与存档，便于您查看、备份与迁移"
-    },
-    {
-      "name": "folder_access_reason",
-      "value": "用于持久访问您选择的数据文件夹，重启后无需重新选择"
     }
   ]
 }
