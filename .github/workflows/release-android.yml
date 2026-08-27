@@ -36,6 +36,12 @@ jobs:
           submodules: recursive
           lfs: false
 
+      - name: Patch SDL for Android right/middle mouse buttons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_sdl_android_mouse.py
+
       - name: Reclaim runner disk space
         shell: bash
         run: |
