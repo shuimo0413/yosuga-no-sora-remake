@@ -293,7 +293,9 @@ static napi_value ForceExit(napi_env env, napi_callback_info info)
 {
 	(void)env;
 	(void)info;
-	exit(0);
+	/* Hard-exit: exit(0) may still run atexit/static destructors (SDL/
+	 * engine cleanup) that can hang on KaihongOS. _exit skips them. */
+	_exit(0);
 	return nullptr;
 }
 

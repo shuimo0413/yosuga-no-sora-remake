@@ -459,17 +459,16 @@ struct Index {
           this.log('engine finished; terminating the app');
           this.stopKeepAlive();
           this.setScreenOn(false);
+          // Hard-exit the process FIRST: terminateSelf only closes the
+          // window on KaihongOS and leaves a black screen behind, and the
+          // deferred setTimeout may never run once the UI is torn down.
+          try {
+            entryNapi.forceExit();
+          } catch (eF) {
+            // best effort - fall through to terminateSelf
+          }
           try {
             (getContext(this) as common.UIAbilityContext).terminateSelf();
-            // terminateSelf leaves a black window behind on some devices
-            // (KaihongOS): hard-exit the process shortly after.
-            setTimeout(() => {
-              try {
-                entryNapi.forceExit();
-              } catch (eF) {
-                // best effort
-              }
-            }, 800);
           } catch (eTerm) {
             // best effort: fall back to the bootstrap page
             this.bootState = 2;
