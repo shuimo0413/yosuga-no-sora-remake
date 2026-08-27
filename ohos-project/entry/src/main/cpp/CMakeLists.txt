@@ -115,8 +115,7 @@ add_subdirectory(${REPO_ROOT} krkrsdl2_ohos EXCLUDE_FROM_ALL)
 # krkrsdl2.so uses SDL's EGL loader with link-time symbols (SDL_VIDEO_STATIC_ANGLE);
 # it must link EGL itself or the egl* references stay undefined. Plain signature
 # to match the existing target_link_libraries calls inside the repo CMakeLists.
-target_link_libraries(krkrsdl2 EGL GLESv3 libhilog_ndk.z.so libnative_window.so libohaudio.so
-    ohinput)
+target_link_libraries(krkrsdl2 EGL GLESv3 libhilog_ndk.z.so libnative_window.so libohaudio.so)
 # OHOS: define __OHOS__ for the krkrsdl2 target (engine source uses it)
 target_compile_definitions(krkrsdl2 PRIVATE __OHOS__=1)
 

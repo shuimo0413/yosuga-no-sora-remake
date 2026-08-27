@@ -8,8 +8,7 @@ import zlib from '@ohos.zlib';
 import { taskpool, util, uri } from '@kit.ArkTS';
 import { preferences } from '@kit.ArkData';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import promptAction from '@ohos.promptAction';
-import window from '@ohos.window';
+import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 
@@ -2363,6 +2362,7 @@ struct Index {
           .width('100%')
           .padding({ top: 20, bottom: 40 })
         }
+        .alignItems(HorizontalAlign.Center)
       } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
         // Download / import / extraction progress: centered on screen.
         Column({ space: 14 }) {
@@ -2398,21 +2398,6 @@ struct Index {
     .height('100%')
     .backgroundColor('#000000')
     .expandSafeArea([SafeAreaType.SYSTEM])
-    // Mouse wheel (API 17+ onAxisEvent): HarmonyOS flavor only. The
-    // OpenHarmony flavor keeps the committed behavior untouched; on
-    // OpenHarmony the event simply never fires and this is a no-op.
-    .onAxisEvent((event: AxisEvent) => {
-      try {
-        if (this.buildFlavor !== 'harmonyos') return;
-        if (event.action === AxisAction.BEGIN || event.action === AxisAction.UPDATE) {
-          const step = event.scrollStep ?? 0;
-          const v = step !== 0 ? step : event.getVerticalAxisValue();
-          if (v !== 0) { entryNapi.sendMouse(2, 0, Math.round(v), 0); }
-        }
-      } catch (e3) {
-        // ignore
-      }
-    })
     .focusable(true)
     .defaultFocus(true)
     .onKeyEvent((event: KeyEvent) => {

@@ -362,18 +362,9 @@ void SDL_OHOS_OnMouseEvent(int action, int button, int x, int y)
 	SDL_PushEvent(&ev);
 	}
 	else if (action == 2)
-	if (action == 2)
 	{
 		/* wheel: x = vertical delta, y = horizontal delta */
 		ev.type = SDL_MOUSEWHEEL;
-		/* De-dup: the ArkUI axis callback and the native mouse monitor
-		 * can both report the same physical wheel step; merge bursts
-		 * closer than 25ms so the engine sees one event per step. */
-		{	static Uint64 lastWheelMs = 0;
-			Uint64 nowMs = SDL_GetTicks64();
-			if (nowMs - lastWheelMs < 25) return;
-			lastWheelMs = nowMs;
-		}
 		ev.wheel.windowID = SDL_GetWindowID(window);
 		ev.wheel.which = SDL_TOUCH_MOUSEID;
 		ev.wheel.x = (Sint32)y;
