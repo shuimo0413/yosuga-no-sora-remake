@@ -13,6 +13,7 @@
 #include "sdl_ohos_bridge.h"
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <arkui/ui_input_event.h>
 #include <hilog/log.h>
 #include <native_window/external_window.h>
 #include <rawfile/raw_file_manager.h>
@@ -161,6 +162,23 @@ bool g_window_ready = false;
 
 bool g_engine_started = false;
 std::atomic<bool> g_engine_running{false};
+
+/* Mouse-wheel / axis events (API 12): XComponent UI input callback gives
+ * the raw scroll deltas that neither ArkUI MouseEvent nor
+ * OH_NativeXComponent_MouseEvent expose. Forward to the SDL backend as
+ * SDL_MOUSEWHEEL (action 2: x = vertical delta, y = horizontal). */
+static void OnUIInputEvent(OH_NativeXComponent *component, ArkUI_UIInputEvent *event,
+	ArkUI_UIInputEvent_Type type)
+{
+	(void)component;
+	if (type != ARKUI_UIINPUTEVENT_TYPE_AXIS || event == nullptr) return;
+	int yv = (int)OH_ArkUI_AxisEvent_GetVerticalAxisValue(event);
+	int xv = (int)OH_ArkUI_AxisEvent_GetHorizontalAxisValue(event);
+	if (yv != 0 || xv != 0)
+	{
+		SDL_OHOS_OnMouseEvent(2, 0, yv, xv);
+	}
+}
 
 void OnSurfaceCreated(OH_NativeXComponent *component, void *window)
 {
@@ -469,6 +487,10 @@ void OHOS_Entry_AttachXComponent(void *component)
 	// through napi sendTouch instead.
 	// callback.DispatchTouchEvent = OnTouchEvent;
 	OH_NativeXComponent_RegisterCallback(native, &callback);
+
+	// Mouse wheel / axis events (API 12): raw scroll deltas.
+	OH_NativeXComponent_RegisterUIInputEventCallback(native, OnUIInputEvent,
+		ARKUI_UIINPUTEVENT_TYPE_AXIS);
 
 	// NOTE: do NOT call OH_NativeXComponent_GetXComponentSize with a null
 	// window here: on this system that triggers SIGBUS on the UI thread.
