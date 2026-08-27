@@ -1207,6 +1207,8 @@ function SetCgFlag(id, f){
 		sysReg._cgFlag.on(id);
 	else
 		sysReg._cgFlag.off(id);
+	//实时保存：CG鉴赏解锁后立即写入 system.dat（帧尾合并，避免连续解锁时重复写盘）
+	RequestSaveSystemRegister();
 }
 function ChkCgFlag(id){
 	return sysReg._cgFlag.check(id);
@@ -1216,6 +1218,8 @@ function SetGlobalFlag(id, f){
 		sysReg._globalFlag.on(id);
 	else
 		sysReg._globalFlag.off(id);
+	//实时保存：结局/回想等解锁后立即写入 system.dat（帧尾合并，避免连续解锁时重复写盘）
+	RequestSaveSystemRegister();
 }
 function ChkGlobalFlag(id){
 	return sysReg._globalFlag.check(id);
@@ -1254,6 +1258,28 @@ function SaveSystemRegister(fDebugSave=true){
 		@endif
 	}
 	sysReg.save();
+}
+
+//解锁(CG/全局标志)等实时保存请求的合并触发器。
+//SetCgFlag/SetGlobalFlag 在一次帧内可能被连续调用多次
+//(例: CG切换时同时点亮基类与差分标志、跳转重放时重复执行解锁标签)，
+//每次同步写盘会造成明显卡顿，因此这里合并为帧尾一次落盘。
+var sysRegSaveTrigger = null;
+function OnSysRegSaveRequest(){
+	try{
+		SaveSystemRegister();
+	}catch(e){
+		dm("RequestSaveSystemRegister failed: " + e);
+	}
+}
+function RequestSaveSystemRegister(){
+	if(typeof sysReg == "void" || typeof sysReg == "undefined") return;
+	if(sysRegSaveTrigger === null){
+		sysRegSaveTrigger = new AsyncTrigger(OnSysRegSaveRequest, "");
+		sysRegSaveTrigger.cached = true;
+		sysRegSaveTrigger.mode = atmAtIdle;
+	}
+	sysRegSaveTrigger.trigger();
 }
 
 function ReviceEffectSpeed(sSpeed){

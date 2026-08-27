@@ -180,6 +180,9 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	//オートセーブ保存用
 	var _autoSave;
 	var _enableAutoSave = true;	//タイトルなどに戻る時にセーブさせるかどうか
+	//继续游戏(asave.bmp)のリアルタイム保存制御
+	var _autoSaveLastTick = 0;		//前回の実セーブ時刻(初回は必ず保存される)
+	var AUTO_SAVE_INTERVAL = 10000;	//実セーブの最小間隔(ミリ秒)
 
 	//クイックロード用受け渡し変数
 	var _tempQLoadFile;
@@ -2852,6 +2855,11 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		if(!fLoadEnd && !_jumpState)
 			outputMessage(dispName, _mess, _voice, _pan, _volume, false, fRead, trueName, newline);
 
+		//继续游戏位置のリアルタイム保存(節流あり)。
+		//ログ・メッセージ反映後に呼ぶことで、セーブデータの hitret 数と
+		//ログ件数が一致し、読込復帰位置がずれない。
+		if(!_jumpState && !fLoadEnd) autoSaveThrottled();
+
 		_fFreeFormat = false;
 	}
 
@@ -4071,6 +4079,9 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 
 		//オートセーブ仮保存
 		_autoSave.set(this, true, false, false);
+
+		//继续游戏位置のリアルタイム保存(節流あり)
+		autoSaveThrottled();
 
 		_selectBase.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
 		_selectBase.setPos(0, 0);
@@ -5595,6 +5606,9 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		//オートセーブ仮保存
 		_autoSave.init();
 		_autoSave.set(this, true, false, false);
+
+		//继续游戏位置のリアルタイム保存(節流あり)
+		autoSaveThrottled();
 	}
 	function jumpPreview(srcAdvObj, scenario="", hitret=0, select=[]){
 	//プレビューモードでのみ使える
@@ -6167,6 +6181,11 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 			_logSelectEOF[_scenario].assignStruct(_logSelect);
 		}
 
+		//シナリオ切り替え直前の位置を“继续游戏”に即時保存する。
+		//(ロード・ジャンプの再構築中は除く)
+		if(_jumpState == JUMPSTATE_NONE && !_fLoad && !_fRecollect)
+			autoSaveThrottled(true);
+
 		_scenario = sc.toUpperCase();
 		_label = label;
 		if(_scenario.length >= 5 && _scenario.substring(0, 4) == "00_Z")
@@ -6625,10 +6644,27 @@ class ADVScreen extends Layer, SelectItemNotifyBase, SceneBase, ChainItemBase{
 			return;
 		}
 
-		sysReg._autoSave = 1;
-		SaveSystemRegister();
+		if(sysReg._autoSave != 1){
+			sysReg._autoSave = 1;
+			SaveSystemRegister();
+		}
 
 		dm("オートセーブしました");
+	}
+
+	//游戏进行中实时更新“继续游戏”位置(asave.bmp)。
+	//首回保存会立即执行，之后的保存按 AUTO_SAVE_INTERVAL 间隔节流，
+	//避免每句话都截图写盘造成卡顿。返回标题/场景销毁时仍会立即保存。
+	function autoSaveThrottled(force=false){
+		if(_fPreviewMode) return;
+		if(_fRecollect) return;
+		if(!_enableAutoSave) return;
+		if(_hitretNum == 0) return;
+
+		var now = System.getTickCount();
+		if(!force && (now - _autoSaveLastTick) < AUTO_SAVE_INTERVAL) return;
+		_autoSaveLastTick = now;
+		autoSave();
 	}
 
 	function save(file, index=-2){

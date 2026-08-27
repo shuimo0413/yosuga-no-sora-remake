@@ -915,6 +915,9 @@ class ConfigWindow extends SettingWindowBase{
 		case _btn.Other_VolVoice		: playSampleSound("Other_VolVoice"); break;
 
 		}
+
+		//实时保存：设置修改后立即写入 system.dat
+		SaveSystemRegister();
 	}
 
 	function onButtonDownR(target){
@@ -989,6 +992,8 @@ class ConfigWindow extends SettingWindowBase{
 	function onSliderMoveEnd(target){
 		stopSampleSound();
 		applyToSystem();
+		//实时保存：滑块调整结束后立即写入 system.dat
+		SaveSystemRegister();
 	}
 
 	function hint(obj, str=""){
@@ -1560,10 +1565,16 @@ class ConfigWindow extends SettingWindowBase{
 		if(_page == SYSTEM1) onSampleMsgOutput();
 
 		confirm = false;
+
+		//实时保存：初始化设置后立即写入 system.dat
+		SaveSystemRegister();
 	}
 	function clearReadFlag(){
 		sysReg.clearReadFlag();
 		confirm = false;
+
+		//实时保存：清除已读标记后立即写入 system.dat
+		SaveSystemRegister();
 	}
 
 function returnTitle(){
