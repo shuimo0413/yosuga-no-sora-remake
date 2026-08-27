@@ -8,6 +8,13 @@
         "compatibleSdkVersion": 12,
         "targetSdkVersion": 12,
         "runtimeOS": "OpenHarmony"
+      },
+      {
+        "name": "harmony20",
+        "compileSdkVersion": 20,
+        "compatibleSdkVersion": 12,
+        "targetSdkVersion": 12,
+        "runtimeOS": "OpenHarmony"
       }
     ],
     "buildModeSet": [
@@ -27,7 +34,8 @@
         {
           "name": "default",
           "applyToProducts": [
-            "default"
+            "default",
+            "harmony20"
           ]
         }
       ]
