@@ -13,6 +13,7 @@
 #include "sdl_ohos_bridge.h"
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <multimodalinput/oh_input_manager.h>
 #include <arkui/ui_input_event.h>
 #include <hilog/log.h>
 #include <native_window/external_window.h>
@@ -180,10 +181,76 @@ static void OnUIInputEvent(OH_NativeXComponent *component, ArkUI_UIInputEvent *e
 	}
 	}
 
+/* System mouse event monitor (API 12+, multimodalinput): the phone treats
+ * the physical mouse as a touch source, so ArkUI never delivers real
+ * right/middle clicks or wheel deltas. This global monitor gets them at
+ * the input layer: right/middle buttons -> SDL mouse (left stays on the
+ * touch path), vertical axis -> SDL_MOUSEWHEEL (positive = up). */
+static bool g_mouse_monitor_ok = false;
+static void OnSystemMouseEvent(const Input_MouseEvent *ev)
+{
+	if (ev == nullptr) return;
+	int32_t action = OH_Input_GetMouseEventAction(ev);
+	int32_t button = OH_Input_GetMouseEventButton(ev);
+	int32_t axisType = OH_Input_GetMouseEventAxisType(ev);
+  float axisValue = 0.0f;
+	/* HarmonyOS NEXT exposes OH_Input_GetMouseEventWheelDelta while the
+	 * OpenHarmony SDK uses OH_Input_GetMouseEventAxisValue; resolve at run
+	 * time so either system reports the wheel delta. */
+	{
+		typedef int16_t (*WheelDeltaFn)(const struct Input_MouseEvent*);
+		static WheelDeltaFn wd = nullptr;
+		if (wd == nullptr)
+		{
+			void *h = dlopen("libentry.so", RTLD_NOW);
+			if (!h) h = RTLD_DEFAULT;
+			wd = (WheelDeltaFn)dlsym(h, "OH_Input_GetMouseEventWheelDelta");
+		}
+		if (wd) axisValue = (float)wd(ev);
+		if (axisValue == 0.0f) axisValue = OH_Input_GetMouseEventAxisValue(ev);
+	}
+	int32_t x = OH_Input_GetMouseEventDisplayX(ev);
+	int32_t y = OH_Input_GetMouseEventDisplayY(ev);
+	switch (action)
+	{
+	case MOUSE_ACTION_BUTTON_DOWN:
+	case MOUSE_ACTION_BUTTON_UP:
+	{
+		if (button == MOUSE_BUTTON_RIGHT || button == MOUSE_BUTTON_MIDDLE)
+		{
+			int b = (button == MOUSE_BUTTON_RIGHT) ? 3 : 2;
+			int a = (action == MOUSE_ACTION_BUTTON_DOWN) ? 0 : 1;
+			SDL_OHOS_OnMouseEvent(a, b, x, y);
+		}
+		break;
+	}
+	case MOUSE_ACTION_AXIS_BEGIN:
+	case MOUSE_ACTION_AXIS_UPDATE:
+	{
+		if (axisType == MOUSE_AXIS_SCROLL_VERTICAL && axisValue != 0.0f)
+		{
+			SDL_OHOS_OnMouseEvent(2, 0, (int)axisValue, 0);
+		}
+		break;
+	}
+	default: break;
+	}
+}
+
+static void RegisterSystemMouseMonitor()
+{
+	if (g_mouse_monitor_ok) return;
+	Input_Result rc = OH_Input_AddMouseEventMonitor(OnSystemMouseEvent);
+	g_mouse_monitor_ok = (rc == INPUT_SUCCESS);
+	OH_LOG_Print(LOG_APP, LOG_INFO, 0xD003333, "SDL_OHOS",
+		"mouse monitor: %{public}d", (int)rc);
+}
+
 void OnSurfaceCreated(OH_NativeXComponent *component, void *window)
 {
 	(void)component;
 	(void)window;
+	RegisterSystemMouseMonitor();
 }
 
 void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
@@ -499,6 +566,7 @@ void OHOS_Entry_AttachXComponent(void *component)
 
 static void EngineMain()
 {
+	RegisterSystemMouseMonitor();
 	g_engine_running = true;
 	OHOS_InstallCrashHandler();
 	OHOS_DiagLog("EngineMain begin");
