@@ -1,6 +1,6 @@
 [submodule "external/krkrz"]
 	path = external/krkrz
-	url = https://github.com/WarSkyGod/krkrz.git
+	url = https://github.com/LightWinder/krkrz.git
 [submodule "external/simde"]
 	path = external/simde
 	url = https://github.com/simd-everywhere/simde.git
