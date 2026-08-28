@@ -3,7 +3,7 @@
 
 The release tag is the single version source for every platform display
 version (Android/iOS/OHOS/macOS bundle versions and the in-game
-data/system/status.tjs GAME_VERSION alike). Extraction keeps the leading
+data/system/Status.tjs GAME_VERSION alike). Extraction keeps the leading
 numeric dotted sequence verbatim and drops everything after it:
 
     v1.0.0 -> 1.0.0      v1.0 -> 1.0      v1.01 -> 1.01
@@ -35,7 +35,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True,
                         help="Release tag, e.g. v1.0.0-ohos-x")
-    parser.add_argument("--status", default="data/system/status.tjs",
+    parser.add_argument("--status", default="data/system/Status.tjs",
                         help="status.tjs to rewrite in place")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print the resolved version without writing")

@@ -89,7 +89,7 @@ jobs:
           set -euo pipefail
           python3 tools/inject_game_version.py \
             --tag "$RELEASE_TAG" \
-            --status data/system/status.tjs
+            --status data/system/Status.tjs
       - name: Generate and validate the content manifest
         shell: bash
         run: |
