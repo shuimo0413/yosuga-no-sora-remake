@@ -48,6 +48,12 @@ def androidVersionCode = providers.gradleProperty('androidVersionCode')
     .getOrElse('1').toInteger()
 def androidVersionName = providers.gradleProperty('androidVersionName')
     .getOrElse('1.0')
+// The in-app downloader's fallback base URL is injected at build time:
+// CI passes -PdefaultBaseUrl=<releases download root>; local builds leave
+// it empty and the bootstrap UI then asks for the address. Evaluated here,
+// at script scope, because `providers` does not resolve inside the
+// defaultConfig closure (plain NPE under Gradle 9 Groovy).
+def defaultBaseUrl = providers.gradleProperty('defaultBaseUrl').getOrElse('')
 
 android {
     namespace = "com.shuimo0413.yosuganosora.hdremake"
@@ -62,14 +68,13 @@ android {
         targetSdk = 37
         versionCode = androidVersionCode
         versionName = androidVersionName
-        // The in-app downloader's fallback base URL is injected at build
-        // time (CI passes -PdefaultBaseUrl=... from the publishing repo;
-        // local builds leave it empty and the UI asks for the address).
+        // The in-app downloader's fallback base URL (see defaultBaseUrl
+        // above). The literal must carry Java source quotes, hence the
+        // escaped double quotes around the interpolation.
         buildFeatures {
             buildConfig = true
         }
-        buildConfigField 'String', 'DEFAULT_BASE_URL',
-            '"${providers.gradleProperty('defaultBaseUrl').getOrElse('')}"'
+        buildConfigField 'String', 'DEFAULT_BASE_URL', "\"$defaultBaseUrl\""
         externalNativeBuild {
             cmake {
                 abiFilters = []

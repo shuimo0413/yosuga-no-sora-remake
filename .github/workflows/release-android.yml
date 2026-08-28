@@ -253,6 +253,9 @@ jobs:
         env:
           ORG_GRADLE_PROJECT_androidVersionName: ${{ steps.release.outputs.version-name }}
           ORG_GRADLE_PROJECT_androidVersionCode: ${{ steps.release.outputs.version-code }}
+          # Publishing repo as the in-app downloader's default base URL
+          # (bootstrap falls back to asking the user when empty).
+          ORG_GRADLE_PROJECT_defaultBaseUrl: https://github.com/${{ github.repository }}/releases/latest/download/
         run: |
           set -euo pipefail
           chmod +x gradlew
