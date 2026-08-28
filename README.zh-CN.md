@@ -24,10 +24,15 @@ Android 移植改动）。
 
 ## 获取源码
 
+克隆仓库及子模块后，从「数据源 Release」拉取游戏素材（仓库本体不再通过
+Git LFS 携带游戏数据）：
+
 ```sh
 git clone --recurse-submodules https://github.com/shuimo0413/yosuga-no-sora-remake.git
 cd yosuga-no-sora-remake
-git lfs pull
+python tools/fetch_data_parts.py \
+  --url "https://github.com/shuimo0413/yosuga-no-sora-remake/releases/download/data-v1" \
+  --dest data
 ```
 
 已有工作区更新依赖：
@@ -35,7 +40,6 @@ git lfs pull
 ```sh
 git submodule sync --recursive
 git submodule update --init --recursive
-git lfs pull
 ```
 
 ## 当前状态
@@ -77,7 +81,8 @@ macOS 使用 CMake 创建不包含素材副本的 SDL2 开发构建。第一次�
 
 ## Windows KRKRZ 发布
 
-推送匹配 `v*` 的标签后，Windows KRKRZ 发布工作流会自动校验 Git LFS 素材、重新生成
+推送匹配 `v*` 的标签后，Windows KRKRZ 发布工作流会自动从数据源 Release 校验
+游戏素材、重新生成
 完整内容清单、把原生运行时与 `data/` 打包，并创建 GitHub Release。也可以在 Actions
 页面手动输入发布标签，并选择是否标记为预发布版本。
 

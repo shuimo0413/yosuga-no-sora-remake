@@ -24,15 +24,6 @@ name: Release OpenHarmony / HarmonyOS HAP
           - none
           - community
           - agc
-      data_mode:
-        description: 'external / bundled / mini'
-        required: true
-        default: external
-        type: choice
-        options:
-          - external
-          - bundled
-          - mini
 
 permissions:
   contents: write
@@ -88,7 +79,6 @@ jobs:
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
           INPUT_SIGN_MODE: ${{ inputs.sign_mode }}
-          INPUT_DATA_MODE: ${{ inputs.data_mode }}
           OHOS_DEFAULT_SIGN_MODE: ${{ vars.OHOS_DEFAULT_SIGN_MODE }}
           # Forks/renames set the repository variable APP_BUNDLE_IDENTIFIER;
           # the default matches the app's published bundle name.
@@ -117,11 +107,6 @@ jobs:
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
           sign_mode="${INPUT_SIGN_MODE}"
           if [[ -z "$sign_mode" ]]; then sign_mode="${OHOS_DEFAULT_SIGN_MODE:-community}"; fi
-          # Push builds never bundle data (the app downloads it); only a
-          # manual dispatch can select bundled/mini. Defaulting here prevents
-          # the empty-value LFS pull on push triggers.
-          data_mode="${INPUT_DATA_MODE}"
-          if [[ -z "$data_mode" ]]; then data_mode='external'; fi
           case "$sign_mode" in none|community|agc) ;; *) echo "Bad sign mode: $sign_mode" >&2; exit 1 ;; esac
           {
             echo "tag=$release_tag"
@@ -129,11 +114,9 @@ jobs:
             echo "version-name=$version_name"
             echo "version-code=$version_code"
             echo "sign-mode=$sign_mode"
-            echo "data-mode=$data_mode"
           } >> "$GITHUB_OUTPUT"
-      # build-app does not need game data (external mode): NO git lfs pull,
-      # no content/asset manifest generation. The app fetches data-assets.json
-      # from the Release at runtime, so the HAP build never touches data/.
+      # build-app never bundles game data: the HAP is always data-external
+      # and the app fetches data-assets.json from the Release at runtime.
       - name: Restore cached OHOS SDK
         id: sdk-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -202,26 +185,11 @@ jobs:
           key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
       - name: Prepare the OpenHarmony project
         shell: bash
-        env:
-          DATA_MODE: ${{ steps.release.outputs.data-mode }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          # external mode: the HAP does not bundle data and does not need a
-          # bundled data-assets.json (the app fetches it from the Release at
-          # runtime). Only mini/bundled (diagnostic) modes need LFS data.
-          data_arg=""
-          if [[ "$DATA_MODE" != 'external' ]]; then
-            git lfs pull
-            if [[ "$DATA_MODE" == 'bundled' ]]; then data_arg="--data-link"; fi
-          fi
-          python3 tools/setup_ohos_project.py $data_arg
-          if [[ "$DATA_MODE" == 'mini' ]]; then
-            rm -f ohos-project/entry/src/main/resources/rawfile/data
-            mkdir -p ohos-project/entry/src/main/resources/rawfile/data
-            cp data/startup.tjs ohos-project/entry/src/main/resources/rawfile/data/
-            find data -maxdepth 1 -type f -size -5M -exec cp {} ohos-project/entry/src/main/resources/rawfile/data/ \;
-          fi
+          # The HAP is always data-external: it does not bundle game data and
+          # fetches data-assets.json from the Release at runtime.
+          python3 tools/setup_ohos_project.py
       - name: Inject default manifest URL
         shell: bash
         env:
@@ -386,15 +354,9 @@ jobs:
           HAP_OPENHARMONY: ${{ steps.build.outputs.hap-openharmony }}
           SIGNED_HARMONYOS: ${{ steps.signing.outputs.signed-harmonyos }}
           SIGNED_OPENHARMONY: ${{ steps.signing.outputs.signed-openharmony }}
-          DATA_MODE: ${{ steps.release.outputs.data-mode }}
         run: |
           set -euo pipefail
-          if [[ "$DATA_MODE" == 'bundled' ]]; then
-            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so' 'resources/rawfile/data/startup.tjs')
-          else
-            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so')
-          fi
-          if [[ "$DATA_MODE" == 'mini' ]]; then data_suffix="-mini"; else data_suffix=""; fi
+          required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so')
           asset_dir="$RUNNER_TEMP/release-assets"
           mkdir -p "$asset_dir"
           verify_and_package() {
@@ -412,16 +374,16 @@ jobs:
             [[ "$flavor" == 'harmonyos' ]] && os_label="HarmonyOS"
             local package_name
             if [[ -n "$signed_hap" ]]; then
-              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-$RELEASE_TAG.hap"
+              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64-$RELEASE_TAG.hap"
             else
-              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-unsigned-$RELEASE_TAG.hap"
+              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64-unsigned-$RELEASE_TAG.hap"
             fi
             cp "$file" "$asset_dir/$package_name"
             # Record the asset digest in BUILD-INFO so every published file
             # carries a verifiable SHA-256 next to its provenance data.
             hap_sha256="$(sha256sum "$file" | cut -d' ' -f1)"
-            printf 'Yosuga no Sora: HD Remake\nRuntime: Kirikiri SDL2 for %s 5.0 (API 12, ARM64 + x86_64)\nFlavor: %s\nRelease: %s\nCommit: %s\nSigning: %s\nData: %s\nNative optimization: Release\nSHA-256: %s  %s\n' \
-              "$os_label" "$flavor" "$RELEASE_TAG" "$GITHUB_SHA" "${signed_hap:-unsigned}" "${DATA_MODE:-external}" \
+            printf 'Yosuga no Sora: HD Remake\nRuntime: Kirikiri SDL2 for %s 5.0 (API 12, ARM64 + x86_64)\nFlavor: %s\nRelease: %s\nCommit: %s\nSigning: %s\nData: external (fetched from the Release at runtime)\nNative optimization: Release\nSHA-256: %s  %s\n' \
+              "$os_label" "$flavor" "$RELEASE_TAG" "$GITHUB_SHA" "${signed_hap:-unsigned}" \
               "$hap_sha256" "$package_name" \
               > "$asset_dir/$package_name-BUILD-INFO.txt"
           }

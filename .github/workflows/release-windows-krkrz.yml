@@ -66,36 +66,20 @@ jobs:
           "tag=$releaseTag" >> $env:GITHUB_OUTPUT
           "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      # LFS quota guard: the data tree is keyed by its git tree hash, so a
-      # run only pays the LFS download when the game data actually changed.
-      # Every other run restores ~4 GB from the Actions cache (which does
-      # not consume the monthly LFS bandwidth quota) and skips git lfs pull.
-      - name: Compute the data tree key
-        id: data-key
+      # The game data is no longer served from LFS: the checkout only has
+      # pointer stubs for data/. Real content comes from the data source
+      # release (multipart zips described by data-assets.json with per-part
+      # SHA-256), so CI never spends the GitHub LFS bandwidth quota.
+      - name: Download the game data from the source release
         shell: pwsh
-        run: '"key=$(git rev-parse HEAD:data)" >> $env:GITHUB_OUTPUT'
-      - name: Restore the game data from cache
-        id: data-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: data
-          key: lfs-data-${{ steps.data-key.outputs.key }}
-      - name: Verify Git LFS content
-        shell: pwsh
+        env:
+          DATA_SOURCE: ${{ vars.DATA_SOURCE_RELEASE || format('{0}/releases/download/data-v1', github.repository) }}
         run: |
-          if ('${{ steps.data-cache.outputs.cache-hit }}' -eq 'true') {
-            Write-Output 'data restored from cache; skipping the LFS download'
-            $expect = (git ls-files data | Measure-Object -Line).Lines
-            $actual = (Get-ChildItem data -Recurse -File | Measure-Object).Count
-            if ($actual -ne $expect) {
-              throw "cached data is incomplete ($actual/$expect files)"
-            }
-            exit 0
-          }
-          git lfs pull
-          if ($LASTEXITCODE -ne 0) { throw 'git lfs pull failed' }
-          git lfs fsck
-          if ($LASTEXITCODE -ne 0) { throw 'git lfs fsck failed' }
+          if (Test-Path data) { Remove-Item -Recurse -Force data }
+          python tools/fetch_data_parts.py `
+            --url "https://github.com/$env:DATA_SOURCE" `
+            --dest data
+          if ($LASTEXITCODE -ne 0) { throw 'Data source download failed' }
 
       # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest and the data.xp3 pack.
