@@ -77,11 +77,11 @@ when DevEco signing is configured, otherwise entry-default-unsigned.hap).
 ## Signing
 
 The workflow builds an unsigned HAP and its signing is controlled by the
-`sign_mode` workflow input (default `none`):
+`sign_mode` workflow input (default `community`):
 
-- `none` (default) - no signing. The release asset is the unsigned HAP;
+- `none` - no signing. The release asset is the unsigned HAP;
   install it only after signing it with your own materials.
-- `community` - signs with the community OpenHarmony debug certificate
+- `community` (default) - signs with the community OpenHarmony debug certificate
   (the official developtools_hapsigner autosign flow). The result installs
   directly on OpenHarmony devices that have developer mode enabled, but
   HarmonyOS 5+ (NEXT) devices reject this certificate.
@@ -96,7 +96,7 @@ The workflow builds an unsigned HAP and its signing is controlled by the
   - OHOS_APP_CERT_BASE64 (the .cer application certificate)
   - OHOS_PROFILE_P7B_BASE64 (the .p7b provisioning profile)
 
-Tag pushes default to `none` unless the repository variable
+Tag pushes default to `community` unless the repository variable
 `OHOS_DEFAULT_SIGN_MODE` is set; re-run the workflow manually on the same
 tag with the desired mode to replace the release assets.
 
@@ -120,7 +120,7 @@ Then install the signed HAP with `hdc install <signed.hap>`.
 ### Getting AGC materials for HarmonyOS 5+
 
 1. Register an app in AppGallery Connect. Its bundle name must be
-   `com.lightwinder.yosuganosora.hdremake` (the name baked into
+   `com.shuimo0413.yosuganosora.hdremake` (the name baked into
    AppScope/app.json5). If you register a different name, change
    AppScope/app.json5 and rebuild.
 2. Create the keystore (.p12) and download the application certificate
@@ -147,10 +147,19 @@ NEXT (AGC signing).
 
 ## CI
 
-.github/workflows/release-ohos.yml builds the HAP on ubuntu-24.04:
-downloads the OpenHarmony 5.0.0 SDK and command line tools, runs the
-project setup, assembles the release HAP, optionally signs it, verifies the
-package contents and publishes multipart 7-Zip volumes to the GitHub
-Release. The SDK download URLs can be overridden with the repository
-variables OHOS_SDK_URL and OHOS_COMMAND_LINE_TOOLS_URL when the
-OpenHarmony release page publishes newer packages.
+.github/workflows/release-ohos.yml builds TWO HAPs on ubuntu-24.04:
+
+- **HarmonyOS build** (`Yosuga-no-Sora-HD-Remake-HarmonyOS-arm64-x86_64-...hap`)
+  uses the picker save(DOWNLOAD) route: on launch it silently creates
+  Download/<bundleName> and stores data there.
+- **OpenHarmony build** (`Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-x86_64-...hap`)
+  uses the experimental routes (folder picker / permission dialog) for
+  platforms whose picker lacks the DOWNLOAD mode (e.g. KaihongOS).
+
+The flavor is injected at build time as
+`resources/rawfile/build-flavor.json`; the ArkTS shell reads it and
+selects the Download-directory route. Both flavors are signed, verified
+and published to the GitHub Release. The SDK download URLs can be
+overridden with the repository variables OHOS_SDK_URL and
+OHOS_COMMAND_LINE_TOOLS_URL when the OpenHarmony release page publishes
+newer packages.

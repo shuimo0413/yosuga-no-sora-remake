@@ -44,10 +44,10 @@ option(KRKRSDL2_EMSCRIPTEN_ENABLE_THREADS "Enable threads for the Emscripten bui
 option(KRKRSDL2_EMSCRIPTEN_ENABLE_SOURCE_MAPS "Enable threads for the Emscripten build." OFF)
 set(KRKRSDL2_EMSCRIPTEN_INITIAL_MEMORY "134217728" CACHE STRING "Initial memory usage for the Emscripten build.")
 option(KRKRSDL2_BUILD_ENABLE_WARNINGS "Enable warnings when building the project." OFF)
-set(KRKRSDL2_PRODUCT_NAME "Yosuga no Sora: HD Remake" CACHE STRING "Application display name.")
+set(KRKRSDL2_PRODUCT_NAME "缘之空：高清重制" CACHE STRING "Application display name.")
 set(KRKRSDL2_BUNDLE_OUTPUT_NAME "YosugaNoSoraHD" CACHE STRING "Application bundle filename without the extension.")
-set(KRKRSDL2_BUNDLE_IDENTIFIER "com.lightwinder.yosuganosora.hdremake" CACHE STRING "Apple bundle identifier.")
-set(KRKRSDL2_VERSION_NAME "0.0.0" CACHE STRING "Human-readable application version.")
+set(KRKRSDL2_BUNDLE_IDENTIFIER "com.shuimo0413.yosuganosora.hdremake" CACHE STRING "Apple bundle identifier.")
+set(KRKRSDL2_VERSION_NAME "1.0.0" CACHE STRING "Human-readable application version.")
 set(KRKRSDL2_BUILD_NUMBER "1" CACHE STRING "Monotonically increasing application build number.")
 
 if((NOT DEFINED CMAKE_BUILD_TYPE) OR (NOT CMAKE_BUILD_TYPE) OR (CMAKE_BUILD_TYPE STREQUAL ""))
@@ -158,6 +158,10 @@ endif()
 
 set(EMBED_DATA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/data CACHE FILEPATH "The path to the data file or directory.")
 get_filename_component(EMBED_DATA_PATH_BASENAME ${EMBED_DATA_PATH} NAME)
+
+# iOS data externalization: OFF builds an IPA without embedded game data; the
+# bootstrap page downloads/imports it into Documents/<bundle> at first launch.
+set(OPTION_EMBED_IOS_DATA ON CACHE BOOL "Embed the game data inside the iOS app bundle.")
 
 set(KRKRSDL2_SRC "")
 set(KRKRSDL2_INCLUDES "")
@@ -426,24 +430,31 @@ endif()
 if(APPLE AND IOS)
 list(APPEND KRKRSDL2COMMON_SRC
 	src/core/visual/ios/IOSVideoOverlay.mm
+	src/core/sdl2/ios/IOSBootstrap.mm
+	src/core/sdl2/zip_extract.cpp
+	src/core/sdl2/xp3_extract.cpp
 )
 list(APPEND KRKRSDL2COMMON_INCLUDES
 	src/core/visual/macos
 )
 set_source_files_properties(
 	src/core/visual/ios/IOSVideoOverlay.mm
+	src/core/sdl2/ios/IOSBootstrap.mm
 	PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
 )
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
 set_source_files_properties(
 	src/core/visual/ios/IOSVideoOverlay.mm
+	src/core/sdl2/ios/IOSBootstrap.mm
 	PROPERTIES SKIP_PRECOMPILE_HEADERS ON
 )
 endif()
 list(APPEND KRKRSDL2_LIBS
 	"-framework AVFoundation"
+	"-framework AudioToolbox"
 	"-framework CoreMedia"
 	"-framework QuartzCore"
+	"-framework UniformTypeIdentifiers"
 )
 endif()
 
@@ -586,6 +597,12 @@ list(APPEND KRKRSDL2_LIBS
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
 )
+# External data flow: JNI bridge (data dir + xp3 extraction) and the
+# self-contained xp3 extractor shared with the OHOS build.
+list(APPEND KRKRSDL2_SRC
+	src/core/sdl2/AndroidDataBridge.cpp
+	src/core/sdl2/xp3_extract.cpp
+)
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS" OR ${CMAKE_SYSTEM_NAME} STREQUAL "OpenHarmony" OR OHOS)
 # SDL2 for OpenHarmony is built by the ohos-project entry module (see
 # ohos-project/entry/src/main/cpp/CMakeLists.txt) and must already be
@@ -606,6 +623,7 @@ message(FATAL_ERROR "SDL2 for OpenHarmony was not built before krkrsdl2; see oho
 endif()
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
+	__OHOS__=1
 )
 # musl libc has no pthread_setaffinity_np; the engine calls it as a
 # performance hint and ignores the result, so map it onto sched_setaffinity
@@ -735,6 +753,9 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS" OR ${CMAKE_SYSTEM_NAME} STREQUAL "Op
 # On OpenHarmony the engine ships as a native library that the NAPI entry
 # module (ohos-project/entry) links and starts from its own thread.
 add_library(${KRKRSDL2_NAME} SHARED)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	${KRKRSDL2_REPO_DIR}/ohos-project/entry/src/main/cpp/sdl_ohos
+)
 else()
 add_executable(${KRKRSDL2_NAME})
 if(WIN32)
@@ -748,7 +769,7 @@ set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "krkrsdl2")
 endif()
 endif()
 
-if(NOT ANDROID AND KRKRSDL2_GENERATE_CONTENT_MANIFEST)
+if(NOT ANDROID AND NOT IOS AND KRKRSDL2_GENERATE_CONTENT_MANIFEST)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(CONTENT_MANIFEST_TARGET krkrsdl2_content_manifest)
 add_custom_target(${CONTENT_MANIFEST_TARGET}
@@ -838,15 +859,24 @@ set_target_properties(${KRKRSDL2_NAME} PROPERTIES
 	XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
 	XCODE_GENERATE_SCHEME TRUE
 )
-set_property(
-	SOURCE ${EMBED_DATA_PATH} ${IOS_RESOURCES_ROOT}/Images.xcassets ${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
-	PROPERTY MACOSX_PACKAGE_LOCATION "Resources"
-)
-target_sources(${KRKRSDL2_NAME} PRIVATE 
-	${EMBED_DATA_PATH}
+set(KRKRSDL2_IOS_RESOURCES
 	${IOS_RESOURCES_ROOT}/Images.xcassets
 	${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
+	${IOS_RESOURCES_ROOT}/Background.png
 )
+if(OPTION_EMBED_IOS_DATA)
+	list(APPEND KRKRSDL2_IOS_RESOURCES ${EMBED_DATA_PATH})
+endif()
+if(EXISTS ${IOS_RESOURCES_ROOT}/default-manifest.json)
+	# Build-time injected download root (the release workflow writes this
+	# file before generating the project; local builds use the built-in URL).
+	list(APPEND KRKRSDL2_IOS_RESOURCES ${IOS_RESOURCES_ROOT}/default-manifest.json)
+endif()
+set_property(
+	SOURCE ${KRKRSDL2_IOS_RESOURCES}
+	PROPERTY MACOSX_PACKAGE_LOCATION "Resources"
+)
+target_sources(${KRKRSDL2_NAME} PRIVATE ${KRKRSDL2_IOS_RESOURCES})
 endif()
 
 if(OPTION_BUILD_MACOS_BUNDLE)

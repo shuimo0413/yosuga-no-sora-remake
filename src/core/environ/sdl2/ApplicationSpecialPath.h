@@ -7,10 +7,22 @@
 #ifdef _WIN32
 #include <shlobj.h>
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "FilePathUtil.h"
 #include "StorageIntf.h"
 #include "CharacterSet.h"
 #include <SDL.h>
+#include <cstdio>
+#include <cstdlib>
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+extern "C" const char *TVPIOSGetDocumentsDirectory(void);
+#endif
+#if defined(__ANDROID__)
+extern "C" const char *TVPAndroidGetPublicSaveDirectory(void);
+#endif
 
 class ApplicationSpecialPath {
 public:
@@ -84,7 +96,98 @@ public:
 		{
 			return datapath;
 		}
-#if defined(__vita__)
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+		/* iOS: keep saves in a game-specific subfolder of the app
+		   <sandbox>/Documents (Documents/<bundle-id>/savedata) so the user
+		   can reach, back up and re-import them through the Files app or
+		   Finder (UIFileSharingEnabled) without risking a collision with
+		   another application that shares the Documents directory.  Being
+		   inside the sandbox it is never indexed into the system photo
+		   library. */
+		{
+			const char *docs = TVPIOSGetDocumentsDirectory();
+			tjs_string path;
+			if(docs && *docs && TVPUtf8ToUtf16(path, std::string(docs)))
+			{
+				if(path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+					path += TJS_W('/');
+				return path;
+			}
+		}
+		ttstr nativeDataPath = ttstr(TVPGetAppPath().AsStdString());
+		nativeDataPath += TJS_W("/savedata/");
+		return nativeDataPath.AsStdString();
+#elif defined(__OHOS__)
+		/* OHOS: saves live in the public Download app folder (set via
+		   KRKR_OHOS_SAVE_DIR from the NAPI shell). */
+		{
+			const char *ohosSave = getenv("KRKR_OHOS_SAVE_DIR");
+			if (ohosSave && *ohosSave)
+			{
+				tjs_string path;
+				if (TVPUtf8ToUtf16(path, std::string(ohosSave)))
+				{
+					if (path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+						path += TJS_W('/');
+					return path;
+				}
+			}
+		}
+		/* OHOS fallback: use the public data dir env + savedata. */
+		{
+			const char *dd2 = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd2 && *dd2)
+			{
+				tjs_string p16;
+				if (TVPUtf8ToUtf16(p16, std::string(dd2) + "/savedata/"))
+					return p16;
+			}
+		}
+		{
+			char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");
+			if (pref_path)
+			{
+				std::string pp = pref_path;
+				SDL_free(pref_path);
+				tjs_string p16;
+				if (TVPUtf8ToUtf16(p16, pp)) return p16;
+			}
+		}
+		{
+			ttstr ndp = ttstr(TVPGetAppPath().AsStdString());
+			ndp += TJS_W("/savedata/");
+			return ndp.AsStdString();
+		}
+#elif defined(__ANDROID__)
+		/* Android: keep saves in the public Downloads folder. */
+		{
+			const char *androidDir = TVPAndroidGetPublicSaveDirectory();
+			tjs_string path;
+			if (androidDir && *androidDir &&
+				TVPUtf8ToUtf16(path, std::string(androidDir)))
+			{
+				if (path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+					path += TJS_W('/');
+				return path;
+			}
+		}
+		{
+			char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");
+			std::string pref_path_utf8;
+			if (pref_path)
+			{
+				pref_path_utf8 = pref_path;
+				SDL_free(pref_path);
+				tjs_string pref_path_utf16;
+				TVPUtf8ToUtf16(pref_path_utf16, pref_path_utf8);
+				return pref_path_utf16;
+			}
+			ttstr nativeDataPath = ttstr(TVPGetAppPath().AsStdString());
+			TVPGetLocalName(nativeDataPath);
+			nativeDataPath += TJS_W("/savedata/");
+			return nativeDataPath.AsStdString();
+		}
+#elif defined(__vita__)
 		return TJS_W("savedata0:/savedata/");
 #else
 		char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");

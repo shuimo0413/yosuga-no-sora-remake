@@ -28,10 +28,13 @@ export default class EntryAbility extends UIAbility {
       hilog.info(DOMAIN, TAG, '%{public}s', 'Succeeded in loading content');
     });
     windowStage.getMainWindow().then((mainWindow: window.Window) => {
-      // The game uses a fixed 1920x1080 coordinate system and stays in
-      // landscape fullscreen, mirroring the Android build.
+      // The ability is declared landscape in module.json5, so no runtime
+      // rotation is needed (runtime rotation froze the UI thread on first
+      // launches with the screen locked).
+      // Fully immersive on every page: edge-to-edge layout with BOTH bars
+      // hidden (no white status strip, no bottom black strip).
       mainWindow.setWindowLayoutFullScreen(true);
-      mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
+      mainWindow.setWindowSystemBarEnable([]);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'Failed to configure main window: %{public}s', JSON.stringify(err));
     });

@@ -6,6 +6,10 @@
 #ifdef USE_SDL_MAIN
 #include <SDL_main.h>
 #endif
+#if defined(__IPHONEOS__)
+#include <cstdlib>
+#include "ios/IOSBootstrap.h"
+#endif
 
 #if defined(USE_SDL_MAIN)
 extern "C" int SDL_main(int argc, char **argv)
@@ -25,6 +29,16 @@ extern "C" int main(int argc, char **argv)
 		krkrsdl2_convert_set_args(argc, argv);
 #endif
 
+#if defined(__IPHONEOS__)
+		/* Data externalization: show the bootstrap page (download / import)
+		 * before the engine initializes when the game data is missing.
+		 * Mirrors the OpenHarmony shell page. */
+		if (!krkrsdl2_ios_run_bootstrap())
+		{
+			exit(0);
+		}
+#endif
+
 		if (krkrsdl2_init_platform())
 		{
 			TVPTerminateCode = 0;
@@ -33,8 +47,17 @@ extern "C" int main(int argc, char **argv)
 
 		krkrsdl2_run_main_loop();
 
+
+
 #ifndef __EMSCRIPTEN__
 		krkrsdl2_cleanup();
+#endif
+
+#if defined(__IPHONEOS__)
+		/* iOS has no programmatic way to close an app except exit(): the
+		 * in-game exit button ends the engine loop, and returning here would
+		 * just leave a frozen SDL frame on screen. Terminate the process. */
+		exit(TVPTerminateCode);
 #endif
 	}
 	catch (...)

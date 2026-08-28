@@ -1,10 +1,13 @@
 #import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <string>
 
 #include "MacVideoOverlay.h"
 
@@ -76,6 +79,120 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     });
 }
 
+/* ------------------------------------------------------------------ *
+ * Background keep-alive                                                *
+ * The plist declares UIBackgroundModes=audio, so as long as the audio  *
+ * session stays active and something is being rendered to it, iOS keeps*
+ * the app running in the background instead of suspending it.  We play *
+ * an inaudible looping buffer to hold the session open even when no    *
+ * BGM is currently sounding.                                           *
+ * ------------------------------------------------------------------ */
+static AudioQueueRef TVPIOSKeepAliveQueue = NULL;
+static AudioQueueBufferRef TVPIOSKeepAliveBuffers[2] = { NULL, NULL };
+
+static void TVPIOSKeepAliveCallback(void *userData, AudioQueueRef queue,
+                                    AudioQueueBufferRef buffer)
+{
+    (void)userData;
+    /* The buffer is already silence; simply re-enqueue it so the queue
+       keeps consuming/rendering and the audio session stays active. */
+    AudioQueueEnqueueBuffer(queue, buffer, 0, NULL);
+}
+
+static void TVPIOSStartKeepAliveAudio(void)
+{
+    if(TVPIOSKeepAliveQueue) return;
+
+    NSError *error = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayback withOptions:0 error:nil];
+    [session setActive:YES error:nil];
+
+    AudioStreamBasicDescription format = {0};
+    format.mSampleRate = 44100.0;
+    format.mFormatID = kAudioFormatLinearPCM;
+    format.mFormatFlags = kAudioFormatFlagIsSignedInteger |
+                          kAudioFormatFlagIsPacked;
+    format.mFramesPerPacket = 1;
+    format.mChannelsPerFrame = 1;
+    format.mBitsPerChannel = 16;
+    format.mBytesPerFrame = 2;
+    format.mBytesPerPacket = 2;
+
+    OSStatus status = AudioQueueNewOutput(&format, TVPIOSKeepAliveCallback,
+        NULL, NULL, NULL, 0, &TVPIOSKeepAliveQueue);
+    if(status != noErr || !TVPIOSKeepAliveQueue)
+    {
+        NSLog(@"krkrsdl2: background keep-alive queue failed: %d", (int)status);
+        TVPIOSKeepAliveQueue = NULL;
+        return;
+    }
+    for(int i = 0; i < 2; ++i)
+    {
+        status = AudioQueueAllocateBuffer(TVPIOSKeepAliveQueue, 44100 * 2,
+                                          &TVPIOSKeepAliveBuffers[i]);
+        if(status != noErr || !TVPIOSKeepAliveBuffers[i]) break;
+        memset(TVPIOSKeepAliveBuffers[i]->mAudioData, 0,
+               TVPIOSKeepAliveBuffers[i]->mAudioDataByteSize);
+    }
+    for(int i = 0; i < 2; ++i)
+    {
+        if(!TVPIOSKeepAliveBuffers[i]) break;
+        AudioQueueEnqueueBuffer(TVPIOSKeepAliveQueue,
+                                TVPIOSKeepAliveBuffers[i], 0, NULL);
+    }
+    status = AudioQueueStart(TVPIOSKeepAliveQueue, NULL);
+    if(status != noErr)
+        NSLog(@"krkrsdl2: background keep-alive start failed: %d", (int)status);
+}
+
+static void TVPIOSStopKeepAliveAudio(void)
+{
+    if(!TVPIOSKeepAliveQueue) return;
+    AudioQueueStop(TVPIOSKeepAliveQueue, true);
+    AudioQueueDispose(TVPIOSKeepAliveQueue, true);
+    TVPIOSKeepAliveQueue = NULL;
+    TVPIOSKeepAliveBuffers[0] = NULL;
+    TVPIOSKeepAliveBuffers[1] = NULL;
+    [[AVAudioSession sharedInstance] setActive:NO
+                    withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+                            error:nil];
+}
+
+/* Documents/<bundle>/savedata directory (UTF-8, no trailing slash).  Used
+ * by the engine to relocate saves to a user-reachable folder; see
+ * ApplicationSpecialPath.h.  Old saves are not auto-migrated here; a fresh
+ * install simply starts using the new location. */
+extern "C" const char *TVPIOSGetDocumentsDirectory(void)
+{
+    /* Place saves under a game-specific subfolder so they never collide
+       with the saves of a different krkrsdl2 application sharing the same
+       Documents/ directory.  The bundle identifier is unique per app;
+       fall back to a fixed product name when it is unavailable. */
+    static std::string cached;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(
+            NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documents = paths.firstObject;
+        if(documents && documents.length > 0)
+        {
+            NSString *folder = NSBundle.mainBundle.bundleIdentifier;
+            if(folder.length == 0)
+                folder = @"YosugaSoraHD";
+            NSString *saveDir = [documents stringByAppendingPathComponent:folder];
+            saveDir = [saveDir stringByAppendingPathComponent:@"savedata"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:saveDir
+                                      withIntermediateDirectories:YES
+                                                       attributes:nil
+                                                            error:nil];
+            const char *utf8 = saveDir.fileSystemRepresentation;
+            if(utf8) cached = utf8;
+        }
+    });
+    return cached.empty() ? NULL : cached.c_str();
+}
+
 @interface TVPIOSSceneDelegate : UIResponder <UIWindowSceneDelegate>
 @end
 
@@ -89,19 +206,61 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     if([scene isKindOfClass:UIWindowScene.class]) {
         TVPIOSApplicationWindowScene = (UIWindowScene *)scene;
         TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
+        [self installKeepAliveLifecycleObservers];
     }
+}
+
+- (void)sceneDidEnterBackground:(UIScene *)scene
+{
+    (void)scene;
+    /* UIBackgroundModes=audio lets a started audio session keep the app
+       alive in the background.  Play an inaudible loop so the session
+       stays active (and BGM/auto-advance keeps running). */
+    TVPIOSStartKeepAliveAudio();
 }
 
 - (void)sceneWillEnterForeground:(UIScene *)scene
 {
     if([scene isKindOfClass:UIWindowScene.class])
         TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
+    TVPIOSStopKeepAliveAudio();
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene
 {
     if([scene isKindOfClass:UIWindowScene.class])
         TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
+    TVPIOSStopKeepAliveAudio();
+}
+
+- (void)installKeepAliveLifecycleObservers
+{
+    /* Belt-and-braces for older iOS versions / non-scene entry paths:
+       listen to the application-level background/foreground notifications
+       as well, so the keep-alive loop is driven regardless of which
+       lifecycle path iOS uses. */
+    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [nc addObserverForName:UIApplicationDidEnterBackgroundNotification
+                        object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification *note) {
+                        (void)note;
+                        TVPIOSStartKeepAliveAudio();
+                    }];
+        [nc addObserverForName:UIApplicationWillEnterForegroundNotification
+                        object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification *note) {
+                        (void)note;
+                        TVPIOSStopKeepAliveAudio();
+                    }];
+        [nc addObserverForName:UIApplicationDidBecomeActiveNotification
+                        object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification *note) {
+                        (void)note;
+                        TVPIOSStopKeepAliveAudio();
+                    }];
+    });
 }
 
 - (void)windowScene:(UIWindowScene *)windowScene
@@ -165,6 +324,7 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
                      context:(void *)context
                     finished:(TVPMacVideoFinishedCallback)finished;
 - (void)shutdown;
+- (void)requestSkip;
 - (void)play;
 - (void)pause;
 - (void)stop;
@@ -224,6 +384,8 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     int _height;
     BOOL _hasBounds;
     BOOL _retriedOnce;
+    BOOL _skipRequested;
+    UILongPressGestureRecognizer *_skipGesture;
 }
 
 - (instancetype)initWithPath:(NSString *)path
@@ -257,6 +419,7 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     _height = 0;
     _hasBounds = NO;
     _retriedOnce = NO;
+    _skipRequested = NO;
     _item = [AVPlayerItem playerItemWithAsset:_asset];
     _player = [AVPlayer playerWithPlayerItem:_item];
     _player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
@@ -281,6 +444,18 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     _view.controller = self;
     [_view.layer addSublayer:_playerLayer];
     [_contentView addSubview:_view];
+
+    /* Long-press anywhere in the movie area skips the current animation
+       (opening/ending movies and gallery previews).  The engine treats it
+       as playback having finished; the overlay only observes the gesture
+       so it never consumes touches itself. */
+    _skipGesture = [[UILongPressGestureRecognizer alloc]
+        initWithTarget:self action:@selector(handleSkipLongPress:)];
+    _skipGesture.minimumPressDuration = 0.6;
+    _skipGesture.cancelsTouchesInView = NO;
+    _skipGesture.delaysTouchesBegan = NO;
+    _skipGesture.delaysTouchesEnded = NO;
+    [_contentView addGestureRecognizer:_skipGesture];
 
     NSNotificationCenter *notifications = NSNotificationCenter.defaultCenter;
     __weak TVPIOSMovieController *weakSelf = self;
@@ -355,6 +530,7 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
 {
     if(!_player || _playing) return;
     if(_ended) [self rewind];
+    _skipRequested = NO; // allow skipping again on replay/loop
     _playing = YES;
     [_player play];
     _player.rate = _rate;
@@ -369,6 +545,24 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
          toleranceAfter:kCMTimeZero];
     _playing = NO;
     _ended = NO;
+}
+
+- (void)handleSkipLongPress:(UILongPressGestureRecognizer *)gesture
+{
+    if(gesture.state != UIGestureRecognizerStateBegan) return;
+    [self requestSkip];
+}
+
+- (void)requestSkip
+{
+    if(!_player) return;
+    if(_skipRequested) return;
+    if(!_playing) return;
+    _skipRequested = YES;
+    _playing = NO;
+    [_player pause];
+    if(_finished)
+        _finished(_context);
 }
 
 - (void)rewind
@@ -509,6 +703,12 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
 {
     _playing = NO;
     [_player pause];
+    if(_skipGesture)
+    {
+        if(_contentView)
+            [_contentView removeGestureRecognizer:_skipGesture];
+        _skipGesture = nil;
+    }
     NSNotificationCenter *notifications = NSNotificationCenter.defaultCenter;
     if(_endObserver) [notifications removeObserver:_endObserver];
     if(_failureObserver) [notifications removeObserver:_failureObserver];

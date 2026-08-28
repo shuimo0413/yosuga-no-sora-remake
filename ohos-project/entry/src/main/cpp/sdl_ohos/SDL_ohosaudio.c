@@ -1,0 +1,383 @@
+/*
+  Simple DirectMedia Layer
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+*/
+
+/*
+ * OpenHarmony OHAudio audio driver for SDL2.
+ *
+ * OHAudio (OH_AudioRenderer) is callback-driven: the audio service thread
+ * asks for PCM through OH_AudioRenderer_OnWriteData. SDL2's mixer runs on
+ * its own thread and feeds the device through GetDeviceBuf/PlayDevice, so
+ * this driver bridges the two with a ring buffer:
+ *
+ *   SDL mixer thread: GetDeviceBuf -> SDL_AudioCallback -> PlayDevice
+ *                     (PlayDevice copies the mixed period into the ring and
+ *                      blocks when the ring is full, throttling the mixer
+ *                      to the hardware consumption rate)
+ *   OHAudio service : OnWriteData copies whatever is available from the
+ *                     ring into the requested buffer; missing data is
+ *                     filled with silence (underrun)
+ *
+ * The renderer is opened in S16LE, matching what FAudio's SDL2 backend
+ * requests (krkrz mixes 16-bit PCM); SDL converts other formats if needed.
+ */
+
+#include "../../SDL_internal.h"
+
+#ifdef SDL_AUDIO_DRIVER_OHOS
+
+#include "SDL_timer.h"
+#include "SDL_audio.h"
+#include "../SDL_audio_c.h"
+#include "SDL_ohosaudio.h"
+
+/* The API 12 OHAudio headers use 'bool' without including <stdbool.h>
+ * themselves; include it BEFORE them or the SDK 12 sysroot fails to compile. */
+#include <stdbool.h>
+#include <stdarg.h>
+#include <ohaudio/native_audiostreambuilder.h>
+#include <ohaudio/native_audiorenderer.h>
+#include <ohaudio/native_audiostream_base.h>
+#include <hilog/log.h>
+
+#include "sdl_ohos_bridge.h" /* SDL_OHOS_GetFilesDir for file logging */
+
+/* The ring holds this many SDL mixing periods. The service requests
+ * ~17.8KB per callback (93ms of 48kHz stereo S16), which exceeds 8 periods
+ * (16KB) - size it above one full callback request. */
+#define OHOSAUDIO_RING_PERIODS 16
+
+struct SDL_PrivateAudioData
+{
+    OH_AudioStreamBuilder *builder;
+    OH_AudioRenderer *renderer;
+    Uint8 *mixbuf;   /* one SDL mixing period (spec.size bytes) */
+    int mixlen;
+    Uint8 *ring;     /* ring buffer fed by PlayDevice, drained by OnWriteData */
+    int ring_size;
+    int ring_read;
+    int ring_write;
+    SDL_mutex *lock;
+    SDL_cond *cond;
+    int shutdown;
+};
+
+
+static int OHOSAUDIO_RingUsed(struct SDL_PrivateAudioData *hidden)
+{
+    return (hidden->ring_write - hidden->ring_read + hidden->ring_size) % hidden->ring_size;
+}
+
+static int OHOSAUDIO_RingSpace(struct SDL_PrivateAudioData *hidden)
+{
+    return hidden->ring_size - OHOSAUDIO_RingUsed(hidden);
+}
+
+/* --- OHAudio service callbacks (audio service thread) -------------------- */
+
+static int32_t OHOSAUDIO_WriteDataCallback(OH_AudioRenderer *renderer, void *userData,
+    void *buffer, int32_t length)
+{
+    struct SDL_PrivateAudioData *hidden = (struct SDL_PrivateAudioData *)userData;
+    (void)renderer;
+    if (hidden == NULL || buffer == NULL || length <= 0)
+    {
+        return AUDIOSTREAM_SUCCESS;
+    }
+
+    int copied = 0;
+    int used;
+    int chunk;
+
+    SDL_LockMutex(hidden->lock);
+    while (copied < length)
+    {
+        used = OHOSAUDIO_RingUsed(hidden);
+        if (used <= 0)
+        {
+            break; /* underrun: fill the rest with silence */
+        }
+        chunk = SDL_min(length - copied, SDL_min(used, hidden->ring_size - hidden->ring_read));
+        SDL_memcpy((Uint8 *)buffer + copied, hidden->ring + hidden->ring_read, chunk);
+        hidden->ring_read = (hidden->ring_read + chunk) % hidden->ring_size;
+        copied += chunk;
+    }
+    if (copied < length)
+    {
+        /* S16 silence is 0; fill the missing tail. */
+        SDL_memset((Uint8 *)buffer + copied, 0, length - copied);
+        {
+            static int under_count = 0;
+            if (++under_count <= 5 || under_count % 200 == 1)
+            {
+            }
+        }
+    }
+    SDL_CondSignal(hidden->cond); /* space was freed */
+    SDL_UnlockMutex(hidden->lock);
+    /* The callback return value is the number of bytes actually written
+     * (API 20+ semantics). Return the REAL amount consumed from the ring:
+     * returning the full length when we only had a partial period makes
+     * the service re-call immediately and drains the ring in bursts (the
+     * warbling), while returning 0 when the ring is empty lets the
+     * callback thread sleep until the mixer catches up. The missing tail
+     * is still zero-filled above for API 12 behaviour, where the service
+     * plays the whole buffer regardless of the return value. */
+    return copied;
+}
+
+static int32_t OHOSAUDIO_StreamEventCallback(OH_AudioRenderer *renderer, void *userData,
+    OH_AudioStream_Event event)
+{
+    (void)renderer;
+    (void)userData;
+    return AUDIOSTREAM_SUCCESS;
+}
+
+static int32_t OHOSAUDIO_InterruptCallback(OH_AudioRenderer *renderer, void *userData,
+    OH_AudioInterrupt_ForceType type, OH_AudioInterrupt_Hint hint)
+{
+    (void)renderer;
+    (void)userData;
+    return AUDIOSTREAM_SUCCESS;
+}
+
+static int32_t OHOSAUDIO_ErrorCallback(OH_AudioRenderer *renderer, void *userData,
+    OH_AudioStream_Result error)
+{
+    (void)renderer;
+    (void)userData;
+    return AUDIOSTREAM_SUCCESS;
+}
+
+/* --- SDL audio driver interface ------------------------------------------- */
+
+static int OHOSAUDIO_OpenDevice(_THIS, const char *devname)
+{
+    (void)devname;
+    struct SDL_PrivateAudioData *hidden = (struct SDL_PrivateAudioData *)SDL_calloc(1, sizeof(*hidden));
+    OH_AudioStream_Result res;
+
+    if (hidden == NULL)
+    {
+        return SDL_OutOfMemory();
+    }
+    _this->hidden = hidden;
+
+    OH_AudioStreamBuilder *builder = NULL;
+    res = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
+    if (res != AUDIOSTREAM_SUCCESS || builder == NULL)
+    {
+        SDL_free(hidden);
+        _this->hidden = NULL;
+        return SDL_SetError("OHOS: OH_AudioStreamBuilder_Create failed (%d)", (int)res);
+    }
+    hidden->builder = builder;
+
+    OH_AudioStreamBuilder_SetSamplingRate(builder, _this->spec.freq);
+    OH_AudioStreamBuilder_SetChannelCount(builder, _this->spec.channels);
+    OH_AudioStreamBuilder_SetSampleFormat(builder, AUDIOSTREAM_SAMPLE_S16LE);
+    OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
+    OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
+    OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_GAME);
+    /* Ask the service for a fixed, small callback quantum (1024 frames,
+     * 21.3ms at 48kHz). Without it the service requests ~17.8KB bursts and
+     * immediately re-calls while data is available, which makes the ring
+     * drain in bursts and the playback warbles. A fixed quantum matches the
+     * hardware consumption cadence and keeps the data flow smooth. */
+    {
+        OH_AudioStream_Result fr = OH_AudioStreamBuilder_SetFrameSizeInCallback(builder, 1024);
+        if (fr != AUDIOSTREAM_SUCCESS)
+        {
+        }
+    }
+
+    OH_AudioRenderer_Callbacks callbacks;
+    callbacks.OH_AudioRenderer_OnWriteData = OHOSAUDIO_WriteDataCallback;
+    callbacks.OH_AudioRenderer_OnStreamEvent = OHOSAUDIO_StreamEventCallback;
+    callbacks.OH_AudioRenderer_OnInterruptEvent = OHOSAUDIO_InterruptCallback;
+    callbacks.OH_AudioRenderer_OnError = OHOSAUDIO_ErrorCallback;
+    res = OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks, hidden);
+    if (res != AUDIOSTREAM_SUCCESS)
+    {
+    }
+
+    res = OH_AudioStreamBuilder_GenerateRenderer(builder, &hidden->renderer);
+    if (res != AUDIOSTREAM_SUCCESS || hidden->renderer == NULL)
+    {
+        OH_AudioStreamBuilder_Destroy(builder);
+        hidden->builder = NULL;
+        SDL_free(hidden);
+        _this->hidden = NULL;
+        return SDL_SetError("OHOS: OH_AudioStreamBuilder_GenerateRenderer failed (%d)", (int)res);
+    }
+
+    /* The device runs in S16LE. Tell SDL so its converter matches. */
+    _this->spec.format = AUDIO_S16SYS;
+    SDL_CalculateAudioSpec(&_this->spec);
+
+    hidden->mixlen = _this->spec.size;
+    hidden->mixbuf = (Uint8 *)SDL_malloc(hidden->mixlen);
+    hidden->ring_size = hidden->mixlen * OHOSAUDIO_RING_PERIODS;
+    hidden->ring = (Uint8 *)SDL_malloc(hidden->ring_size);
+    hidden->lock = SDL_CreateMutex();
+    hidden->cond = SDL_CreateCond();
+    if (!hidden->mixbuf || !hidden->ring || !hidden->lock || !hidden->cond)
+    {
+        return SDL_OutOfMemory();
+    }
+    SDL_memset(hidden->mixbuf, 0, hidden->mixlen);
+    SDL_memset(hidden->ring, 0, hidden->ring_size);
+    /* Pre-fill 3/4 of the ring with silence: the OHAudio service starts
+     * requesting PCM the moment Start() runs, before the SDL mixer thread
+     * has produced its first period. Without prefill the ring starts empty
+     * and every early callback underruns (silence), which can make the
+     * service's first request patterns stall playback. */
+    hidden->ring_read = 0;
+    hidden->ring_write = (hidden->ring_size * 3) / 4;
+    hidden->shutdown = 0;
+
+
+    res = OH_AudioRenderer_Start(hidden->renderer);
+    if (res != AUDIOSTREAM_SUCCESS)
+    {
+        return SDL_SetError("OHOS: OH_AudioRenderer_Start failed (%d)", (int)res);
+    }
+    return 0;
+}
+
+static Uint8 *OHOSAUDIO_GetDeviceBuf(_THIS)
+{
+    struct SDL_PrivateAudioData *hidden = _this->hidden;
+    return hidden->mixbuf;
+}
+
+static void OHOSAUDIO_PlayDevice(_THIS)
+{
+    struct SDL_PrivateAudioData *hidden = _this->hidden;
+    int size = hidden->mixlen;
+    if (size <= 0)
+    {
+        return;
+    }
+
+    SDL_LockMutex(hidden->lock);
+    /* Block while the ring cannot take a whole period: the audio service
+     * consumes data in its own callback and signals us, which paces the
+     * SDL mixer thread to the hardware. */
+    while (OHOSAUDIO_RingSpace(hidden) < size && !hidden->shutdown)
+    {
+        SDL_CondWaitTimeout(hidden->cond, hidden->lock, 200);
+    }
+    if (!hidden->shutdown)
+    {
+        int first = SDL_min(size, hidden->ring_size - hidden->ring_write);
+        SDL_memcpy(hidden->ring + hidden->ring_write, hidden->mixbuf, first);
+        if (size > first)
+        {
+            SDL_memcpy(hidden->ring, hidden->mixbuf + first, size - first);
+        }
+        hidden->ring_write = (hidden->ring_write + size) % hidden->ring_size;
+    }
+    SDL_UnlockMutex(hidden->lock);
+}
+
+/* Pace the SDL mixer thread against the hardware consumption clock.
+ * When the ring is above half full, wait until the audio service has
+ * consumed it back below the watermark; when it is below (e.g. right after
+ * an underrun burst) return immediately so the mixer refills the ring much
+ * faster than real time. This keeps the ring hovering around the watermark
+ * and absorbs clock drift between the SDL timer and the OHAudio hardware
+ * clock - without it the ring slowly drains until every callback underruns
+ * and the game falls silent after a while. */
+static void OHOSAUDIO_WaitDevice(_THIS)
+{
+    struct SDL_PrivateAudioData *hidden = _this->hidden;
+    if (hidden == NULL)
+    {
+        return;
+    }
+    SDL_LockMutex(hidden->lock);
+    while (OHOSAUDIO_RingUsed(hidden) >= hidden->ring_size / 2 && !hidden->shutdown)
+    {
+        SDL_CondWaitTimeout(hidden->cond, hidden->lock, 100);
+    }
+    SDL_UnlockMutex(hidden->lock);
+}
+
+static void OHOSAUDIO_CloseDevice(_THIS)
+{
+    struct SDL_PrivateAudioData *hidden = _this->hidden;
+    if (hidden == NULL)
+    {
+        return;
+    }
+    hidden->shutdown = 1;
+    if (hidden->cond)
+    {
+        SDL_CondSignal(hidden->cond);
+    }
+    if (hidden->renderer)
+    {
+        OH_AudioRenderer_Stop(hidden->renderer);
+        OH_AudioRenderer_Release(hidden->renderer);
+        hidden->renderer = NULL;
+    }
+    if (hidden->builder)
+    {
+        OH_AudioStreamBuilder_Destroy(hidden->builder);
+        hidden->builder = NULL;
+    }
+    SDL_free(hidden->mixbuf);
+    SDL_free(hidden->ring);
+    if (hidden->lock)
+    {
+        SDL_DestroyMutex(hidden->lock);
+    }
+    if (hidden->cond)
+    {
+        SDL_DestroyCond(hidden->cond);
+    }
+    SDL_free(hidden);
+    _this->hidden = NULL;
+}
+
+static SDL_bool OHOSAUDIO_Init(SDL_AudioDriverImpl *impl)
+{
+    /* Set the function pointers */
+    impl->OpenDevice = OHOSAUDIO_OpenDevice;
+    impl->CloseDevice = OHOSAUDIO_CloseDevice;
+    impl->GetDeviceBuf = OHOSAUDIO_GetDeviceBuf;
+    impl->PlayDevice = OHOSAUDIO_PlayDevice;
+    impl->WaitDevice = OHOSAUDIO_WaitDevice;
+
+    impl->OnlyHasDefaultOutputDevice = SDL_TRUE;
+    impl->HasCaptureSupport = SDL_FALSE;
+
+    return SDL_TRUE; /* this audio target is available. */
+}
+
+AudioBootStrap OHOSAUDIO_bootstrap = {
+    "ohaudio", "OpenHarmony OHAudio driver", OHOSAUDIO_Init, SDL_FALSE
+};
+
+#endif /* SDL_AUDIO_DRIVER_OHOS */
+
+/* vi: set ts=4 sw=4 expandtab: */

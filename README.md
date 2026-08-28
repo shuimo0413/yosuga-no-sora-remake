@@ -3,10 +3,13 @@
 English | [简体中文](README.zh-CN.md)
 
 This repository contains the complete game project for the Yosuga no Sora HD
-remake. It uses a modified version of
-[Kirikiri SDL2](https://github.com/LightWinder/krkrsdl2) as its cross-platform
-runtime while retaining the native Kirikiri Z runtime as a Windows-compatible
-alternative.
+remake. The main repository lives at
+[shuimo0413/yosuga-no-sora-remake](https://github.com/shuimo0413/yosuga-no-sora-remake).
+The cross-platform runtime is the Kirikiri SDL2 engine in `src/`; the Windows
+KRKRZ runtime under `platform/` is built from the vendored Kirikiri Z fork in
+`external/krkrz` ([LightWinder/krkrz](https://github.com/LightWinder/krkrz), a
+fork of [krkrz/krkrz](https://github.com/krkrz/krkrz) carrying the Android
+port that produced the first Android release).
 
 ## Project Structure
 
@@ -30,7 +33,7 @@ alternative.
 Clone the repository with its submodules, then download the Git LFS content:
 
 ```sh
-git clone --recurse-submodules https://github.com/LightWinder/yosuga-no-sora-remake.git
+git clone --recurse-submodules https://github.com/shuimo0413/yosuga-no-sora-remake.git
 cd yosuga-no-sora-remake
 git lfs pull
 ```
@@ -101,17 +104,18 @@ option.
 
 GitHub limits each release asset to 2 GiB, so the package is published as a
 multipart 7-Zip archive. Download every `.7z.NNN` file into the same directory
-and open `.7z.001` with 7-Zip. A SHA-256 checksum file is included with the
-release assets.
+and open `.7z.001` with 7-Zip. Every release also publishes a
+`BUILD-INFO.txt` whose SHA-256 section lists the digest of each archive
+volume; there is no separate checksum file.
 
 ## Android Releases
 
 The Android release workflow runs for the same `v*` tags and can also be
 started manually. It builds only the production ARM64 target with native
-`-O3 -DNDEBUG` optimizations, packages the APK as multipart 7-Zip volumes below
-GitHub's 2 GiB asset limit, and adds them to the same GitHub Release as the
-Windows package. Download every `.apk.7z.NNN` file, then open `.7z.001` to
-extract the APK.
+`-O3 -DNDEBUG` optimizations and publishes a single data-external APK: the
+game data is not embedded, and the in-app bootstrap downloads and imports it
+from the GitHub Release (a proxy prefix and a custom download address can be
+entered in the bootstrap UI).
 
 For a stable release signature, configure all four repository secrets:
 `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
@@ -121,10 +125,12 @@ standard Android development key and records that fact in `BUILD-INFO.txt`.
 ## Apple Releases
 
 The macOS and iOS workflows respond to the same `v*` tags and can also be run
-manually. macOS produces an Apple Silicon `.dmg`; iOS builds an arm64 `.ipa`.
-Both packages include the complete `data/` directory and are published as
-multipart 7-Zip volumes below GitHub's 2 GiB per-asset limit. Open the first
-`.7z.001` volume to reconstruct the DMG or IPA.
+manually. macOS produces an Apple Silicon `.dmg` published as multipart
+7-Zip volumes below GitHub's 2 GiB per-asset limit (open the first
+`.7z.001` volume to reconstruct it); it embeds the complete `data/`
+directory. iOS builds a data-external arm64 `.ipa` published as a single
+file: like the Android build, the bootstrap downloads and imports the game
+data at first launch.
 
 The macOS app uses ad-hoc signing and is not notarized. The iOS workflow builds
 an unsigned IPA by default, suitable for later re-signing. To produce an IPA
@@ -136,9 +142,10 @@ four repository secrets:
 - `IOS_PROVISIONING_PROFILE_BASE64`
 - `IOS_DEVELOPMENT_TEAM`
 
-The default iOS bundle identifier is
-`com.lightwinder.yosuganosora.hdremake`. Set the repository variable
-`IOS_BUNDLE_IDENTIFIER` before building if the provisioning profile uses a
+The default bundle identifier on both platforms is
+`com.shuimo0413.yosuganosora.hdremake`. Set the repository variable
+`APP_BUNDLE_IDENTIFIER` (the legacy `IOS_BUNDLE_IDENTIFIER` name is still
+honoured for iOS) before building if the provisioning profile uses a
 different identifier. See `ios-project/README.md` for local Xcode generation.
 
 ## OpenHarmony Releases
@@ -150,8 +157,10 @@ line tools, patches and builds the vendored SDL2 with the OpenHarmony video
 backend (XComponent + EGL), assembles the HAP with Hvigor, and publishes it
 as multipart 7-Zip volumes below GitHub's 2 GiB per-asset limit.
 
-The game content is packaged as rawfile and extracted into the application
-sandbox on first launch. The workflow publishes an *unsigned* HAP by
+The game data ships separately: the HAP is data-external and its bootstrap
+downloads the content archives from the GitHub Release at first launch (the
+workflow can also build diagnostic bundled/mini variants on manual
+dispatch). The workflow publishes an *unsigned* HAP by
 default (sign_mode `none`); you must sign it before installing:
 
 - **OpenHarmony devices** - re-run the workflow with sign_mode `community`
@@ -165,5 +174,7 @@ default (sign_mode `none`); you must sign it before installing:
   so the game runs without sound) are listed there as well.
 
 The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
-Third-party components remain subject to the licenses in their respective
-directories.
+Every binary release ships a `THIRD-PARTY-NOTICES.txt` (generated by
+`tools/generate_notices.py`) that bundles the license texts of all
+redistributed components; third-party sources remain subject to the licenses
+in their respective directories.

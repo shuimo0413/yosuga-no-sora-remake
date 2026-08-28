@@ -35,6 +35,9 @@
 #include <sys/stat.h>
 #include <SDL_system.h>
 #endif
+#ifdef __OHOS__
+#include <sys/stat.h>
+#endif
 #ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
 #include "MacVideoOverlay.h"
 #endif
@@ -47,6 +50,47 @@
 
 //---------------------------------------------------------------------------
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
+#if defined(__OHOS__)
+#include <dlfcn.h>
+/* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
+ * engine .so does not need a link-time dependency on the entry module. */
+#include <thread>
+#include <chrono>
+typedef void (*OHOSVideoEndFn)(void);
+typedef void (*OHOSVideoSetEndFnPtr)(OHOSVideoEndFn);
+static OHOSVideoSetEndFnPtr OHOSVideoSetEndFn = nullptr;
+static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
+static void (*OHOSVideoStopFn)(void) = nullptr;
+static void (*OHOSVideoPauseFn)(void) = nullptr;
+static void (*OHOSVideoCloseFn)(void) = nullptr;
+static void (*OHOSVideoResumeFn)(void) = nullptr;
+typedef void (*OHOSVideoCloseFnPtr)(void);
+static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
+
+/* Called by libentry when playback reaches the end. */
+static void OHOSOnVideoEnded()
+{
+	if (OHOSVideoActiveOverlay)
+		OHOSVideoActiveOverlay->OHOSPlaybackFinished();
+}
+
+static void OHOSVideoResolveBridge()
+{
+	if (OHOSVideoOpenFn) return;
+	void *handle = dlopen("libentry.so", RTLD_NOW);
+	if (!handle) handle = RTLD_DEFAULT;
+	OHOSVideoOpenFn = (int (*)(const char *, int))dlsym(handle, "OHOS_VideoOpen");
+	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
+	OHOSVideoPauseFn = (void (*)(void))dlsym(handle, "OHOS_VideoPause");
+	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
+	OHOSVideoResumeFn = (void (*)(void))dlsym(handle, "OHOS_VideoResume");
+	OHOSVideoSetEndFn = (OHOSVideoSetEndFnPtr)dlsym(handle, "OHOS_VideoSetEndCallback");
+	if (OHOSVideoSetEndFn)
+	{
+		OHOSVideoSetEndFn(&OHOSOnVideoEnded);
+	}
+}
+#endif
 #ifdef __ANDROID__
 static tTJSNI_VideoOverlay *TVPAndroidActiveVideoOverlay = nullptr;
 
@@ -104,6 +148,29 @@ static bool TVPAndroidCallMovieVolume(float volume)
 	if(method) env->CallVoidMethod(activity, method, static_cast<jfloat>(volume));
 	bool failed = !method ||
 		TVPAndroidCheckAndClearJNIException(env, "setMovieVolume");
+	if(activityClass) env->DeleteLocalRef(activityClass);
+	env->DeleteLocalRef(activity);
+	return !failed;
+}
+
+/* Push the movie display rectangle (already zoomed to window pixels) to the
+ * Java movie TextureView so the video is drawn inside the engine's overlay
+ * rect instead of stretched across the whole screen. */
+static bool TVPAndroidCallMovieSetBounds(int left, int top, int width, int height,
+		int logicalWidth, int logicalHeight)
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity) return false;
+	jclass activityClass = env->GetObjectClass(activity);
+	jmethodID method = activityClass ? env->GetMethodID(activityClass,
+		"setMovieBounds", "(IIIIII)V") : nullptr;
+	if(method) env->CallVoidMethod(activity, method,
+		static_cast<jint>(left), static_cast<jint>(top),
+		static_cast<jint>(width), static_cast<jint>(height),
+		static_cast<jint>(logicalWidth), static_cast<jint>(logicalHeight));
+	bool failed = !method ||
+		TVPAndroidCheckAndClearJNIException(env, "setMovieBounds");
 	if(activityClass) env->DeleteLocalRef(activityClass);
 	env->DeleteLocalRef(activity);
 	return !failed;
@@ -369,6 +436,102 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	}
 	SDL_Log("Android MediaPlayer opening: %s", filename.c_str());
 	SetStatus(tTVPVideoOverlayStatus::Stop);
+#elif defined(__OHOS__)
+	Close();
+	if(!Window) TVPThrowExceptionMessage(TVPWindowAlreadyMissing);
+
+	ttstr placedName = TVPGetPlacedPath(_name);
+	/* NOTE: for a movie inside data.xp3, TVPGetPlacedPath can come back
+	 * EMPTY even though the storage exists: the auto-path table only
+	 * activates a fixed extension list (tjs/ks/png/ogg/...) and mp4 is not
+	 * in it. Fall back to opening the member directly through the krkrz
+	 * stream search, which does search the archives. */
+	ttstr streamName = placedName;
+	if (streamName.IsEmpty())
+		streamName = _name;
+	ttstr localName = TVPGetLocallyAccessibleName(streamName);
+	/* The AVPlayer needs a real file descriptor. Files that exist on the
+	 * filesystem are used directly; a member INSIDE data.xp3 resolves to a
+	 * virtual path that stat() cannot see, so copy it into a temporary
+	 * folder first (tTVPLocalTempStorageHolder cannot be used here because
+	 * the OHOS GetLocallyAccessibleName passes virtual paths through, which
+	 * would make the holder skip the copy). */
+	{
+		std::string checkPath;
+		bool isRealFile = false;
+		if (TVPUtf16ToUtf8(checkPath, localName.AsStdString()) && !checkPath.empty())
+		{
+			struct stat st;
+			isRealFile = (stat(checkPath.c_str(), &st) == 0);
+		}
+		if (!isRealFile)
+		{
+			/* Fixed per-movie cache directory. The member name inside
+			 * data.xp3 is stable, so extract each mp4 exactly once and
+			 * reuse the cached copy on every later playback (and across
+			 * launches) instead of re-copying it into a fresh random
+			 * krkr_* folder every time. Re-extract only when the cached
+			 * copy's size does not match the stream size (interrupted
+			 * copy or a re-packed archive with different content). */
+			tjs_string tmp_utf16;
+			ttstr cacheFolder;
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0] && TVPUtf8ToUtf16(tmp_utf16, dd))
+				cacheFolder = ttstr(tmp_utf16) + TJS_W("/tmp/krkr_movie_cache");
+			else
+				cacheFolder = ttstr(TJS_W("/tmp/krkr_movie_cache"));
+
+			OHOSTempFolder = cacheFolder;
+			OHOSTempFile = cacheFolder + TJS_W("/") + TVPExtractStorageName(streamName);
+
+			{
+				static tTJSCriticalSection movieCacheCS;
+				tTJSCriticalSectionHolder holder(movieCacheCS);
+
+				tTVPStreamHolder src(streamName);
+				tjs_uint64 srcSize = src->GetSize();
+				bool needCopy = true;
+				std::string cachePath;
+				if (TVPUtf16ToUtf8(cachePath, OHOSTempFile.AsStdString()) && !cachePath.empty())
+				{
+					struct stat st;
+					if (stat(cachePath.c_str(), &st) == 0 && (tjs_uint64)st.st_size == srcSize)
+						needCopy = false;
+				}
+				if (needCopy)
+				{
+					TVPCreateFolders(cacheFolder);
+					tTVPStreamHolder dest(OHOSTempFile, TJS_BS_WRITE);
+					tjs_uint8 buffer[65536 * 2];
+					tjs_uint read;
+					while ((read = src->Read(buffer, sizeof(buffer))) != 0)
+						dest->WriteBuffer(buffer, read);
+				}
+			}
+			localName = OHOSTempFile;
+		}
+	}
+	std::string filename;
+	if(!TVPUtf16ToUtf8(filename, localName.AsStdString()))
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+
+	OHOSVideoResolveBridge();
+	OHOSVideoActiveOverlay = this;
+	if(!OHOSVideoOpenFn || OHOSVideoOpenFn(filename.c_str(), 0) != 0)
+	{
+		OHOSVideoActiveOverlay = nullptr;
+		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+			"OHOS AVPlayer open failed: %s", filename.c_str());
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	}
+	/* NOTE: do NOT SetStatus(Stop) here. The AVPlayer already starts in
+	 * Open(), and the queued async stop event can reach the TJS layer AFTER
+	 * play() has advanced the phase machine - it then escapes Movie.tjs's
+	 * open-init-stop filter (which only ignores phase==1) and is treated as
+	 * the real end of playback. The MovieLayer is disposed, VideoOverlay::
+	 * Shutdown() releases the AVPlayer (state 7/AV_RELEASED in the log),
+	 * m_playing drops so the engine resumes presenting over the video and
+	 * the movie freezes on its first frame. play() sets the Play status. */
 #endif
 }
 //---------------------------------------------------------------------------
@@ -408,8 +571,32 @@ void tTJSNI_VideoOverlay::Close()
 	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
 	AndroidVideoOpen = false;
 	SetStatus(tTVPVideoOverlayStatus::Unload);
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
+	if(OHOSVideoActiveOverlay == this) OHOSVideoActiveOverlay = nullptr;
+	if(LocalTempStorageHolder)
+		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
+	/* keep the extracted movie in the fixed krkr_movie_cache folder so
+	 * the next playback (and next launch) reuses it without re-copying */
+	if(!OHOSTempFile.IsEmpty()) OHOSTempFile.Clear();
+	if(!OHOSTempFolder.IsEmpty()) OHOSTempFolder.Clear();
+	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
+//---------------------------------------------------------------------------
+#if defined(__OHOS__)
+void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
+{
+	/* NOTE: do NOT release the AVPlayer here. An async Close on a detached
+	 * thread raced with the game script reading video frames right after
+	 * Stop ("Scan line 0 is range over" crash). test.122 without any Close
+	 * here loaded the main menu cleanly. The AVPlayer is released later
+	 * through VideoOverlay::Close()/Shutdown(), and the SDL renderer
+	 * pauses while video is playing anyway. */
+	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+}
+#endif
 //---------------------------------------------------------------------------
 void tTJSNI_VideoOverlay::Shutdown()
 {
@@ -441,6 +628,16 @@ void tTJSNI_VideoOverlay::Shutdown()
 	if(AndroidVideoOpen) TVPAndroidCallMovieVoid("stopMovie");
 	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
 	AndroidVideoOpen = false;
+	SetStatus(tTVPVideoOverlayStatus::Unload);
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
+	if(LocalTempStorageHolder)
+		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
+	/* keep the extracted movie in the fixed krkr_movie_cache folder so
+	 * the next playback (and next launch) reuses it without re-copying */
+	if(!OHOSTempFile.IsEmpty()) OHOSTempFile.Clear();
+	if(!OHOSTempFolder.IsEmpty()) OHOSTempFolder.Clear();
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
@@ -477,7 +674,7 @@ void tTJSNI_VideoOverlay::AndroidPlaybackFinished()
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieFinished(
+Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnMovieFinished(
 	JNIEnv *, jclass)
 {
 	if(TVPAndroidActiveVideoOverlay)
@@ -485,7 +682,7 @@ Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieFinished(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieError(
+Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnMovieError(
 	JNIEnv *env, jclass, jstring message)
 {
 	const char *utf8Message = message ? env->GetStringUTFChars(message, nullptr) : nullptr;
@@ -516,6 +713,14 @@ void tTJSNI_VideoOverlay::Play()
 #elif defined(__ANDROID__)
 	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("playMovie"))
 		SetStatus(tTVPVideoOverlayStatus::Play);
+#elif defined(__OHOS__)
+	/* The TJS layer does pause=true -> play() -> pause=false around start().
+	 * Pause() suspends the AVPlayer, so play() must RESUME it (and re-raise
+	 * m_playing so the engine TickBeat keeps skipping the framebuffer) -
+	 * otherwise the video stays frozen on its first frame. */
+	OHOSVideoResolveBridge();
+	if (OHOSVideoResumeFn) OHOSVideoResumeFn();
+	SetStatus(tTVPVideoOverlayStatus::Play);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -542,6 +747,10 @@ void tTJSNI_VideoOverlay::Stop()
 		AndroidVideoOpen = false;
 		SetStatus(tTVPVideoOverlayStatus::Stop);
 	}
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if(OHOSVideoStopFn) OHOSVideoStopFn();
+	SetStatus(tTVPVideoOverlayStatus::Stop);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -564,6 +773,18 @@ void tTJSNI_VideoOverlay::Pause()
 #elif defined(__ANDROID__)
 	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("pauseMovie"))
 		SetStatus(tTVPVideoOverlayStatus::Pause);
+#elif defined(__OHOS__)
+	/* The TJS layer pauses the movie right after open() to grab the
+	 * first frame (Movie.tjs: pause=true around start()). Pause must NOT
+	 * go through Stop(): OHOS_VideoStop drops m_playing, the engine
+	 * TickBeat resumes presenting its framebuffer IMMEDIATELY and the
+	 * engine and the AVPlayer start fighting over the shared XComponent
+	 * surface again - the video freezes on its first frame. Use the
+	 * real pause path, which suspends the AVPlayer but keeps the surface
+	 * owned by the video (m_playing stays 1, the engine keeps skipping). */
+	OHOSVideoResolveBridge();
+	if (OHOSVideoPauseFn) OHOSVideoPauseFn();
+	SetStatus(tTVPVideoOverlayStatus::Pause);
 #endif
 }
 void tTJSNI_VideoOverlay::Rewind()
@@ -642,6 +863,19 @@ void tTJSNI_VideoOverlay::SetRectangleToVideoOverlay()
 		TVPMacVideoSetScreenGeometry(MacVideoOverlay,
 			Window->GetWidth(), Window->GetHeight());
 		TVPMacVideoSetBounds(MacVideoOverlay, l, t, r - l, b - t);
+	}
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen && Window)
+	{
+		/* Send game-space (logical) coordinates plus the logical window
+		   size; the Java side scales them onto the actual view pixels so
+		   the video lands exactly on the engine's overlay rectangle. */
+		tjs_int l = Rect.left;
+		tjs_int t = Rect.top;
+		tjs_int w = Rect.get_width();
+		tjs_int h = Rect.get_height();
+		TVPAndroidCallMovieSetBounds(l, t, w, h,
+			Window->GetWidth(), Window->GetHeight());
 	}
 #endif
 }

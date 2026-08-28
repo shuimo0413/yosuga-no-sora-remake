@@ -38,6 +38,7 @@
 #if 0
 #include "VSyncTimingThread.h"
 #include "MouseCursor.h"
+#include <SDL.h>
 #include "CanvasIntf.h"
 #endif
 
@@ -2067,6 +2068,7 @@ void TJS_INTF_METHOD tTJSNI_Window::NotifyLayerResize(class iTVPLayerManager* ma
 //---------------------------------------------------------------------------
 void TJS_INTF_METHOD tTJSNI_Window::NotifyLayerImageChange(class iTVPLayerManager* manager)
 {
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "LYRIMGCHG manager=%p", (void*)manager);
 	if( DrawDevice ) DrawDevice->NotifyLayerImageChange(manager);
 }
 //---------------------------------------------------------------------------

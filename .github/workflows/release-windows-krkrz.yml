@@ -3,7 +3,7 @@ name: Release Windows KRKRZ
 'on':
   push:
     tags:
-      - 'v*'
+      - 'v*-windows-*'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -31,12 +31,12 @@ jobs:
 
     steps:
       - name: Check out repository and LFS content
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           lfs: true
 
       - name: Set up Python for the release manifest
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
 
@@ -72,6 +72,18 @@ jobs:
           git lfs fsck
           if ($LASTEXITCODE -ne 0) { throw 'git lfs fsck failed' }
 
+      # Version follows the release tag (shared with every platform):
+      # stamped into status.tjs before the manifest and the data.xp3 pack.
+      - name: Inject the game version into status.tjs
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          python tools/inject_game_version.py `
+            --tag $env:RELEASE_TAG `
+            --status data/system/status.tjs
+          if ($LASTEXITCODE -ne 0) { throw 'Game version injection failed' }
+
       - name: Generate and validate the content manifest
         shell: pwsh
         run: |
@@ -106,8 +118,8 @@ jobs:
           $assetDirectory = Join-Path $env:RUNNER_TEMP 'release-assets'
 
           $requiredFiles = @(
-            (Join-Path $runtimeDirectory 'tvpwin32.exe'),
-            (Join-Path $runtimeDirectory 'tvpwin32.cf'),
+            (Join-Path $runtimeDirectory 'Yosuga no Sora-HD Remake.exe'),
+            (Join-Path $runtimeDirectory 'Yosuga no Sora-HD Remake.cf'),
             (Join-Path $dataDirectory 'startup.tjs'),
             (Join-Path $dataDirectory 'content-manifest.json')
           )
@@ -123,11 +135,30 @@ jobs:
           Copy-Item -Path (Join-Path $runtimeDirectory '*') `
             -Destination $packageDirectory -Recurse -Force
 
+          # The prebuilt executable already carries the multi-size icon
+          # (16..256) embedded in its PE resources, so no rcedit injection is needed.
+
           # Ship only the prebuilt data.xp3 next to the executable so
           # Kirikiroid2 and other archive-first runtimes can load the game
           # directly; the raw data directory stays out of the package.
           Move-Item -LiteralPath (Join-Path $projectRoot 'data.xp3') `
             -Destination (Join-Path $packageDirectory 'data.xp3')
+
+          # Pre-create the game's save directory inside the archive so users
+          # find it immediately, and drop a .nomedia marker so media scanners
+          # (and photo galleries on other systems) ignore the save thumbnails.
+          $saveDir = Join-Path $packageDirectory 'savedata'
+          New-Item -ItemType Directory -Path $saveDir -Force | Out-Null
+          New-Item -ItemType File -Path (Join-Path $saveDir '.nomedia') `
+            -Force | Out-Null
+          New-Item -ItemType File -Path (Join-Path $saveDir 'README-savedir.txt') `
+            -Force | Out-Null
+          @"
+          Save files and save thumbnails live in this folder.
+          The .nomedia file keeps Android/iOS media scanners from publishing
+          the thumbnail images into a system photo gallery; keep it here.
+          "@ | Set-Content -LiteralPath (Join-Path $saveDir 'README-savedir.txt') `
+            -Encoding utf8NoBOM
 
           @"
           Yosuga no Sora: HD Remake
@@ -135,7 +166,7 @@ jobs:
           Release: $env:RELEASE_TAG
           Commit: $env:COMMIT_SHA
 
-          Run tvpwin32.exe to start the game.
+          Run "Yosuga no Sora-HD Remake.exe" to start the game.
           "@ | Set-Content -LiteralPath (Join-Path $packageDirectory 'BUILD-INFO.txt') `
             -Encoding utf8NoBOM
 
@@ -164,17 +195,27 @@ jobs:
             }
           }
 
-          $checksumLines = foreach ($volume in $volumes) {
+          # Record the SHA-256 of every published volume in BUILD-INFO.txt so
+          # downloads can be verified as promised in the release notes.
+          $digests = foreach ($volume in $volumes) {
             $hash = (Get-FileHash -LiteralPath $volume.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($volume.Name)"
           }
-          $checksumFile = Join-Path $assetDirectory `
-            "$packageName-$env:RELEASE_TAG-SHA256SUMS.txt"
-          [System.IO.File]::WriteAllLines(
-            $checksumFile,
-            $checksumLines,
-            [System.Text.UTF8Encoding]::new($false)
-          )
+          @"
+          Yosuga no Sora: HD Remake
+          Runtime: Windows KRKRZ
+          Release: $env:RELEASE_TAG
+          Commit: $env:COMMIT_SHA
+
+          SHA-256 checksums of the release assets:
+          $($digests -join [Environment]::NewLine)
+          "@ | Set-Content -LiteralPath (Join-Path $assetDirectory 'BUILD-INFO.txt') `
+            -Encoding utf8NoBOM
+
+          # Third-party license texts travel with the binary package.
+          python tools/generate_notices.py `
+            --output (Join-Path $assetDirectory 'THIRD-PARTY-NOTICES.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'THIRD-PARTY-NOTICES generation failed' }
 
           "asset-directory=$assetDirectory" >> $env:GITHUB_OUTPUT
           Get-ChildItem -LiteralPath $assetDirectory -File |

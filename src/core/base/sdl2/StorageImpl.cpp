@@ -27,9 +27,14 @@
 #include "StringUtil.h"
 #include "FilePathUtil.h"
 #include "TickCount.h"
+#include "../../sdl2/AndroidDataBridge.h"
+#if defined(__IPHONEOS__)
+#include "../../sdl2/ios/IOSBootstrap.h"
+#endif
 
 #include <algorithm>
 #include <vector>
+#include <cstdlib>
 
 #ifndef _WIN32
 #include <sys/types.h>
@@ -49,6 +54,8 @@
 #include <android/log.h>
 #include <android/configuration.h>
 #include <android/asset_manager_jni.h>
+#include <jni.h>
+#include <SDL_system.h>
 #include "AndroidAssetManager.h"
 #endif
 
@@ -166,6 +173,54 @@ bool AndroidListAssetsFromContentManifest(
 	}
 	return matched;
 }
+} // namespace (anonymous)
+
+//---------------------------------------------------------------------------
+// TVPAndroidGetPublicSaveDirectory
+//---------------------------------------------------------------------------
+// Returns the public Downloads save folder exposed by the Java activity
+// (which migrates old private saves there and writes a .nomedia marker), or
+// an empty string when public storage is not available.  Used by
+// ApplicationSpecialPath::GetDataPathDirectory on Android.
+//
+// Only a non-empty result is cached.  If the very first query happens before
+// the user granted storage permission (returns empty), later calls re-query
+// the Java activity so an in-session grant can be picked up instead of being
+// stuck with a cached empty path.
+extern "C" const char *TVPAndroidGetPublicSaveDirectory(void)
+{
+	static std::string cached;
+	static bool cached_valid = false;
+	if(cached_valid) return cached.c_str();
+
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+			"Android: no JNI env/activity for public save dir");
+		return cached.c_str();
+	}
+	jclass clazz = env->GetObjectClass(activity);
+	jmethodID mid = clazz ? env->GetMethodID(clazz,
+		"getPublicSaveDataPath", "()Ljava/lang/String;") : nullptr;
+	jstring javaPath = mid
+		? static_cast<jstring>(env->CallObjectMethod(activity, mid))
+		: nullptr;
+	if(javaPath)
+	{
+		const char *utf8 = env->GetStringUTFChars(javaPath, nullptr);
+		if(utf8 && *utf8)
+		{
+			cached = utf8;
+			cached_valid = true;
+		}
+		env->ReleaseStringUTFChars(javaPath, utf8 ? utf8 : "");
+		env->DeleteLocalRef(javaPath);
+	}
+	if(clazz) env->DeleteLocalRef(clazz);
+	env->DeleteLocalRef(activity);
+	return cached.c_str();
 }
 #endif
 
@@ -320,13 +375,20 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 			while( sceIoDread( dr, &entry ) > 0 )
 #else
 			struct dirent* entry;
+			int ohos_enum_limit = 0;
 			while( ( entry = readdir( dr ) ) != nullptr )
 #endif
 			{
+				// OHOS: limit enumeration to avoid crashing/hanging on huge dirs.
+				if (++ohos_enum_limit > 5000) { break; }
 #if defined(__vita__)
 				if (SCE_S_ISREG(entry.d_stat.st_mode))
 #else
+#if defined(__OHOS__)
+				if( entry->d_type == DT_REG || entry->d_type == DT_UNKNOWN )
+#else
 				if( entry->d_type == DT_REG )
+#endif
 #endif
 				{
 					tjs_char fname[256];
@@ -335,6 +397,7 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 #else
 					tjs_int count = TVPUtf8ToWideCharString( entry->d_name, fname );
 #endif
+					if (count < 0 || count >= 256) count = 255;
 					fname[count] = TJS_W('\0');
 					ttstr file(fname);
 					lister->Add(file);
@@ -450,9 +513,124 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 	name = newname;
 #endif
 
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
 #if defined(__ANDROID__)
 	AAssetManager *asset_manager = AndroidAssetManager_Get_AssetManager();
+#endif
 
+	// External data flow: when the bootstrap page extracted the game data
+	// to an external directory (Android: Download/YosugaSoraHD/data or
+	// Android/data/<pkg>/data; iOS: Documents/<bundle>/data), resolve
+	// ./data/* against that directory first; the bundled assets remain the
+	// fallback for embedded installs.
+#if defined(__ANDROID__)
+	const char *ext_data_root = AndroidDataDir_Get();
+#else
+	const char *ext_data_root = krkrsdl2_ios_data_root();
+#endif
+#if defined(__ANDROID__)
+	if (ext_data_root && ext_data_root[0] &&
+		nname.length() >= 2 && nname[0] == '.' &&
+		(nname[1] == '/' || (unsigned char)nname[1] == 92))
+	{
+		std::string rel(nname.begin() + 2, nname.end());
+		for (std::string::iterator i = rel.begin(); i != rel.end(); ++i)
+		{
+			if ((unsigned char)*i == 92) *i = '/';
+		}
+		bool is_data = false;
+		if (rel.compare(0, 5, "data/") == 0) { rel.erase(0, 5); is_data = true; }
+		else if (rel == "data") { rel.clear(); is_data = true; }
+		if (is_data && !rel.empty())
+		{
+			std::string real = std::string(ext_data_root) + "/" + rel;
+			struct stat st;
+			if (stat(real.c_str(), &st) == 0)
+			{
+				tjs_string wide_real;
+				if (TVPUtf8ToUtf16(wide_real, real))
+				{
+					name = ttstr(wide_real);
+					return;
+				}
+			}
+		}
+	}
+#else
+	// iOS: krkrz normalizes every path as "./<path>" (media domain "."
+	// concatenated either with an absolute path such as /var/mobile/... or,
+	// while the current directory is still "/", with a project-relative
+	// path). Resolve both forms directly instead of the generic component
+	// walk below, which matches components case-insensitively against the
+	// filesystem root ("./system/" would hit the OS's own /System and the
+	// auto-path rebuild would enumerate it, hanging on device).
+	{
+		std::string ios_data_dir;
+		bool ios_ext_ready = false;
+		if (ext_data_root && ext_data_root[0])
+		{
+			ios_data_dir = std::string(ext_data_root) + "/data";
+			struct stat dst;
+			ios_ext_ready = (stat(ios_data_dir.c_str(), &dst) == 0 && S_ISDIR(dst.st_mode));
+		}
+		if (nname.length() >= 2 && nname[0] == '.' &&
+			(nname[1] == '/' || (unsigned char)nname[1] == 92))
+		{
+			std::string rel(nname.begin() + 2, nname.end());
+			for (std::string::iterator i = rel.begin(); i != rel.end(); ++i)
+			{
+				if ((unsigned char)*i == 92) *i = '/';
+			}
+			// Absolute form ("./var/mobile/..."): restore the leading slash
+			// and pass through when the path exists on the real filesystem.
+			std::string abs_path = "/" + rel;
+			struct stat st;
+			if (stat(abs_path.c_str(), &st) == 0)
+			{
+				tjs_string wide_real;
+				if (TVPUtf8ToUtf16(wide_real, abs_path))
+				{
+					name = ttstr(wide_real);
+					return;
+				}
+				name.Clear();
+				return;
+			}
+			// Project-relative form ("./startup.tjs", "./system/"): resolve
+			// inside the external data directory once it is installed.
+			if (ios_ext_ready)
+			{
+				// krkrz scripts address resources as ./data/<name> while the
+				// unpacked tree already IS the data directory: drop it.
+				if (rel.compare(0, 5, "data/") == 0) { rel.erase(0, 5); }
+				else if (rel == "data") { rel.clear(); }
+				std::string real = ios_data_dir + "/" + rel;
+				tjs_string wide_real;
+				if (TVPUtf8ToUtf16(wide_real, real))
+				{
+					name = ttstr(wide_real);
+					return;
+				}
+				name.Clear();
+				return;
+			}
+		}
+		else if (!nname.empty() && nname[0] == '/')
+		{
+			// Bare absolute path: pass through untouched.
+			tjs_string wide_real;
+			if (TVPUtf8ToUtf16(wide_real, nname))
+			{
+				name = ttstr(wide_real);
+				return;
+			}
+			name.Clear();
+			return;
+		}
+	}
+#endif
+
+#if defined(__ANDROID__)
 	// Android APK assets are case-sensitive and already use the exact spelling
 	// emitted by the content pipeline.  Walking every path component through
 	// AAssetManager_openDir() is both unnecessary and extremely expensive for a
@@ -478,7 +656,31 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 		return;
 	}
 #endif
+#endif
 
+#if defined(__OHOS__)
+	// OHOS: the engine paths are already local filesystem paths; return them
+	// unchanged to avoid the fragile domain/path parsing below.
+	if (nname.length() >= 2 && nname[0] == '.' && (nname[1] == '/' || nname[1] == '\\'))
+	{
+		// "./" is krkrz's local-domain marker ("file://./") followed by an
+		// absolute path. Strip the marker but KEEP the leading slash, so
+		// stat/open resolve against the filesystem root instead of the
+		// current directory (which fails after chdir into the public folder).
+		std::string rel(nname.begin() + 2, nname.end());
+		if (rel.empty() || (rel[0] != '/' && rel[0] != '\\'))
+			rel = "/" + rel;
+		tjs_string w;
+		if (TVPUtf8ToUtf16(w, rel)) { name = ttstr(w); return; }
+	}
+	// any other path: pass through unchanged (already absolute or relative).
+	{
+		tjs_string w;
+		if (TVPUtf8ToUtf16(w, nname)) { name = ttstr(w); return; }
+	}
+	name.Clear();
+	return;
+#endif
 	std::string nnewname;
 	const char *ptr = nname.c_str();
 	tjs_int path_entries = 0;
@@ -722,6 +924,18 @@ ttstr TVPGetTemporaryName()
 			tjs_char tmp[MAX_PATH+1];
 			::GetTempPath(MAX_PATH, tmp);
 			TVPTempPath = tmp;
+#elif defined(__OHOS__)
+			/* The app sandbox has no writable /tmp; use the public game
+			 * data folder (KRKR_OHOS_DATA_DIR, where savedata also lives)
+			 * so the AVPlayer can read the extracted movie files too. */
+			{
+				const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+				tjs_string tmp_utf16;
+				if (dd && dd[0] && TVPUtf8ToUtf16(tmp_utf16, dd))
+					TVPTempPath = ttstr(tmp_utf16) + TJS_W("/tmp/");
+				else
+					TVPTempPath = ttstr(TJS_W("/tmp/"));
+			}
 #else
 			TVPTempPath = ttstr( "/tmp/" );
 #endif
@@ -838,6 +1052,7 @@ tTJSBinaryStream * TVPOpenStream(const ttstr & _name, tjs_uint32 flags)
 	if(_name.IsEmpty())
 		TVPThrowExceptionMessage(TVPCannotOpenStorage, TJS_W("\"\""));
 
+
 	ttstr origname = _name;
 	ttstr name(_name);
 	TVPGetLocalName(name);
@@ -864,6 +1079,7 @@ bool TVPCheckExistentLocalFile(const ttstr &name)
 #else
 	std::string filename;
 	if( TVPUtf16ToUtf8( filename, name.AsStdString() ) ) {
+
 #if defined(__vita__)
 		SceIoStat st;
 		if( sceIoGetstat( filename.c_str(), &st) >= 0)

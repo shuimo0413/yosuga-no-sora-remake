@@ -7,6 +7,8 @@
 #include "tjsCommHead.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <assert.h>
@@ -27,6 +29,7 @@
 #include "Application.h"
 #include "SysInitIntf.h"
 #include "SysInitImpl.h"
+#include "ApplicationSpecialPath.h"
 #include "DebugIntf.h"
 #include "MsgIntf.h"
 #include "ScriptMgnIntf.h"
@@ -58,13 +61,44 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
-#ifdef __linux__
+#if defined(__linux__) || defined(__OHOS__)
 #include <sys/stat.h>
 #endif
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
 #include <SDL.h>
+#if defined(__OHOS__)
+#include <dlfcn.h>
+#include <chrono>
+/* Diagnostic trace into the sandbox diag.txt (hdc-readable). */
+static void OHOSAppDiag(const char *msg)
+{
+	typedef const char *(*GetFilesDirFn)(void);
+	static GetFilesDirFn fn = nullptr;
+	static const char *dir = nullptr;
+	if (fn == nullptr)
+	{
+		void *h = dlopen("libentry.so", RTLD_NOW);
+		if (!h)
+			h = RTLD_DEFAULT;
+		fn = (GetFilesDirFn)dlsym(h, "SDL_OHOS_GetFilesDir");
+	}
+	if (fn && dir == nullptr)
+		dir = fn();
+	if (!dir || !dir[0])
+		return;
+	std::string path = std::string(dir) + "/diag.txt";
+	FILE *lf = fopen(path.c_str(), "a");
+	if (lf)
+	{
+		long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+		fprintf(lf, "%lld: %s\n", ms % 100000, msg);
+		fclose(lf);
+	}
+}
+#endif
 
 #if 0
 #include "resource.h"
@@ -461,12 +495,20 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 
 		TVPInitScriptEngine();
 		engine_init = true;
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: script engine inited");
+#endif
+
 
 		// banner
 		TVPAddImportantLog( TVPFormatMessage(TVPProgramStartedOn, TVPGetOSName(), TVPGetPlatformName()) );
 
 		// TVPInitializeBaseSystems
 		TVPInitializeBaseSystems();
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: base systems inited");
+#endif
+
 
 #if 0
 		Initialize();
@@ -480,11 +522,69 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #endif
 
 		TVPSystemInit();
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: system init done");
+#endif
+
+
+#if defined(__OHOS__)
+		/* data.xp3 mode: register archive-scoped auto paths natively once
+		 * the storage system is fully initialized. Doing this in
+		 * krkrsdl2_pre_init_platform crashes with SIGSEGV: there the current
+		 * media name is still empty and the message table is not loaded yet,
+		 * so normalizing "data.xp3>system/" throws through
+		 * TVPThrowExceptionMessage which dereferences the unloaded message
+		 * map. This point is equally early: no game script has run yet, and
+		 * the startup script's own TVPAddAutoPath calls rebuild the auto
+		 * path table afterwards (TVPAddAutoPath clears AutoPathTableInit).
+		 * The archive root entry ("data.xp3>") does not depend on the xp3
+		 * index being sorted, so it alone guarantees that GetPlacedPath can
+		 * resolve any archive member (prerendered fonts, root-level mp4). */
+		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0])
+			{
+				std::string xp3 = std::string(dd) + "/data.xp3";
+				struct stat st;
+				if (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode))
+				{
+					std::string prefix = xp3 + ">";
+					const char *subs[] = {
+						"system/", "scenario/", "bg_1920/", "event_1920/",
+						"character_1920/", "char/", "font/", "frame/",
+						"frame_m2/", "rule/", "thumb/", "ui_1920/"
+					};
+					for (size_t i = 0;
+						i < sizeof(subs) / sizeof(subs[0]); ++i)
+					{
+						tjs_string path;
+						if (TVPUtf8ToUtf16(path, prefix + subs[i]))
+							TVPAddAutoPath(ttstr(path));
+					}
+					tjs_string root;
+					if (TVPUtf8ToUtf16(root, prefix))
+						TVPAddAutoPath(ttstr(root));
+				}
+			}
+		}
+#endif
+
+		// Load external patch archives (patch.xp3, ...) from the public game
+		// data folder once SDL/JNI is fully initialized, so users can apply
+		// updates without reinstalling the app.
+
+#if defined(__ANDROID__)
+		TVPLoadExternalPatchArchives(TVPAndroidGetPublicSaveDirectory());
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+		TVPLoadExternalPatchArchives(TVPIOSGetDocumentsDirectory());
+#endif
+
 
 		if(TVPCheckAbout()) return true; // version information dialog box;
 
 		SetTitle( tjs_string(TVPKirikiri) );
 		TVPSystemControl = new tTVPSystemControl();
+
 #if 0
 #ifndef TVP_IGNORE_LOAD_TPM_PLUGIN
 		TVPLoadPluigins(); // load plugin module *.tpm
@@ -498,7 +598,15 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		image_load_thread_->StartTread();
 #endif
 
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: running startup script");
+#endif
+
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
+#if defined(__OHOS__)
+		OHOSAppDiag("StartApplication: startup script done");
+#endif
+
 
 #if 0
 		Run();
@@ -523,19 +631,24 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		// nothing to do
 	} catch( const Exception &exception ) {
 		TVPOnError();
+
 		if(!TVPSystemUninitCalled)
 			ShowException(exception.what());
 	} catch( const TJS::eTJSScriptError &e ) {
 		TVPOnError();
+
 		if(!TVPSystemUninitCalled)
 			ShowException( e.GetMessage().c_str() );
 	} catch( const TJS::eTJS &e) {
 		TVPOnError();
+
 		if(!TVPSystemUninitCalled)
 			ShowException( e.GetMessage().c_str() );
 	} catch( const std::exception &e ) {
+
 		ShowException( ttstr(e.what()).c_str() );
 	} catch( const char* e ) {
+
 		ShowException( ttstr(e).c_str() );
 	} catch( const tjs_char* e ) {
 		ShowException( e );

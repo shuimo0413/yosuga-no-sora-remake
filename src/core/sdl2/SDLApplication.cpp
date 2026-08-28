@@ -1,7 +1,18 @@
 /* SPDX-License-Identifier: MIT */
 /* Copyright (c) Kirikiri SDL2 Developers */
 
+/* OHOS: __OHOS__ is defined by the OHOS CMake toolchain (-D__OHOS__=1),
+ * NOT here. The previous unconditional "#if !defined(__OHOS__) #define
+ * __OHOS__ 1" leaked into the Android build (which does not define __OHOS__),
+ * so the engine #included <hilog/log.h> (an OHOS-only header) and the Android
+ * build failed with "hilog/log.h not found". Define it only via the toolchain. */
 #include "tjsCommHead.h"
+#if defined(__OHOS__)
+#include <hilog/log.h>
+#endif
+#include <dlfcn.h>
+#include <cstdio>
+#include <chrono>
 #include "WindowImpl.h"
 #include "VirtualKey.h"
 #include "Application.h"
@@ -27,6 +38,7 @@
 #include <SDL_syswm.h>
 #endif
 #include <SDL.h>
+
 #ifdef _WIN32
 #include <shellapi.h>
 #include <stdlib.h>
@@ -38,6 +50,11 @@
 #if defined(__ANDROID__) || defined(__OHOS__)
 #include <dirent.h>
 #endif
+#if defined(__ANDROID__)
+#include <jni.h>
+#include <SDL_system.h>
+#endif
+
 #include <math.h>
 #include <algorithm>
 
@@ -59,7 +76,17 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 #endif
 
 #if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__OHOS__) || defined(__EMSCRIPTEN__) || defined(__vita__) || defined(__SWITCH__)
+#if defined(__OHOS__)
+#define OHOS_DBG(...) OH_LOG_Print(LOG_APP, LOG_ERROR, 0x0000, "YosugaOHOS", __VA_ARGS__)
+#else
+#define OHOS_DBG(...) do {} while(0)
+#endif
+
 #define KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE
+#else
+	/* Desktop (macOS / Windows / Linux): OHOS_DBG is a no-op so the unguarded
+	 * OHOS_DBG(...) calls in this file compile on every platform. */
+	#define OHOS_DBG(...) do {} while(0)
 #endif
 
 #if defined(__linux__)
@@ -876,6 +903,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 #endif
 
+
 #ifdef KRKRZ_ENABLE_CANVAS
 	if (!TVPIsEnableDrawDevice())
 	{
@@ -905,6 +933,41 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
 #ifndef __EMSCRIPTEN__
 	window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+#endif
+#if defined(__ANDROID__)
+	/* Android: request a GLES2 window up front. Without SDL_WINDOW_OPENGL,
+	 * SDL_GL_CreateContext() reports "window isn't an OpenGL window" and
+	 * GLES2_CreateRenderer() cannot create its EGL context, so
+	 * SDL_CreateRenderer(ACCELERATED) falls back to software. */
+	window_flags |= SDL_WINDOW_OPENGL;
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#endif
+#if defined(__OHOS__)
+	/* OHOS: the OpenGLES render driver requires an OpenGL window. Without
+	 * SDL_WINDOW_OPENGL, SDL_GL_CreateContext() returns "window isn't an
+	 * OpenGL window" and GLES2_CreateRenderer() has to SDL_RecreateWindow()
+	 * to add the flag, which on this backend fails - so no accelerated
+	 * render driver is created and SDL_CreateRenderer(ACCELERATED) reports
+	 * "Couldn't find matching render driver". Flag the window OpenGL up
+	 * front so the GLES2 context is created directly. */
+	window_flags |= SDL_WINDOW_OPENGL;
+	/* Request an ES2 context. The block above that normally sets these
+	 * attributes sits inside KRKRZ_ENABLE_CANVAS, which the OHOS build
+	 * does not define (OPTION_ENABLE_CANVAS=OFF); set them here so SDL's
+	 * GL state carries the ES profile into SDL_GL_CreateContext. */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 #endif
 	new_window_w = 0;
 	new_window_h = 0;
@@ -955,7 +1018,21 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 	{
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
+#if defined(__ANDROID__) || defined(__OHOS__) || defined(__IPHONEOS__)
+		/* Mobile platforms: prefer the hardware renderer - GLES2 on
+		 * Android/OHOS, Metal on iOS (Apple deprecated OpenGL ES and SDL2
+		 * removed its iOS GLES backend). On OHOS the GLES2 probe's EGL
+		 * initialization is also what makes the window's buffer queue
+		 * present software frames, so keep it even when it falls back to
+		 * software. The software renderer paints through the LockBuffer
+		 * path and TickBeat pauses whichever renderer is active while the
+		 * AVPlayer owns the surface. */
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+		if (!this->renderer)
+		{
+			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
+		}
+#endif
 		if (!this->renderer)
 		{
 			TVPAddLog(ttstr("Cannot create SDL renderer: ") + ttstr(SDL_GetError()));
@@ -969,8 +1046,12 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 
 		this->bitmapCompletion = new TVPSDLBitmapCompletion();
-		if (!this->renderer)
 		{
+			/* Always create the window surface: the software renderer's
+			 * SDL_RenderPresent calls SDL_UpdateWindowSurface, which needs
+			 * window->surface_valid (set by SDL_GetWindowSurface). Without
+			 * this the software framebuffer is never uploaded and the
+			 * screen stays black/stuck on the last video frame. */
 			this->surface = SDL_GetWindowSurface(this->window);
 			if (!this->surface)
 			{
@@ -1072,7 +1153,13 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			SDL_DestroyTexture(this->texture);
 			this->texture = nullptr;
 		}
+#if defined(__IPHONEOS__)
+		/* The Metal renderer has no RGB888 texture format; ARGB8888 maps to
+		 * MTLPixelFormatBGRA8Unorm. */
+		this->texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+#else
 		this->texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, w, h);
+#endif
 		if (!this->texture)
 		{
 			TVPThrowExceptionMessage(TJS_W("Cannot create texture texture: %1"), ttstr(SDL_GetError()));
@@ -1089,12 +1176,29 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			SDL_FreeSurface(this->surface);
 			this->surface = nullptr;
 		}
+#if defined(__IPHONEOS__)
+		/* Match the ARGB8888 texture: R=0x00ff0000 G=0x0000ff00 B=0x000000ff A=0xff000000. */
+		this->surface = SDL_CreateRGBSurface(0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+#else
 		this->surface = SDL_CreateRGBSurface(0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0);
+#endif
 		if (!this->surface)
 		{
 			TVPThrowExceptionMessage(TJS_W("Cannot create surface: %1"), ttstr(SDL_GetError()));
 		}
 		this->bitmapCompletion->surface = this->surface;
+		/* SDL_CreateRGBSurface leaves the pixel memory uninitialised. Until
+		 * the game script paints its first frame the TickBeat render path
+		 * uploads whatever garbage sits in the buffer and RenderCopy draws
+		 * the WHOLE texture (FULL_UPDATES) - on OHOS this flashed a white
+		 * frame right after starting the game, before the logo movie. Clear
+		 * both the drawing surface and the renderer texture so the first
+		 * presented frame is black. */
+		SDL_memset(this->surface->pixels, 0, (size_t)this->surface->h * (size_t)this->surface->pitch);
+		if (this->texture)
+		{
+			SDL_UpdateTexture(this->texture, NULL, this->surface->pixels, this->surface->pitch);
+		}
 	}
 #ifndef KRKRSDL2_ENABLE_ZOOM
 	SDL_Rect cliprect;
@@ -1165,6 +1269,32 @@ void TVPWindowWindow::TranslateWindowToDrawArea(int &x, int &y)
 	y -= this->LastSentDrawDeviceDestRect.top;
 	x = MulDiv(x, this->GetInnerWidth(), this->LastSentDrawDeviceDestRect.get_width());
 	y = MulDiv(y, this->GetInnerHeight(), this->LastSentDrawDeviceDestRect.get_height());
+#endif
+#if defined(__OHOS__)
+	/* OHOS: the XComponent surface is the physical window while the game
+	 * frame renders at the engine resolution through the SDL renderer's
+	 * logical size/viewport. Convert window (physical) coords to engine
+	 * coords exactly like GetCursorPos() so mouse clicks land on the right
+	 * layer (touch input goes through a separate normalized path). */
+	if (this->window && this->renderer)
+	{
+		float scale_x = 1, scale_y = 1;
+		SDL_Rect viewport;
+		int window_w = 0, window_h = 0, output_w = 0, output_h = 0;
+		SDL_RenderGetScale(this->renderer, &scale_x, &scale_y);
+		SDL_RenderGetViewport(this->renderer, &viewport);
+		SDL_GetWindowSize(this->window, &window_w, &window_h);
+		SDL_GetRendererOutputSize(this->renderer, &output_w, &output_h);
+		if (output_w > 0 && output_h > 0 && scale_x > 0 && scale_y > 0)
+		{
+			float dpi_scale_x = (float)window_w / output_w;
+			float dpi_scale_y = (float)window_h / output_h;
+			x -= (int)(viewport.x * dpi_scale_x);
+			y -= (int)(viewport.y * dpi_scale_y);
+			x = (int)(x / (scale_x * dpi_scale_x));
+			y = (int)(y / (scale_y * dpi_scale_y));
+		}
+	}
 #endif
 }
 
@@ -1892,6 +2022,53 @@ void TVPWindowWindow::TickBeat()
 		this->visibilityHasInitialized = true;
 		this->SetVisible(this->isVisible);
 	}
+	this->needsGraphicUpdate = true; // OHOS: always repaint so the software framebuffer is refreshed
+#if defined(__OHOS__)
+	/* OHOS: while the AVPlayer renders into the XComponent surface, do NOT
+	 * present the SDL framebuffer - they share the same native window and
+	 * the last Present would cover the video (black screen). The engine
+	 * still advances (script, input) but skips the blit. The bridge symbol
+	 * lives in libentry.so and is resolved at run time (the two .so files
+	 * cannot be linked against each other). */
+	{
+		typedef int (*OHOSIsVideoPlayingFn)(void);
+		static OHOSIsVideoPlayingFn is_video_playing = nullptr;
+		if (is_video_playing == nullptr)
+		{
+			void *handle = dlopen("libentry.so", RTLD_NOW);
+			if (!handle) handle = RTLD_DEFAULT;
+			is_video_playing = (OHOSIsVideoPlayingFn)dlsym(handle, "SDL_OHOS_IsVideoPlaying");
+		}
+		if (is_video_playing && is_video_playing())
+		{
+			return;
+		}
+	}
+#endif
+#if defined(__OHOS__)
+	/* OHOS: ensure the window surface is valid before presenting. SDL's
+	 * FULLSCREEN_DESKTOP window recreation clears surface_valid, after
+	 * which SDL_UpdateWindowSurface silently no-ops (UpdateWindowFramebuffer
+	 * never runs) and the software-rendered menu never reaches the screen.
+	 * SDL_GetWindowSurface recreates it cheaply when invalid.
+	 *
+	 * IMPORTANT: only CHECK the window surface here - never assign it to
+	 * this->surface. When a renderer exists, this->surface is the engine's
+	 * OWN drawing surface (allocated in SetPaintBoxSize and painted by
+	 * bitmapCompletion); TickBeat uploads it into the renderer texture.
+	 * Reassigning this->surface to the SDL window surface made every
+	 * SDL_UpdateTexture upload the engine-untouched (black) window
+	 * framebuffer instead of the game picture, so after the logo video
+	 * ended the screen stayed black even though the engine kept rendering
+	 * (src samples nonblack=0 in the framebuffer diagnostics). */
+	if (this->window)
+	{
+		/* Keep the window surface valid: SDL_UpdateWindowSurface silently
+		 * no-ops when it is stale, so the software-rendered frame would
+		 * never reach the screen. */
+		SDL_GetWindowSurface(this->window);
+	}
+#endif
 	if (this->needsGraphicUpdate)
 	{
 		if (this->bitmapCompletion)
@@ -1949,6 +2126,12 @@ void TVPWindowWindow::TickBeat()
 #endif
 				}
 				SDL_RenderPresent(this->renderer);
+#if defined(__OHOS__)
+				/* OHOS: with the OpenGLES backend registered (SDL_ohosvideo.c),
+				 * SDL_RenderPresent -> GLES2_RenderPresent -> eglSwapBuffers
+				 * presents straight to the XComponent native window, so no
+				 * explicit surface upload is needed here. */
+#endif
 #if !defined(KRKRSDL2_ENABLE_ZOOM) && !defined(KRKRSDL2_RENDERER_FULL_UPDATES)
 				if (logical_rect.w == rect.w && logical_rect.h == rect.h)
 				{
@@ -2995,6 +3178,32 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_FINGERDOWN:
 				case SDL_FINGERUP:
 				{
+					/* Two-finger tap maps to the right mouse button so touch
+					   devices can cancel/back out of movies and menus exactly
+					   like a right-click on desktop.  The second finger press
+					   sends mbRight down, and when fingers drop below two the
+					   corresponding up is delivered. */
+					int fingerCount = SDL_GetNumTouchFingers(event.tfinger.touchId);
+					if (event.tfinger.type == SDL_FINGERDOWN && fingerCount >= 2)
+					{
+						this->lastMouseX = static_cast<int>(event.tfinger.x * this->GetWidth());
+						this->lastMouseY = static_cast<int>(event.tfinger.y * this->GetHeight());
+						this->TranslateWindowToDrawArea(this->lastMouseX, this->lastMouseY);
+						tjs_uint32 s = TVP_TShiftState_To_uint32(GetShiftState());
+						s |= GetMouseButtonState();
+						s |= ssRight;
+						TVPPostInputEvent(new tTVPOnMouseDownInputEvent(this->TJSNativeInstance, this->lastMouseX, this->lastMouseY, tTVPMouseButton::mbRight, s));
+					}
+					else if (event.tfinger.type == SDL_FINGERUP && fingerCount <= 1)
+					{
+						this->lastMouseX = static_cast<int>(event.tfinger.x * this->GetWidth());
+						this->lastMouseY = static_cast<int>(event.tfinger.y * this->GetHeight());
+						this->TranslateWindowToDrawArea(this->lastMouseX, this->lastMouseY);
+						tjs_uint32 s = TVP_TShiftState_To_uint32(GetShiftState());
+						s |= GetMouseButtonState();
+						s &= ~ssRight;
+						TVPPostInputEvent(new tTVPOnMouseUpInputEvent(this->TJSNativeInstance, this->lastMouseX, this->lastMouseY, tTVPMouseButton::mbRight, s));
+					}
 					switch (event.tfinger.type)
 					{
 						case SDL_FINGERDOWN:
@@ -3298,15 +3507,6 @@ bool krkrsdl2_init_platform(void)
 #endif
 #endif
 
-#if defined(__OHOS__)
-#ifdef SDL_HINT_AUDIODRIVER
-	// OpenHarmony does not have an SDL2 audio backend yet. Keep the audio
-	// subsystem alive with the dummy driver so the game runs without sound
-	// instead of failing on the audio device.
-	SDL_SetHintWithPriority(SDL_HINT_AUDIODRIVER, "dummy", SDL_HINT_OVERRIDE);
-#endif
-#endif
-
 #ifdef TVP_LOG_TO_COMMANDLINE_CONSOLE
 	SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_VERBOSE);
 #endif
@@ -3332,12 +3532,59 @@ void krkrsdl2_run_main_loop(void)
 #endif
 }
 
+#ifdef __ANDROID__
+/* Finish the Android activity so the app truly exits instead of leaving a
+ * black frame. SDL_Quit() was never called, so the SDLActivity never got
+ * nativeQuit and an in-game "exit" stopped the engine and blanked the
+ * surface while leaving the Activity open. finishAndRemoveTask() (falling
+ * back to finish()) is posted to the UI thread, so it still runs even if the
+ * engine teardown below hangs the native SDL thread. */
+static void krkrsdl2_finish_android_activity()
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if (!env || !activity) return;
+	jclass clazz = env->GetObjectClass(activity);
+	if (clazz)
+	{
+		jmethodID finish = env->GetMethodID(clazz, "finishAndRemoveTask", "()V");
+		if (!finish) finish = env->GetMethodID(clazz, "finish", "()V");
+		if (finish) env->CallVoidMethod(activity, finish);
+		env->DeleteLocalRef(clazz);
+	}
+	env->DeleteLocalRef(activity);
+}
+static void krkrsdl2_force_exit()
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	if (!env) return;
+	jclass sys = env->FindClass("java/lang/System");
+	if (sys) {
+		jmethodID exitM = env->GetStaticMethodID(sys, "exit", "(I)V");
+		if (exitM) env->CallStaticVoidMethod(sys, exitM, 0);
+		env->DeleteLocalRef(sys);
+	}
+}
+
+#endif
+
 void krkrsdl2_cleanup(void)
 {
+#ifdef __ANDROID__
+	/* Request the Activity finish BEFORE tearing down the engine so the app
+	 * exits even if window/GL teardown is slow or hangs. */
+	krkrsdl2_finish_android_activity();
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "cleanup: forcing Android exit (finish+System.exit)");
+	krkrsdl2_force_exit();
+#endif
 	// delete application and exit forcely
 	// this prevents ugly exception message on exit
 	delete ::Application;
 	::Application = nullptr;
+
+	/* Let SDL shut its subsystems down. SDL_Quit() was previously never
+	 * called, which is why the Activity never finished after "exit". */
+	SDL_Quit();
 }
 
 bool TVPGetKeyMouseAsyncState(tjs_uint keycode, bool getcurrent)
@@ -3396,9 +3643,11 @@ bool TVPGetJoyPadAsyncState(tjs_uint keycode, bool getcurrent)
 	return is_pressed;
 }
 
+
 TTVPWindowForm *TVPCreateAndAddWindow(tTJSNI_Window *w)
 {
-	return new TVPWindowWindow(w);
+	TTVPWindowForm *ret = new TVPWindowWindow(w);
+	return ret;
 }
 
 tjs_uint32 TVPGetCurrentShiftKeyState()

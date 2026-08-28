@@ -1,4 +1,4 @@
-﻿
+
 //デバッグメッセージ出力用
 @if(__DEBUGMODE__ != 0)
 	var dm = Debug.message;
@@ -54,9 +54,19 @@ if(!System.createAppLock("CuffsApplication-"+GAME_CAPTION)){
 		}
 		Debug.message("FATAL exception type=" + typeof e + " message=" + fatalMessage + " object=" + e);
 		Debug.message("FATAL trace: " + ((fatalTrace === void || fatalTrace == "") ? "engine exception frame logged above" : fatalTrace));
+	// OHOS debug: write the fatal error to a file for inspection.
+	try {
+		var fatalLog = "";
+		try { fatalLog += "message=" + fatalMessage + "\n"; } catch(e0) {}
+		try { fatalLog += "trace=" + fatalTrace + "\n"; } catch(e1) {}
+		try { fatalLog += "object=" + e + "\n"; } catch(e2) {}
+		try { Storages.saveFile("data/fatal.txt", fatalLog); } catch(e3) {}
+	} catch(e4) {}
+
 		if(!PRODUCT_FATAL_SHOWN){
 			PRODUCT_FATAL_SHOWN = true;
-			System.inform("游戏运行发生错误，程序将关闭。详细信息已写入日志。");
+					try { System.inform("DEBUG dataPath=" + System.dataPath); } catch(e6) {}
+		System.inform("游戏运行发生错误: " + fatalMessage + " | " + fatalTrace);
 		}
 		System.terminate();
 		return true;
@@ -140,14 +150,12 @@ AddAutoPath("frame_m2/");
 AddAutoPath("rule/");
 AddAutoPath("thumb/");
 AddAutoPath("ui_1920/");
-AddAutoPath("audio_ogg/");
 AddAutoPath("char/");
 AddAutoPath("character_1920/");
 AddAutoPath("event_1920/");
 AddAutoPath("bg_1920/");
 AddAutoPath("scenario/");
 AddAutoPath("system/");
-AddAutoPath("collect_voice/");
 
 delete AddAutoPath;
 
@@ -247,7 +255,7 @@ LoadScript("MusicModeHD.tjs");
 LoadScript("VoiceCollect.tjs");
 LoadScript("VoiceModeScene.tjs");
 LoadScript("CgFlag.tjs");
-LoadScript("StaffRoll.tjs");
+LoadScript("staffroll.tjs");
 LoadScript("EnvEffect.tjs");
 @if(__DEBUGMODE__)
 	LoadScript("debugUtility.tjs");

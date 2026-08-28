@@ -16,6 +16,9 @@ extern void TVPDumpHWException();
 
 extern void TVPInitializeBaseSystems();
 
+// Load external patch archives (patch.xp3, ...) from the public data folder.
+extern void TVPLoadExternalPatchArchives(const char *saveDirUtf8);
+
 extern tjs_string TVPNativeProjectDir;
 extern tjs_string TVPNativeDataPath;
 

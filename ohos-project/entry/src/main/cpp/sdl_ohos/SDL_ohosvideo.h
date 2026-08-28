@@ -17,6 +17,8 @@ typedef struct SDL_WindowData
 {
 	SDL_Window *window;
 	EGLSurface egl_surface;
+	/* software framebuffer support */
+	SDL_Surface *framebuffer;
 } SDL_WindowData;
 
 typedef struct OHOS_VideoData

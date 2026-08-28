@@ -68,6 +68,22 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Background audio keep-alive: lets the app stay alive (and keep
+	     playing BGM/flash particles) while the user is in another app or
+	     the screen is locked. The overlay installs a silent-audio loop that
+	     keeps the audio session active. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<!-- File sharing: expose the app's Documents folder so saves live in a
+	     user-reachable location outside the private container. Saves are
+	     still inside the sandbox so Photos never indexes them into the
+	     system photo library. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBluetoothPeripheralUsageDescription</key>

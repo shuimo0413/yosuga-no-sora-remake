@@ -28,6 +28,31 @@ void OHOS_Entry_SetFilesDir(const char *files_dir);
  * so users can reach the game data and save files. Either may be NULL. */
 void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir);
 
+/* Remember the XComponent surfaceId (API 12+) and create the native
+ * window from it, since the legacy surface callbacks do not fire here. */
+void OHOS_Entry_SetSurfaceId(const char *surface_id);
+
+/* Remember the VIDEO XComponent surfaceId and create a SEPARATE native
+ * window from it. The AVPlayer renders video into this dedicated surface so
+ * it never competes with the engine's software framebuffer on the game
+ * XComponent. */
+void OHOS_Entry_SetVideoSurfaceId(const char *surface_id);
+
+/* Return 1 while the AVPlayer is actively playing video (the ArkTS shell
+ * polls this to raise the video XComponent above the game XComponent). */
+int OHOS_Entry_IsVideoPlaying(void);
+
+/* 1 while the engine is expected to run: before StartEngine it reports 1
+ * (so the shell does not bounce back during startup) and after the engine
+ * thread finishes it reports 0, which the shell uses to return to the
+ * bootstrap page when the game exits from its in-game menu. */
+int OHOS_Entry_IsEngineRunning(void);
+
+/* Set the XComponent surface size in pixels. Called from ArkTS after the
+ * component is laid out (the native OnSurfaceChanged callback never fires
+ * on this system), so the SDL window size matches the real surface. */
+void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height);
+
 /* Attach the page XComponent. Registers surface and touch callbacks so the
  * SDL video driver can obtain its native window. */
 void OHOS_Entry_AttachXComponent(void *component);
@@ -39,6 +64,11 @@ void *OHOS_Entry_GetResourceManager(void);
 /* Start the Kirikiri engine on a dedicated thread. Safe to call once; later
  * calls are ignored. */
 void OHOS_Entry_StartEngine(void);
+
+/* Install the fatal-signal crash recorder (idempotent). Normally installed
+ * when the engine starts, but the data.xp3 extraction runs BEFORE the engine
+ * and must get the same coverage. */
+void OHOS_InstallCrashHandler(void);
 
 #ifdef __cplusplus
 }

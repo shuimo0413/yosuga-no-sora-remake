@@ -34,3 +34,16 @@ android-project/gradle/gradle-daemon-jvm.properties
 /ohos-project/entry/src/main/resources/rawfile/data/
 /ohos-project/oh-package-lock.json5
 /ohos-project/entry/oh-package-lock.json5
+
+# Local test/update patches are kept out of the repository on purpose;
+# drop a patch.xp3 next to the public save folder to apply updates.
+/patch.xp3
+/patch*.xp3
+
+# Huge game data archives
+*.xp3
+.idea/
+
+# Python bytecode cache
+tools/__pycache__/
+__pycache__/

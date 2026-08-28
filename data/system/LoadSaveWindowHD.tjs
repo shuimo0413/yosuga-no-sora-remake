@@ -1704,10 +1704,30 @@ class LoadSaveWindowHD extends SettingWindowBase
             )) \ (pageCount - 1);
     }
 
+    function scrollbarDesignPointFromPrimary(x, y)
+    {
+        // The save/load window is a child of baseLayer. On non-16:9 displays
+        // baseLayer is centered inside primaryLayer, so primary-layer cursor
+        // coordinates must be made local before testing the HD design bounds.
+        var origin = new Point(0, 0);
+        GetAbsolutePos(this, origin, window.primaryLayer);
+
+        var point = new Point(
+            ((int(x) - origin.x) * LOADSAVE_HD_BASE_WIDTH) \ width,
+            ((int(y) - origin.y) * LOADSAVE_HD_BASE_HEIGHT) \ height
+        );
+        invalidate origin;
+        return point;
+    }
+
     function pageFromScrollbar(y)
     {
         var pageCount = availablePageCount();
-        var designY = (int(y) * LOADSAVE_HD_BASE_HEIGHT) \ WINDOW_HEIGHT;
+        var point = scrollbarDesignPointFromPrimary(
+            window.primaryLayer.cursorX, y
+        );
+        var designY = point.y;
+        invalidate point;
         designY -= _scrollDragOffsetY;
         if(designY < LOADSAVE_HD_SCROLL_CENTER_TOP)
             designY = LOADSAVE_HD_SCROLL_CENTER_TOP;
@@ -1778,10 +1798,11 @@ class LoadSaveWindowHD extends SettingWindowBase
         }
         if(button != mbLeft) return;
 
-        var windowX = window.primaryLayer.cursorX;
-        var windowY = window.primaryLayer.cursorY;
-        var designX = (int(windowX) * LOADSAVE_HD_BASE_WIDTH) \ WINDOW_WIDTH;
-        var designY = (int(windowY) * LOADSAVE_HD_BASE_HEIGHT) \ WINDOW_HEIGHT;
+        var windowY = y;
+        var point = scrollbarDesignPointFromPrimary(x, y);
+        var designX = point.x;
+        var designY = point.y;
+        invalidate point;
         if(designX >= 1785 && designX <= 1850 && designY >= 306 && designY <= 813)
         {
             _draggingScrollbar = true;

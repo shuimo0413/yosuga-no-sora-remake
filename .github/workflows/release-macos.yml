@@ -3,9 +3,7 @@ name: Release macOS SDL2
 'on':
   push:
     tags:
-      - 'v*'
-    branches:
-      - 'codex/feature-ios-macos-releases'
+      - 'v*-macos-*'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -33,7 +31,7 @@ jobs:
 
     steps:
       - name: Check out repository and submodules
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           lfs: false
@@ -63,6 +61,9 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          # Forks/renames set the repository variable APP_BUNDLE_IDENTIFIER;
+          # the legacy IOS_BUNDLE_IDENTIFIER name is still honoured.
+          REPOSITORY_BUNDLE_IDENTIFIER: ${{ vars.APP_BUNDLE_IDENTIFIER || vars.IOS_BUNDLE_IDENTIFIER }}
         run: |
           set -euo pipefail
           publish=true
@@ -81,10 +82,25 @@ jobs:
             echo "Invalid release tag: $release_tag" >&2
             exit 1
           fi
+          # Numeric version extracted from the tag verbatim: v1.0.0 -> 1.0.0,
+          # v1.0 -> 1.0, v1.01 -> 1.01, v123 -> 123; platform suffixes and
+          # test markers dropped. Shared by every platform display version
+          # and the in-game status.tjs GAME_VERSION.
+          version_name="$(printf '%s' "$release_tag" | sed -nE 's/^v?([0-9]+(\.[0-9]+)*).*/\1/p')"
+          if [[ -z "$version_name" ]]; then
+            echo "Cannot derive a numeric version from tag: $release_tag" >&2
+            exit 1
+          fi
+          bundle_identifier="${REPOSITORY_BUNDLE_IDENTIFIER:-com.shuimo0413.yosuganosora.hdremake}"
+          if [[ ! "$bundle_identifier" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]]; then
+            echo "Invalid macOS bundle identifier: $bundle_identifier" >&2
+            exit 1
+          fi
           {
             echo "tag=$release_tag"
-            echo "version-name=${release_tag#v}"
+            echo "version-name=$version_name"
             echo "version-code=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
+            echo "bundle-identifier=$bundle_identifier"
             echo "prerelease=$is_prerelease"
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
@@ -95,6 +111,19 @@ jobs:
           set -euo pipefail
           git lfs pull
           git lfs fsck
+
+      # Version follows the release tag (shared with every platform):
+      # stamped into status.tjs before the manifest, so the DMG ships a
+      # status.tjs whose GAME_VERSION matches the release.
+      - name: Inject the game version into status.tjs
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 tools/inject_game_version.py \
+            --tag "$RELEASE_TAG" \
+            --status data/system/status.tjs
 
       - name: Generate complete content manifest
         shell: bash
@@ -107,24 +136,63 @@ jobs:
             --cache "$RUNNER_TEMP/content-manifest-cache.json" \
             --full
 
+      - name: Restore cached ccache for the macOS build
+        id: macos-ccache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-ccache-v1-${{ github.sha }}
+          restore-keys: |
+            macos-ccache-v1-
+
+      - name: Generate macOS application icon from the shared PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          # icon.ico is actually a 256x256 PNG; build an .icns via iconset+iconutil.
+          SRC="$GITHUB_WORKSPACE/icon.ico"
+          ICSET="$RUNNER_TEMP/app.iconset"
+          mkdir -p "$ICSET"
+          cp "$SRC" "$RUNNER_TEMP/app.png"
+          for s in 16 32 128 256 512; do
+            sips -z "$s" "$s" "$RUNNER_TEMP/app.png" --out "$ICSET/icon_${s}x${s}.png" >/dev/null 2>&1
+            d=$((s*2)); sips -z "$d" "$d" "$RUNNER_TEMP/app.png" --out "$ICSET/icon_${s}x${s}@2x.png" >/dev/null 2>&1
+          done
+          iconutil -c icns "$ICSET" -o "$GITHUB_WORKSPACE/src/resources/macos/krkrsdl2.icns"
+
       - name: Build optimized macOS application bundle
         shell: bash
         env:
           VERSION_NAME: ${{ steps.release.outputs.version-name }}
           VERSION_CODE: ${{ steps.release.outputs.version-code }}
+          BUNDLE_IDENTIFIER: ${{ steps.release.outputs.bundle-identifier }}
+          CCACHE_DIR: ~/Library/Caches/ccache
         run: |
           set -euo pipefail
+          brew install --quiet ccache 2>/dev/null || true
+          ccache --zero-stats 2>/dev/null || true
           cmake \
             -S . \
             -B build/release-macos \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DOPTION_BUILD_MACOS_BUNDLE=ON \
+            -DKRKRSDL2_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
             -DKRKRSDL2_GENERATE_CONTENT_MANIFEST=OFF \
             -DKRKRSDL2_VERSION_NAME="$VERSION_NAME" \
             -DKRKRSDL2_BUILD_NUMBER="$VERSION_CODE"
           cmake --build build/release-macos --target krkrsdl2 --parallel
+
+      - name: Save cached ccache for the macOS build
+        if: steps.macos-ccache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-ccache-v1-${{ github.sha }}
 
       - name: Verify application and create DMG
         id: package
@@ -133,6 +201,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION_NAME: ${{ steps.release.outputs.version-name }}
           VERSION_CODE: ${{ steps.release.outputs.version-code }}
+          BUNDLE_IDENTIFIER: ${{ steps.release.outputs.bundle-identifier }}
         run: |
           set -euo pipefail
           app='build/release-macos/YosugaNoSoraHD.app'
@@ -143,7 +212,7 @@ jobs:
           fi
           file "$executable" | grep -q 'arm64'
           [[ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" == \
-            'com.lightwinder.yosuganosora.hdremake' ]]
+            "$BUNDLE_IDENTIFIER" ]]
           [[ "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" == \
             "$VERSION_NAME" ]]
           [[ "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")" == \
@@ -174,18 +243,24 @@ jobs:
           for volume in "${volumes[@]}"; do
             [[ "$(stat -f '%z' "$volume")" -lt 2147483648 ]]
           done
-          (
-            cd "$asset_dir"
-            shasum -a 256 "$dmg_name.7z."* > "$dmg_name-SHA256SUMS.txt"
-          )
-          cat > "$asset_dir/$dmg_name-BUILD-INFO.txt" <<EOF
-          Yosuga no Sora: HD Remake
-          Runtime: Kirikiri SDL2 for macOS (Apple Silicon)
-          Release: $RELEASE_TAG
-          Commit: $GITHUB_SHA
-          Signing: ad-hoc (not notarized)
-          Native optimization: Release
-          EOF
+          # SHA-256 of every volume, recorded for download verification.
+          {
+            echo "Yosuga no Sora: HD Remake"
+            echo "Runtime: Kirikiri SDL2 for macOS (Apple Silicon)"
+            echo "Release: $RELEASE_TAG"
+            echo "Commit: $GITHUB_SHA"
+            echo "Signing: ad-hoc (not notarized)"
+            echo "Native optimization: Release"
+            echo
+            echo "SHA-256 checksums of the release assets:"
+            for volume in "${volumes[@]}"; do
+              echo "$(shasum -a 256 "$volume" | cut -d' ' -f1)  $(basename "$volume")"
+            done
+          } > "$asset_dir/$dmg_name-BUILD-INFO.txt"
+
+          # Third-party license texts travel with the binary package.
+          python3 tools/generate_notices.py \
+            --output "$asset_dir/THIRD-PARTY-NOTICES.txt"
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"
 

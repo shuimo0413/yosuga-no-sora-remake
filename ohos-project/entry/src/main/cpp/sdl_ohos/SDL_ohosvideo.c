@@ -17,9 +17,32 @@
 #include "SDL_ohosevents.h"
 #include "SDL_ohosgl.h"
 #include "sdl_ohos_bridge.h"
+#include <native_window/external_window.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <dlfcn.h>
+#include <hilog/log.h>
 
 #define OHOS_FALLBACK_WIDTH 1920
 #define OHOS_FALLBACK_HEIGHT 1080
+
+/* OH_NativeWindow_LockBuffer / OH_NativeWindow_UnlockAndFlushBuffer are API
+ * 23+; the CI builds against the API 12 sysroot, so reference them through
+ * dlsym at run time instead of the headers (guarded availability). */
+typedef int32_t (*OHNW_LockBufferFn)(OHNativeWindow *, Region, OHNativeWindowBuffer **);
+typedef int32_t (*OHNW_UnlockFlushFn)(OHNativeWindow *);
+static OHNW_LockBufferFn OHOS_NW_LockBuffer = NULL;
+static OHNW_UnlockFlushFn OHOS_NW_UnlockAndFlushBuffer = NULL;
+static void OHOS_ResolveNativeWindowCpuApi(void)
+{
+	static int resolved = 0;
+	if (resolved) return;
+	resolved = 1;
+	void *handle = dlopen("libnative_window.so", RTLD_NOW);
+	if (handle == NULL) return;
+	OHOS_NW_LockBuffer = (OHNW_LockBufferFn)dlsym(handle, "OH_NativeWindow_LockBuffer");
+	OHOS_NW_UnlockAndFlushBuffer = (OHNW_UnlockFlushFn)dlsym(handle, "OH_NativeWindow_UnlockAndFlushBuffer");
+}
 
 static SDL_VideoDevice *OHOS_CreateDevice(void);
 static void OHOS_DestroyDevice(SDL_VideoDevice *device);
@@ -30,11 +53,273 @@ static void OHOS_GetDisplayModes(_THIS, SDL_VideoDisplay *display);
 static int OHOS_SetDisplayMode(_THIS, SDL_VideoDisplay *display, SDL_DisplayMode *mode);
 static int OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect);
 static int OHOS_CreateSDLWindow(_THIS, SDL_Window *window);
+static void OHOS_GetSurfaceSize(int *width, int *height);
+
+/* --- Software framebuffer support --------------------------------------- */
+/* Paints an SDL_Surface into an OH_NativeWindow buffer. Kept simple: one
+ * surface lives in window->driverdata and is re-uploaded on Update. */
+
+static int OHOS_CreateWindowFramebuffer(_THIS, SDL_Window *window,
+	Uint32 *format, void **pixels, int *pitch)
+{
+	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+	if (data == NULL)
+	{
+		return SDL_SetError("Window has no driver data");
+	}
+	int w = 0, h = 0;
+	OHOS_GetSurfaceSize(&w, &h);
+	if (w <= 0 || h <= 0)
+	{
+		w = OHOS_FALLBACK_WIDTH;
+		h = OHOS_FALLBACK_HEIGHT;
+	}
+
+	if (data->framebuffer != NULL)
+	{
+		SDL_FreeSurface(data->framebuffer);
+		data->framebuffer = NULL;
+	}
+	data->framebuffer = SDL_CreateRGBSurface(0, w, h, 32,
+		0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+	if (data->framebuffer == NULL)
+	{
+		return SDL_OutOfMemory();
+	}
+	/* The pixel memory is uninitialised and the engine presents it before
+	 * the first script-painted frame: it flashed white garbage on startup.
+	 * Clear it to black. */
+	SDL_memset(data->framebuffer->pixels, 0,
+		(size_t)data->framebuffer->h * (size_t)data->framebuffer->pitch);
+	*format = data->framebuffer->format->format;
+	*pixels = data->framebuffer->pixels;
+	*pitch = data->framebuffer->pitch;
+	return 0;
+}
+
+static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
+	const SDL_Rect *rects, int numrects)
+{
+	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+	OHNativeWindow *native_window;
+	OHNativeWindowBuffer *buffer = NULL;
+	BufferHandle *handle = NULL;
+	int fence_fd = -1;
+	int32_t dummy = 0;
+
+	if (data == NULL || data->framebuffer == NULL)
+	{
+		return SDL_SetError("No framebuffer");
+	}
+	/* Belt and braces: while the AVPlayer owns the surface (weak bridge
+	 * symbol resolves to libentry's implementation at run time) the engine
+	 * must not touch the native window at all. */
+	if (SDL_OHOS_IsVideoPlaying && SDL_OHOS_IsVideoPlaying())
+	{
+		return 0;
+	}
+	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
+	if (native_window == NULL)
+	{
+		return SDL_SetError("No native window");
+	}
+
+	int32_t w = data->framebuffer->w;
+	int32_t h = data->framebuffer->h;
+	/* The native window (XComponent surface) has the PHYSICAL size reported
+	 * by ArkTS; request buffers at that geometry. The logical framebuffer is
+	 * then stretched into it. */
+	int32_t bw = w, bh = h;
+	{
+		int pw = 0, ph = 0;
+		if (SDL_OHOS_GetPhysicalSize(&pw, &ph) && pw > 0 && ph > 0)
+		{
+			bw = pw;
+			bh = ph;
+		}
+	}
+	if (bw <= 0 || bh <= 0)
+	{
+		return SDL_SetError("OHOS: invalid buffer size");
+	}
+	if (OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, bw, bh) != 0)
+	{
+		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
+	}
+
+	/* LockBuffer is the only path whose buffers actually present on this
+	 * device; the AVPlayer video now renders into its OWN XComponent surface,
+	 * so the CPU production mode here can no longer disturb video playback.
+	 * RequestBuffer remains as a fallback. */
+	Region lock_region = { NULL, 0 };
+	int locked = 0;
+	buffer = NULL;
+	OHOS_ResolveNativeWindowCpuApi();
+	if (OHOS_NW_LockBuffer != NULL && OHOS_NW_UnlockAndFlushBuffer != NULL &&
+		OHOS_NW_LockBuffer(native_window, lock_region, &buffer) == 0 && buffer != NULL)
+	{
+		locked = 1;
+	}
+	else if (OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd) == 0 && buffer != NULL)
+	{
+		locked = 0;
+	}
+	else
+	{
+		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
+	}
+
+	void *mapped = NULL;
+	Uint8 *fb_dst = NULL;
+	handle = OH_NativeWindow_GetBufferHandleFromNative(buffer);
+	if (handle != NULL && handle->virAddr != NULL)
+	{
+		fb_dst = (Uint8 *)handle->virAddr;
+	}
+	else if (handle != NULL && handle->fd >= 0)
+	{
+		mapped = mmap(NULL, (size_t)handle->size, PROT_READ | PROT_WRITE, MAP_SHARED, handle->fd, 0);
+		if (mapped != MAP_FAILED)
+			fb_dst = (Uint8 *)mapped;
+		else
+			mapped = NULL;
+	}
+	if (fb_dst == NULL)
+	{
+		if (locked)
+			OHOS_NW_UnlockAndFlushBuffer(native_window);
+		else
+			OH_NativeWindow_NativeWindowAbortBuffer(native_window, buffer);
+		return SDL_SetError("OHOS: buffer has no writable address");
+	}
+
+	/* Copy the SDL surface (ARGB8888) into the native buffer, scaling from
+	 * the logical framebuffer (1920x1080) to the physical buffer size. The
+	 * buffer stride may differ from bw*4 (alignment) - always use it. */
+	{
+		Uint8 *dst = fb_dst;
+		const Uint8 *src = (const Uint8 *)data->framebuffer->pixels;
+		int src_pitch = data->framebuffer->pitch;
+		int dst_stride = handle->stride;
+		if (dst_stride <= 0) dst_stride = bw * 4;
+		if (bw == w && bh == h)
+		{
+			/* same size. The SDL surface stores ARGB as B,G,R,A bytes in memory
+			 * (masks 0x00ff0000/0x0000ff00/0x000000ff/0xff000000) while the
+			 * XComponent buffer is RGBA_8888 - swap R and B or the picture
+			 * shows red/blue swapped. */
+			for (int y = 0; y < h; y++)
+			{
+				const Uint8 *srow = src + (size_t)y * (size_t)src_pitch;
+				Uint8 *drow = dst + (size_t)y * (size_t)dst_stride;
+				for (int x = 0; x < w; x++)
+				{
+					drow[x * 4 + 0] = srow[x * 4 + 2];
+					drow[x * 4 + 1] = srow[x * 4 + 1];
+					drow[x * 4 + 2] = srow[x * 4 + 0];
+					drow[x * 4 + 3] = srow[x * 4 + 3];
+				}
+			}
+		}
+		else
+		{
+			/* nearest-neighbor scale */
+			for (int dy = 0; dy < bh; dy++)
+			{
+				int sy = dy * h / bh;
+				const Uint8 *srow = src + (size_t)sy * (size_t)src_pitch;
+				Uint8 *drow = dst + (size_t)dy * (size_t)dst_stride;
+				for (int dx = 0; dx < bw; dx++)
+				{
+					int sx = dx * w / bw;
+					const Uint8 *p = srow + (size_t)sx * 4;
+					/* same R/B swap as the fast path above */
+					drow[dx * 4 + 0] = p[2];
+					drow[dx * 4 + 1] = p[1];
+					drow[dx * 4 + 2] = p[0];
+					drow[dx * 4 + 3] = p[3];
+				}
+			}
+		}
+	}
+
+	if (mapped != NULL)
+		munmap(mapped, (size_t)handle->size);
+	if (locked)
+	{
+		if (OHOS_NW_UnlockAndFlushBuffer(native_window) != 0)
+		{
+			return SDL_SetError("OHOS: UnlockAndFlushBuffer failed");
+		}
+	}
+	else
+	{
+		Region region;
+		region.rects = NULL;
+		region.rectNumber = 0;
+		if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
+		{
+			return SDL_SetError("OHOS: FlushBuffer failed");
+		}
+	}
+	(void)rects;
+	(void)numrects;
+	(void)dummy;
+	return 0;
+}
+
+static void OHOS_DestroyWindowFramebuffer(_THIS, SDL_Window *window)
+{
+	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+	if (data != NULL && data->framebuffer != NULL)
+	{
+		SDL_FreeSurface(data->framebuffer);
+		data->framebuffer = NULL;
+	}
+}
+
+static void OHOS_DestroyWindow(_THIS, SDL_Window *window)
+{
+	SDL_WindowData *data;
+	if (window == NULL || (data = (SDL_WindowData *)window->driverdata) == NULL)
+	{
+		return;
+	}
+	if (data->egl_surface != EGL_NO_SURFACE)
+	{
+		/* Destroy the surface on the SAME display that created it.
+		 * eglGetCurrentDisplay() can return EGL_NO_DISPLAY when no context
+		 * is current (e.g. after a failed GLES2_CreateRenderer attempt),
+		 * which leaks the surface and corrupts the shared XComponent
+		 * buffer queue for the AVPlayer and the software framebuffer. */
+		EGLDisplay dpy = eglGetCurrentDisplay();
+		if (dpy == EGL_NO_DISPLAY)
+		{
+			dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+		}
+		if (dpy != EGL_NO_DISPLAY)
+		{
+			eglDestroySurface(dpy, data->egl_surface);
+		}
+		data->egl_surface = EGL_NO_SURFACE;
+	}
+	if (data->framebuffer != NULL)
+	{
+		SDL_FreeSurface(data->framebuffer);
+		data->framebuffer = NULL;
+	}
+	SDL_free(data);
+	window->driverdata = NULL;
+}
+
 static void OHOS_SetWindowTitle(_THIS, SDL_Window *window);
 static void OHOS_SetWindowPosition(_THIS, SDL_Window *window);
 static void OHOS_SetWindowSize(_THIS, SDL_Window *window);
 static void OHOS_ShowWindow(_THIS, SDL_Window *window);
 static void OHOS_HideWindow(_THIS, SDL_Window *window);
+static int OHOS_CreateWindowFramebuffer(_THIS, SDL_Window *window, Uint32 *format, void **pixels, int *pitch);
+static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window, const SDL_Rect *rects, int numrects);
+static void OHOS_DestroyWindowFramebuffer(_THIS, SDL_Window *window);
 static void OHOS_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay *display, SDL_bool fullscreen);
 
 VideoBootStrap OHOS_bootstrap = {
@@ -75,6 +360,10 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->GetDisplayBounds = OHOS_GetDisplayBounds;
 	device->PumpEvents = OHOS_PumpEvents;
 	device->CreateSDLWindow = OHOS_CreateSDLWindow;
+	device->DestroyWindow = OHOS_DestroyWindow;
+	device->CreateWindowFramebuffer = OHOS_CreateWindowFramebuffer;
+	device->UpdateWindowFramebuffer = OHOS_UpdateWindowFramebuffer;
+	device->DestroyWindowFramebuffer = OHOS_DestroyWindowFramebuffer;
 	device->SetWindowTitle = OHOS_SetWindowTitle;
 	device->SetWindowPosition = OHOS_SetWindowPosition;
 	device->SetWindowSize = OHOS_SetWindowSize;
@@ -82,6 +371,13 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->HideWindow = OHOS_HideWindow;
 	device->SetWindowFullscreen = OHOS_SetWindowFullscreen;
 
+	/* Register the OpenGLES backend so SDL_CreateRenderer(SDL_RENDERER_ACCELERATED)
+	 * uses the hardware GLES render driver (EGL via OH_NativeWindow) instead of
+	 * falling back to the software surface renderer. OHOS_GL_* (SDL_ohosgl.c)
+	 * uses eglCreateWindowSurface/eglCreateContext on the GAME XComponent native
+	 * window - the AVPlayer video now renders into its own separate XComponent
+	 * surface (see ohos_video_player), so EGL on the game window no longer
+	 * disturbs video playback. */
 	device->GL_LoadLibrary = OHOS_GL_LoadLibrary;
 	device->GL_GetProcAddress = OHOS_GL_GetProcAddress;
 	device->GL_UnloadLibrary = OHOS_GL_UnloadLibrary;

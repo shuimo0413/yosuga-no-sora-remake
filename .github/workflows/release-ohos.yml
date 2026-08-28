@@ -3,7 +3,7 @@ name: Release OpenHarmony / HarmonyOS HAP
 'on':
   push:
     tags:
-      - 'v*'
+      - 'v*-ohos-*'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -16,16 +16,16 @@ name: Release OpenHarmony / HarmonyOS HAP
         default: true
         type: boolean
       sign_mode:
-        description: 'HAP signing: none = unsigned (sign locally with AGC materials), community = OpenHarmony debug certificate, agc = your AppGallery Connect materials via the six OHOS_* secrets'
+        description: 'HAP signing: none / community / agc'
         required: true
-        default: none
+        default: community
         type: choice
         options:
           - none
           - community
           - agc
       data_mode:
-        description: 'external = HAP without game data (data zips are published as release assets and downloaded/imported in-game), bundled = full data/ inside the HAP (legacy), mini = tiny sample data for install tests'
+        description: 'external / bundled / mini'
         required: true
         default: external
         type: choice
@@ -33,7 +33,6 @@ name: Release OpenHarmony / HarmonyOS HAP
           - external
           - bundled
           - mini
-
 
 permissions:
   contents: write
@@ -43,59 +42,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-release:
-    name: Build OpenHarmony HAP and publish
+  build-app:
+    name: Build OpenHarmony HAP
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-
     steps:
       - name: Check out repository, submodules, and LFS content
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           lfs: false
-
+      - name: Patch krkrz for OHOS xp3 auto paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_krkrz_ohos.py
       - name: Reclaim runner disk space
         shell: bash
         run: |
           set -euo pipefail
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android/sdk/build-tools \
-            /usr/local/lib/android/sdk/cmake \
-            /usr/local/lib/android/sdk/ndk \
-            /usr/local/lib/android/sdk/platforms \
-            /usr/local/lib/android/sdk/system-images \
-            /usr/local/share/boost \
-            /usr/share/dotnet
+          sudo rm -rf /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
+            /usr/local/lib/android/sdk/build-tools /usr/local/lib/android/sdk/cmake \
+            /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/platforms \
+            /usr/local/lib/android/sdk/system-images /usr/local/share/boost /usr/share/dotnet
           sudo apt-get clean
-          df -h "$GITHUB_WORKSPACE"
-
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
-
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
-
-      - name: Install packaging tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y p7zip-full
-
       - name: Resolve release metadata
         id: release
         shell: bash
@@ -105,193 +88,155 @@ jobs:
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
           INPUT_SIGN_MODE: ${{ inputs.sign_mode }}
+          INPUT_DATA_MODE: ${{ inputs.data_mode }}
           OHOS_DEFAULT_SIGN_MODE: ${{ vars.OHOS_DEFAULT_SIGN_MODE }}
+          # Forks/renames set the repository variable APP_BUNDLE_IDENTIFIER;
+          # the default matches the app's published bundle name.
+          APP_BUNDLE_IDENTIFIER: ${{ vars.APP_BUNDLE_IDENTIFIER || 'com.shuimo0413.yosuganosora.hdremake' }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == 'push' ]]; then
             release_tag="$REF_NAME"
-            if [[ "$release_tag" == *-* ]]; then
-              is_prerelease=true
-            else
-              is_prerelease=false
-            fi
+            if [[ "$release_tag" == *-* ]]; then is_prerelease=true; else is_prerelease=false; fi
           else
             release_tag="${INPUT_RELEASE_TAG//[[:space:]]/}"
             is_prerelease="$INPUT_PRERELEASE"
           fi
-
           if [[ ! "$release_tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
-            echo "Invalid release tag: $release_tag" >&2
+            echo "Invalid release tag: $release_tag" >&2; exit 1
+          fi
+          # Numeric version extracted from the tag verbatim: v1.0.0 -> 1.0.0,
+          # v1.0 -> 1.0, v1.01 -> 1.01, v123 -> 123; platform suffixes and
+          # test markers dropped. Shared by every platform display version
+          # and the in-game status.tjs GAME_VERSION.
+          version_name="$(printf '%s' "$release_tag" | sed -nE 's/^v?([0-9]+(\.[0-9]+)*).*/\1/p')"
+          if [[ -z "$version_name" ]]; then
+            echo "Cannot derive a numeric version from tag: $release_tag" >&2
             exit 1
           fi
-
-          version_name="${release_tag#v}"
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
-
-          # Signing mode: the workflow input wins; tag pushes fall back to
-          # the OHOS_DEFAULT_SIGN_MODE repository variable and finally to
-          # 'none' (unsigned, signable later with AGC materials).
           sign_mode="${INPUT_SIGN_MODE}"
-          if [[ -z "$sign_mode" ]]; then
-            sign_mode="${OHOS_DEFAULT_SIGN_MODE:-none}"
-          fi
-          case "$sign_mode" in
-            none|community|agc) ;;
-            *) echo "Invalid sign mode: $sign_mode" >&2; exit 1 ;;
-          esac
-
+          if [[ -z "$sign_mode" ]]; then sign_mode="${OHOS_DEFAULT_SIGN_MODE:-community}"; fi
+          # Push builds never bundle data (the app downloads it); only a
+          # manual dispatch can select bundled/mini. Defaulting here prevents
+          # the empty-value LFS pull on push triggers.
+          data_mode="${INPUT_DATA_MODE}"
+          if [[ -z "$data_mode" ]]; then data_mode='external'; fi
+          case "$sign_mode" in none|community|agc) ;; *) echo "Bad sign mode: $sign_mode" >&2; exit 1 ;; esac
           {
             echo "tag=$release_tag"
             echo "prerelease=$is_prerelease"
             echo "version-name=$version_name"
             echo "version-code=$version_code"
             echo "sign-mode=$sign_mode"
+            echo "data-mode=$data_mode"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Verify Git LFS content
-        shell: bash
-        run: |
-          set -euo pipefail
-          git lfs pull
-          git lfs fsck
-
-      - name: Generate and validate the content manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/generate_content_manifest.py \
-            --root data \
-            --output data/content-manifest.json \
-            --config content-packs.json \
-            --cache "$RUNNER_TEMP/content-manifest-cache.json" \
-            --full
-
+      # build-app does not need game data (external mode): NO git lfs pull,
+      # no content/asset manifest generation. The app fetches data-assets.json
+      # from the Release at runtime, so the HAP build never touches data/.
+      - name: Restore cached OHOS SDK
+        id: sdk-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ohos-sdk-cache
+          key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
       - name: Install the OpenHarmony 5.0 command line tools and SDK
         shell: bash
         env:
           OHOS_COMMAND_LINE_TOOLS_URL: ${{ vars.OHOS_COMMAND_LINE_TOOLS_URL }}
+          OHOS_CLI_TOOLS_SHA256: ${{ vars.OHOS_CLI_TOOLS_SHA256 }}
+          CACHE_HIT: ${{ steps.sdk-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           sdk_root="$RUNNER_TEMP/ohos-sdk"
           mkdir -p "$sdk_root"
-
-          # Command line tools for API 12. This bundle already contains the
-          # OpenHarmony SDK under command-line-tools/sdk/default/openharmony.
-          # Override the repository variable OHOS_COMMAND_LINE_TOOLS_URL when
-          # the mirror publishes a newer package:
-          # https://gitee.com/openharmony/docs/blob/master/zh-cn/release-notes/OpenHarmony-v5.0.0-release.md
-          cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
-          echo "Downloading command line tools: $cli_url"
-          curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/commandline-tools.zip" "$cli_url"
-          unzip -q -o "$RUNNER_TEMP/commandline-tools.zip" -d "$sdk_root/"
-          if [[ ! -d "$sdk_root/command-line-tools" ]]; then
-            echo 'The command line tools archive did not contain a command-line-tools directory.' >&2
-            exit 1
-          fi
-
-          # The command line tools bundle ships the OpenHarmony SDK in the old
-          # layout (command-line-tools/sdk/default/openharmony/<component>).
-          # hvigor 5.8.x expects the new per-API layout instead:
-          # <sdk_root>/<apiVersion>/<component>. Migrate the bundled SDK.
-          bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
-          if [[ ! -d "$bundled_sdk/native" || ! -d "$bundled_sdk/ets" ]]; then
-            echo 'The command line tools bundle did not include the OpenHarmony SDK.' >&2
-            echo "Expected SDK components under $bundled_sdk" >&2
-            exit 1
-          fi
-
-          uni_json="$(find "$bundled_sdk" -maxdepth 2 -name oh-uni-package.json -print -quit)"
-          if [[ -z "$uni_json" ]]; then
-            echo 'No oh-uni-package.json found in the bundled SDK.' >&2
-            exit 1
-          fi
-          api_version="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('apiVersion',''))" "$uni_json")"
-          if [[ -z "$api_version" ]]; then
-            api_version="12"
-          fi
-          echo "Bundled OpenHarmony SDK API version: $api_version"
-
-          mkdir -p "$sdk_root/$api_version"
-          for component in ets js native previewer toolchains; do
-            if [[ -d "$bundled_sdk/$component" ]]; then
-              mv "$bundled_sdk/$component" "$sdk_root/$api_version/$component"
+          if [[ "$CACHE_HIT" == 'true' && -d "ohos-sdk-cache" ]]; then
+            echo "Using cached OHOS SDK"
+            cp -r ohos-sdk-cache/. "$sdk_root/"
+            api_version="$(ls "$sdk_root" | xargs -n1 basename | grep -E '^[0-9]+$' | sort -rn | head -1)"
+          else
+            cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
+            echo "Downloading command line tools"
+            curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/commandline-tools.zip" "$cli_url"
+            # Supply-chain guard: log the digest and, when the repository
+            # variable OHOS_CLI_TOOLS_SHA256 is set, fail on any mismatch.
+            cli_sha="$(sha256sum "$RUNNER_TEMP/commandline-tools.zip" | cut -d' ' -f1)"
+            echo "commandline-tools sha256: $cli_sha"
+            if [[ -n "${OHOS_CLI_TOOLS_SHA256:-}" && "$cli_sha" != "$OHOS_CLI_TOOLS_SHA256" ]]; then
+              echo 'command line tools sha256 mismatch (expected OHOS_CLI_TOOLS_SHA256)' >&2
+              exit 1
             fi
-          done
-          # Drop the now-empty legacy SDK shell so stale components are not
-          # scanned again.
-          rm -rf "$sdk_root/command-line-tools/sdk"
-
-          # Free the downloaded archive before the multi-GiB build.
-          rm -f "$RUNNER_TEMP/commandline-tools.zip"
-
+            unzip -q -o "$RUNNER_TEMP/commandline-tools.zip" -d "$sdk_root/"
+            [[ -d "$sdk_root/command-line-tools" ]] || { echo 'command-line-tools missing' >&2; exit 1; }
+            bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
+            [[ -d "$bundled_sdk/native" && -d "$bundled_sdk/ets" ]] || { echo 'SDK components missing' >&2; exit 1; }
+            uni_json="$(find "$bundled_sdk" -maxdepth 2 -name oh-uni-package.json -print -quit)"
+            api_version="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('apiVersion',''))" "$uni_json" 2>/dev/null || echo 12)"
+            [[ -n "$api_version" ]] || api_version="12"
+            mkdir -p "$sdk_root/$api_version"
+            for component in ets js native previewer toolchains; do
+              if [[ -d "$bundled_sdk/$component" ]]; then mv "$bundled_sdk/$component" "$sdk_root/$api_version/$component"; fi
+            done
+            rm -rf "$sdk_root/command-line-tools/sdk"
+            rm -f "$RUNNER_TEMP/commandline-tools.zip"
+          fi
           chmod +x "$sdk_root"/command-line-tools/bin/* 2>/dev/null || true
-          if [[ ! -x "$sdk_root/command-line-tools/bin/hvigorw" ]]; then
-            echo 'hvigorw was not found under command-line-tools/bin.' >&2
-            exit 1
-          fi
-          if [[ ! -d "$sdk_root/$api_version/native" ]]; then
-            echo "The OpenHarmony SDK native/ directory is missing under $sdk_root/$api_version." >&2
-            exit 1
-          fi
-
+          [[ -x "$sdk_root/command-line-tools/bin/hvigorw" ]] || { echo 'hvigorw missing' >&2; exit 1; }
+          [[ -n "$api_version" && -d "$sdk_root/$api_version/native" ]] || { echo 'native missing' >&2; exit 1; }
           echo "DEVECO_SDK_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "OHOS_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
           echo "OHOS_SDK_API=$api_version" >> "$GITHUB_ENV"
-          ls "$sdk_root"
           ls "$sdk_root/$api_version"
-
-      - name: Package game data assets
-        id: data
+      - name: Mirror SDK for cache
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          DATA_MODE: ${{ inputs.data_mode }}
         run: |
           set -euo pipefail
-          if [[ "$DATA_MODE" != 'mini' ]]; then
-            out_dir="$RUNNER_TEMP/data-assets"
-            mkdir -p "$out_dir"
-            if [[ "$DATA_MODE" == 'bundled' ]]; then
-              # Legacy behavior: data ships inside the HAP, no download zips.
-              echo '{"schemaVersion":1,"releaseTag":"'"$RELEASE_TAG"'","assets":[]}' > "$out_dir/data-assets.json"
-            else
-              python3 tools/package_data_release.py \
-                --root data --config content-packs.json \
-                --tag "$RELEASE_TAG" --out "$out_dir"
-            fi
-            echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
-            ls -lh "$out_dir"
-          fi
-
+          rm -rf ohos-sdk-cache
+          cp -r "$RUNNER_TEMP/ohos-sdk" ohos-sdk-cache
+      - name: Save cached OHOS SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ohos-sdk-cache
+          key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
       - name: Prepare the OpenHarmony project
         shell: bash
         env:
-          DATA_MODE: ${{ inputs.data_mode }}
-          ASSETS_DIR: ${{ steps.data.outputs.assets-dir }}
+          DATA_MODE: ${{ steps.release.outputs.data-mode }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          assets_arg=""
-          if [[ -n "${ASSETS_DIR:-}" ]]; then
-            assets_arg="--assets-file $ASSETS_DIR/data-assets.json"
-          fi
+          # external mode: the HAP does not bundle data and does not need a
+          # bundled data-assets.json (the app fetches it from the Release at
+          # runtime). Only mini/bundled (diagnostic) modes need LFS data.
           data_arg=""
-          if [[ "$DATA_MODE" == 'bundled' ]]; then
-            data_arg="--data-link"
+          if [[ "$DATA_MODE" != 'external' ]]; then
+            git lfs pull
+            if [[ "$DATA_MODE" == 'bundled' ]]; then data_arg="--data-link"; fi
           fi
-          # Vendors and patches SDL2 for OpenHarmony.
-          python3 tools/setup_ohos_project.py $data_arg $assets_arg
-
+          python3 tools/setup_ohos_project.py $data_arg
           if [[ "$DATA_MODE" == 'mini' ]]; then
-            # Tiny data sample (a few MB) so the HAP stays far below the
-            # 2 GiB zip offset limit and can be used for install tests.
             rm -f ohos-project/entry/src/main/resources/rawfile/data
             mkdir -p ohos-project/entry/src/main/resources/rawfile/data
             cp data/startup.tjs ohos-project/entry/src/main/resources/rawfile/data/
             find data -maxdepth 1 -type f -size -5M -exec cp {} ohos-project/entry/src/main/resources/rawfile/data/ \;
-            du -sh ohos-project/entry/src/main/resources/rawfile/data
           fi
-
-      - name: Build the release HAP
+      - name: Inject default manifest URL
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Write the current repository's Release download root into the HAP
+          # so forks/renames track the right repo without editing code.
+          mkdir -p ohos-project/entry/src/main/resources/rawfile
+          printf '{"baseUrl":"https://github.com/%s/releases/latest/download/","releaseTag":"%s"}\n' \
+            "$REPO" "$RELEASE_TAG" \
+            > ohos-project/entry/src/main/resources/rawfile/default-manifest.json
+          cat ohos-project/entry/src/main/resources/rawfile/default-manifest.json
+      - name: Build the release HAPs (harmonyos + openharmony flavors)
         id: build
         shell: bash
         env:
@@ -299,153 +244,111 @@ jobs:
           OHOS_VERSION_CODE: ${{ steps.release.outputs.version-code }}
         run: |
           set -euo pipefail
-          cli_bin="$DEVECO_SDK_HOME/command-line-tools/bin"
-          export PATH="$cli_bin:$PATH"
-
+          export PATH="$DEVECO_SDK_HOME/command-line-tools/bin:$PATH"
           cd ohos-project
-
-          # This hvigor locates the SDK through local.properties' sdk.dir or
-          # the OHOS_BASE_SDK_HOME environment variable.
-          {
-            echo "sdk.dir=$DEVECO_SDK_HOME"
-          } > local.properties
+          { echo "sdk.dir=$DEVECO_SDK_HOME"; } > local.properties
           export OHOS_BASE_SDK_HOME="$DEVECO_SDK_HOME"
-
           hvigorw --version
-          ohpm --version || true
-          # Inject the release version into the app manifest and align the
-          # SDK API fields with the bundled OpenHarmony SDK.
           python3 - <<'PY'
           import os, re
           path = 'AppScope/app.json5'
           text = open(path, encoding='utf-8').read()
-          text = re.sub(
-              r'"(versionName)"\s*:\s*"[^"]*"',
-              '"versionName": "' + os.environ['OHOS_VERSION_NAME'] + '"', text)
-          text = re.sub(
-              r'"(versionCode)"\s*:\s*\d+',
-              '"versionCode": ' + os.environ['OHOS_VERSION_CODE'], text)
+          text = re.sub(r'"(versionName)"\s*:\s*"[^"]*"', '"versionName": "' + os.environ['OHOS_VERSION_NAME'] + '"', text)
+          text = re.sub(r'"(versionCode)"\s*:\s*\d+', '"versionCode": ' + os.environ['OHOS_VERSION_CODE'], text)
           open(path, 'w', encoding='utf-8').write(text)
-
           path = 'build-profile.json5'
           text = open(path, encoding='utf-8').read()
           api = os.environ.get('OHOS_SDK_API', '12')
           for field in ('compileSdkVersion', 'compatibleSdkVersion', 'targetSdkVersion'):
-              text = re.sub(
-                  r'("' + field + r'"\s*:\s*)[^,\n]+',
-                  r'\g<1>' + api, text)
+              text = re.sub(r'("' + field + r'"\s*:\s*)[^,\n]+', r'\g<1>' + api, text)
           open(path, 'w', encoding='utf-8').write(text)
           PY
+          # The ArkTS shell reads entry/src/main/resources/rawfile/build-flavor.json
+          # to pick the Download-directory route at runtime:
+          #   harmonyos   -> save(DOWNLOAD) route (silent Download/<bundleName>)
+          #   openharmony -> experimental routes (folder picker / permission)
+          for flavor in harmonyos openharmony; do
+            printf '{"flavor":"%s"}\n' "$flavor" \
+              > entry/src/main/resources/rawfile/build-flavor.json
+            cat entry/src/main/resources/rawfile/build-flavor.json
+            hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+            hap="$(find entry/build -name 'entry-default-*.hap' -print -quit)"
+            [[ -n "$hap" && -f "$hap" ]] || { echo "No HAP produced for $flavor" >&2; exit 1; }
+            mv "$hap" "$RUNNER_TEMP/hap-$flavor.hap"
+            rm -rf entry/build # keep entry/.cxx so the second flavor reuses the native build
+          done
+          ls -lh "$RUNNER_TEMP"/hap-*.hap
+          echo "hap-harmonyos=$RUNNER_TEMP/hap-harmonyos.hap" >> "$GITHUB_OUTPUT"
+          echo "hap-openharmony=$RUNNER_TEMP/hap-openharmony.hap" >> "$GITHUB_OUTPUT"
 
-          hvigorw assembleHap --mode module -p product=default \
-            -p buildMode=release --no-daemon
-
-          hap="$(find entry/build -name 'entry-default-*.hap' -print -quit)"
-          if [[ -z "$hap" || ! -f "$hap" ]]; then
-            echo 'No HAP was produced by the build.' >&2
-            exit 1
-          fi
-          hap="$(realpath "$hap")"
-          echo "hap=$hap" >> "$GITHUB_OUTPUT"
-          ls -lh "$hap"
-
-      - name: Sign the HAP
+      - name: Sign the HAPs
         id: signing
         if: steps.release.outputs.sign-mode != 'none'
         shell: bash
         env:
-          HAP: ${{ steps.build.outputs.hap }}
+          HAP_HARMONYOS: ${{ steps.build.outputs.hap-harmonyos }}
+          HAP_OPENHARMONY: ${{ steps.build.outputs.hap-openharmony }}
           SIGN_MODE: ${{ steps.release.outputs.sign-mode }}
           KEYSTORE_BASE64: ${{ secrets.OHOS_KEYSTORE_P12_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.OHOS_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OHOS_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OHOS_KEY_PASSWORD }}
+          OHOS_SIGN_TOOL_SHA256: ${{ vars.OHOS_SIGN_TOOL_SHA256 }}
           APP_CERT_BASE64: ${{ secrets.OHOS_APP_CERT_BASE64 }}
           PROFILE_BASE64: ${{ secrets.OHOS_PROFILE_P7B_BASE64 }}
           OHOS_SIGN_TOOL_URL: ${{ vars.OHOS_SIGN_TOOL_URL }}
         run: |
           set -euo pipefail
-          values=(
-            "$KEYSTORE_BASE64" "$KEYSTORE_PASSWORD" "$KEY_ALIAS"
-            "$KEY_PASSWORD" "$APP_CERT_BASE64" "$PROFILE_BASE64"
-          )
+          values=("$KEYSTORE_BASE64" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" "$APP_CERT_BASE64" "$PROFILE_BASE64")
           configured=0
-          for value in "${values[@]}"; do
-            [[ -n "$value" ]] && configured=$((configured + 1))
-          done
-
-          # Prefer the official OpenHarmony signing tool shipped with the
-          # SDK toolchains; fall back to the verified mirror copy.
+          for value in "${values[@]}"; do [[ -n "$value" ]] && configured=$((configured + 1)); done
           sign_tool=""
           mapfile -t candidate_tools < <(find "$OHOS_SDK_ROOT" -name 'hap-sign-tool*.jar' -print 2>/dev/null || true)
           if [[ "${#candidate_tools[@]}" -gt 0 ]]; then
             sign_tool="${candidate_tools[0]}"
-            echo "Using SDK signing tool: $sign_tool"
           else
             sign_tool="$RUNNER_TEMP/hap-sign-tool.jar"
-            sign_tool_url="${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
-            curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "$sign_tool_url"
-          fi
-          if [[ ! -f "$sign_tool" ]]; then
-            echo "Signing tool not found: $sign_tool" >&2
-            exit 1
-          fi
-
-          if [[ "$SIGN_MODE" == 'agc' ]]; then
-            # Your own AppGallery Connect materials. This is the only mode
-            # that produces a HAP accepted by HarmonyOS 5+ (NEXT) devices.
-            if [[ "$configured" -ne 6 ]]; then
-              echo "sign_mode=agc requires all six OHOS_* secrets." >&2
+            curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
+            # Supply-chain guard: log the digest and, when the repository
+            # variable OHOS_SIGN_TOOL_SHA256 is set, fail on any mismatch.
+            tool_sha="$(sha256sum "$sign_tool" | cut -d' ' -f1)"
+            echo "hap-sign-tool sha256: $tool_sha"
+            if [[ -n "${OHOS_SIGN_TOOL_SHA256:-}" && "$tool_sha" != "$OHOS_SIGN_TOOL_SHA256" ]]; then
+              echo 'hap-sign-tool sha256 mismatch (expected OHOS_SIGN_TOOL_SHA256)' >&2
               exit 1
             fi
-            keystore="$RUNNER_TEMP/ohos-keystore.p12"
-            cert="$RUNNER_TEMP/ohos-app-cert.cer"
-            profile="$RUNNER_TEMP/ohos-profile.p7b"
-            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
-            printf '%s' "$APP_CERT_BASE64" | base64 --decode > "$cert"
-            printf '%s' "$PROFILE_BASE64" | base64 --decode > "$profile"
-            chmod 600 "$keystore"
-            signed="${HAP%.hap}-signed.hap"
-            java -jar "$sign_tool" sign-app \
-              -keyAlias "$KEY_ALIAS" \
-              -signAlg SHA256withECDSA \
-              -mode localSign \
-              -appCertFile "$cert" \
-              -profileFile "$profile" \
-              -inFile "$HAP" \
-              -outFile "$signed" \
-              -keystoreFile "$keystore" \
-              -keyPwd "$KEY_PASSWORD" \
-              -keystorePwd "$KEYSTORE_PASSWORD"
+          fi
+          [[ -f "$sign_tool" ]] || { echo 'Signing tool missing' >&2; exit 1; }
+          if [[ "$SIGN_MODE" == 'agc' ]]; then
+            [[ "$configured" -eq 6 ]] || { echo 'agc mode needs all six secrets' >&2; exit 1; }
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/keystore.p12"
+            printf '%s' "$APP_CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.cer"
+            printf '%s' "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.p7b"
+            for hap in "$HAP_HARMONYOS" "$HAP_OPENHARMONY"; do
+              base="$(basename "$hap" .hap)"
+              signed="$RUNNER_TEMP/$base-signed.hap"
+              java -jar "$sign_tool" sign-app -keyAlias "$KEY_ALIAS" -signAlg SHA256withECDSA -mode localSign \
+                -appCertFile "$RUNNER_TEMP/cert.cer" -profileFile "$RUNNER_TEMP/profile.p7b" \
+                -inFile "$hap" -outFile "$signed" -keystoreFile "$RUNNER_TEMP/keystore.p12" \
+                -keyPwd "$KEY_PASSWORD" -keystorePwd "$KEYSTORE_PASSWORD"
+            done
             echo 'signed=agc' >> "$GITHUB_OUTPUT"
           elif [[ "$SIGN_MODE" == 'community' ]]; then
-            # Community OpenHarmony debug certificate so the HAP installs on
-            # developer-mode OpenHarmony devices out of the box. (HarmonyOS
-            # NEXT devices need AGC materials: use sign_mode=agc.)
             echo 'Signing with the community OpenHarmony debug certificate.'
-            sign_dir="$RUNNER_TEMP/ohos-autosign"
-            mkdir -p "$sign_dir"
+            sign_dir="$RUNNER_TEMP/ohos-autosign"; mkdir -p "$sign_dir"
             cp "$sign_tool" "$sign_dir/hap-sign-tool.jar"
-            for file in autosign.py createRootAndSubCert.config \
-              createAppCertAndProfile.config signHap.config \
-              UnsgnedReleasedProfileTemplate.json; do
-              curl -fL --retry 3 --retry-delay 10 \
-                -o "$sign_dir/$file" \
-                "https://raw.githubusercontent.com/openharmony/developtools_hapsigner/master/autosign/$file"
+            # Vendored from openharmony/developtools_hapsigner
+            # (tools/ohos/autosign/, source commit b7c706fcc71a4a4a81ed5b091fc141d23f240e86)
+            # so community signing never executes un-pinned upstream code.
+            for file in autosign.py createRootAndSubCert.config createAppCertAndProfile.config signHap.config UnsgnedReleasedProfileTemplate.json; do
+              cp "$GITHUB_WORKSPACE/tools/ohos/autosign/$file" "$sign_dir/$file"
             done
             cd "$sign_dir"
             sed -i "s#config.signtool=.*#config.signtool=$sign_dir/hap-sign-tool.jar#" *.config
-            now="$(date +%s)"
-            future="$(date -d '+10 years' +%s)"
-            jq --arg now "$now" --arg future "$future" \
-              '.validity = {"not-before": ($now | tonumber), "not-after": ($future | tonumber)} | .["bundle-info"]["bundle-name"] = "com.lightwinder.yosuganosora.hdremake" | .["bundle-info"]["app-feature"] = "hos_normal_app"' \
-              UnsgnedReleasedProfileTemplate.json > profile.tmp.json
+            now="$(date +%s)"; future="$(date -d '+10 years' +%s)"
+            jq --arg now "$now" --arg future "$future" '.validity = {"not-before": ($now|tonumber), "not-after": ($future|tonumber)} | .["bundle-info"]["bundle-name"]="$APP_BUNDLE_IDENTIFIER" | .["bundle-info"]["app-feature"]="hos_normal_app"' UnsgnedReleasedProfileTemplate.json > profile.tmp.json
             mv profile.tmp.json UnsgnedReleasedProfileTemplate.json
-            # The SDK-bundled tool prefers p12 keystores over jks.
             sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createRootAndSubCert.config
-            # The upstream app-profile config references keys that only exist
-            # in a pre-published OpenHarmony.p12; point it at the CA chain and
-            # profile key generated by createRootAndSubCert instead.
             sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createAppCertAndProfile.config
             sed -i 's#sub-ca.app.keyAlias=.*#sub-ca.app.keyAlias=oh-app-sign-srv-ca-key-v1#' createAppCertAndProfile.config
             sed -i 's#sub-ca.app.subject=.*#sub-ca.app.subject=C=CN,O=OpenHarmony,OU=OpenHarmony Community,CN= Application Signature Service CA#' createAppCertAndProfile.config
@@ -454,162 +357,118 @@ jobs:
             sed -i 's#profile.keypair.keyAlias=.*#profile.keypair.keyAlias=oh-profile-key-v1#' createAppCertAndProfile.config
             sed -i 's#cert.profile.outFile=.*#cert.profile.outFile=profile1.pem#' createAppCertAndProfile.config
             sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' signHap.config
-            run_autosign() {
-              python3 autosign.py "$1" || {
-                echo "---- error.txt ----"; cat error.txt 2>/dev/null || true
-                echo "---- log.txt ----"; cat log.txt 2>/dev/null || true
-                exit 1
-              }
-            }
+            run_autosign() { python3 autosign.py "$1" || { cat error.txt 2>/dev/null || true; cat log.txt 2>/dev/null || true; exit 1; }; }
             run_autosign createRootAndSubCert
             run_autosign createAppCertAndProfile
-            cp "$HAP" "$sign_dir/app1-unsigned.hap"
-            sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
-            run_autosign signHap
-            signed="$sign_dir/result/app1-signed.hap"
-            if [[ ! -f "$signed" ]]; then
-              echo 'Community debug signing failed to produce a HAP.' >&2
-              exit 1
-            fi
+            for hap in "$HAP_HARMONYOS" "$HAP_OPENHARMONY"; do
+              base="$(basename "$hap" .hap)"
+              cp "$hap" "$sign_dir/app1-unsigned.hap"
+              sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
+              run_autosign signHap
+              signed="$sign_dir/result/app1-signed.hap"
+              [[ -f "$signed" ]] || { echo 'Community signing failed' >&2; exit 1; }
+              cp "$signed" "$RUNNER_TEMP/$base-signed.hap"
+            done
             echo 'signed=community' >> "$GITHUB_OUTPUT"
           else
-            echo "Unexpected sign mode: $SIGN_MODE" >&2
-            exit 1
+            echo "Bad sign mode: $SIGN_MODE" >&2; exit 1
           fi
+          echo "signed-harmonyos=$RUNNER_TEMP/hap-harmonyos-signed.hap" >> "$GITHUB_OUTPUT"
+          echo "signed-openharmony=$RUNNER_TEMP/hap-openharmony-signed.hap" >> "$GITHUB_OUTPUT"
+          ls -lh "$RUNNER_TEMP"/hap-*-signed.hap
 
-          echo "hap=$signed" >> "$GITHUB_OUTPUT"
-          ls -lh "$signed"
-
-      - name: Verify and package the HAP
+      - name: Verify and package the HAPs
         id: package
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          SIGNED: ${{ steps.signing.outputs.signed }}
-          HAP: ${{ steps.signing.outputs.hap || steps.build.outputs.hap }}
-          DATA_MODE: ${{ inputs.data_mode }}
+          HAP_HARMONYOS: ${{ steps.build.outputs.hap-harmonyos }}
+          HAP_OPENHARMONY: ${{ steps.build.outputs.hap-openharmony }}
+          SIGNED_HARMONYOS: ${{ steps.signing.outputs.signed-harmonyos }}
+          SIGNED_OPENHARMONY: ${{ steps.signing.outputs.signed-openharmony }}
+          DATA_MODE: ${{ steps.release.outputs.data-mode }}
         run: |
           set -euo pipefail
-          hap="$HAP"
-          if [[ ! -f "$hap" ]]; then
-            echo "HAP is missing: $hap" >&2
-            exit 1
-          fi
-
-          # The package must contain the native libraries and the packaged
-          # game data.
-          unzip -t "$hap" >/dev/null
-          mapfile -t contents < <(unzip -Z1 "$hap")
-          content_list="$(printf '%s\n' "${contents[@]}")"
           if [[ "$DATA_MODE" == 'bundled' ]]; then
-            rawfile_check='resources/rawfile/data/startup.tjs'
+            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so' 'resources/rawfile/data/startup.tjs')
           else
-            rawfile_check='resources/rawfile/data-assets.json'
+            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'libs/x86_64/libentry.so' 'libs/x86_64/libkrkrsdl2.so')
           fi
-          for required in \
-            'libs/arm64-v8a/libentry.so' \
-            'libs/arm64-v8a/libkrkrsdl2.so' \
-            "$rawfile_check"; do
-            if ! grep -Fxq "$required" <<<"$content_list"; then
-              echo "The HAP is missing the required entry: $required" >&2
-              exit 1
-            fi
-          done
-
-          if [[ "$DATA_MODE" == 'mini' ]]; then
-            data_suffix="-mini"
-          else
-            data_suffix=""
-          fi
-          if [[ -n "$SIGNED" ]]; then
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-$RELEASE_TAG.hap"
-          else
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-unsigned-$RELEASE_TAG.hap"
-          fi
+          if [[ "$DATA_MODE" == 'mini' ]]; then data_suffix="-mini"; else data_suffix=""; fi
           asset_dir="$RUNNER_TEMP/release-assets"
           mkdir -p "$asset_dir"
-          cp "$hap" "$asset_dir/$package_name"
-
-          # The HAP is small now (no bundled game data); upload it directly
-          # instead of splitting it into 7-Zip volumes. Remove build
-          # intermediates before the packaging step ends.
-          rm -rf ohos-project/entry/build ohos-project/.hvigor \
-            ohos-project/entry/src/main/cpp/third_party
-
-          (
-            cd "$asset_dir"
-            sha256sum "$package_name" > "$package_name-SHA256SUMS.txt"
-          )
-
-          cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
-          Yosuga no Sora: HD Remake
-          Runtime: Kirikiri SDL2 for OpenHarmony 5.0 (API 12, ARM64)
-          Release: $RELEASE_TAG
-          Commit: $GITHUB_SHA
-          Signing: ${SIGNED:-unsigned}
-          Data: ${DATA_MODE:-full}
-          Native optimization: Release
-          Known limitations: no SDL audio backend yet (silent), game data is
-          extracted from rawfile into the app sandbox on first launch.
-          EOF
-
+          verify_and_package() {
+            local flavor="$1" hap="$2" signed_hap="$3"
+            local file="$hap"
+            [[ -n "$signed_hap" && -f "$signed_hap" ]] && file="$signed_hap"
+            [[ -f "$file" ]] || { echo "HAP missing for $flavor" >&2; exit 1; }
+            unzip -t "$file" >/dev/null
+            mapfile -t contents < <(unzip -Z1 "$file")
+            content_list="$(printf '%s\n' "${contents[@]}")"
+            for required in "${required_list[@]}"; do
+              grep -Fxq "$required" <<<"$content_list" || { echo "$flavor HAP missing $required" >&2; exit 1; }
+            done
+            local os_label="OpenHarmony"
+            [[ "$flavor" == 'harmonyos' ]] && os_label="HarmonyOS"
+            local package_name
+            if [[ -n "$signed_hap" ]]; then
+              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-$RELEASE_TAG.hap"
+            else
+              package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-unsigned-$RELEASE_TAG.hap"
+            fi
+            cp "$file" "$asset_dir/$package_name"
+            # Record the asset digest in BUILD-INFO so every published file
+            # carries a verifiable SHA-256 next to its provenance data.
+            hap_sha256="$(sha256sum "$file" | cut -d' ' -f1)"
+            printf 'Yosuga no Sora: HD Remake\nRuntime: Kirikiri SDL2 for %s 5.0 (API 12, ARM64 + x86_64)\nFlavor: %s\nRelease: %s\nCommit: %s\nSigning: %s\nData: %s\nNative optimization: Release\nSHA-256: %s  %s\n' \
+              "$os_label" "$flavor" "$RELEASE_TAG" "$GITHUB_SHA" "${signed_hap:-unsigned}" "${DATA_MODE:-external}" \
+              "$hap_sha256" "$package_name" \
+              > "$asset_dir/$package_name-BUILD-INFO.txt"
+          }
+          verify_and_package harmonyos "$HAP_HARMONYOS" "$SIGNED_HARMONYOS"
+          verify_and_package openharmony "$HAP_OPENHARMONY" "$SIGNED_OPENHARMONY"
+          rm -rf ohos-project/entry/build ohos-project/.hvigor ohos-project/entry/src/main/cpp/third_party
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"
-
-      - name: Create or update GitHub Release
+      - name: Publish HAP to Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
-          ASSET_DIRECTORY: ${{ steps.package.outputs.asset-directory }}
-          ASSETS_DIR: ${{ steps.data.outputs.assets-dir }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
           EVENT_NAME: ${{ github.event_name }}
           COMMIT_SHA: ${{ github.sha }}
-          SIGNED: ${{ steps.signing.outputs.signed }}
+          ASSET_DIR: ${{ steps.package.outputs.asset-directory }}
           GH_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Add the downloadable game data zips to the release assets.
-          if [[ -n "${ASSETS_DIR:-}" ]]; then
-            for data_zip in "$ASSETS_DIR"/*.zip; do
-              [[ -e "$data_zip" ]] && cp "$data_zip" "$ASSET_DIRECTORY/"
-            done
-          fi
-          assets=("$ASSET_DIRECTORY"/*)
-          [[ "${#assets[@]}" -gt 0 ]]
-          exists=false
-          is_draft=false
-          if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
-            --json isDraft 2>/dev/null); then
-            exists=true
-            is_draft=$(python3 -c \
-              'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' \
-              <<<"$json")
-          else
-            args=(release create "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft \
-              --title "$RELEASE_TAG" --generate-notes)
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" >/dev/null 2>&1; then
+            args=(release create "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft --title "$RELEASE_TAG" --generate-notes)
             [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
-            [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
-            if ! gh "${args[@]}"; then
-              for ((attempt = 1; attempt <= 12; attempt++)); do
-                if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
-                  --json isDraft 2>/dev/null); then
-                  exists=true
-                  is_draft=$(python3 -c \
-                    'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' \
-                    <<<"$json")
-                  break
-                fi
-                echo "Waiting for another workflow to create the release ($attempt/12)."
-                sleep 5
-              done
-              [[ "$exists" == 'true' ]] || exit 1
+            gh "${args[@]}" || true
+          fi
+          assets=("$ASSET_DIR"/*)
+          [[ "${#assets[@]}" -gt 0 ]] || { echo 'no hap assets' >&2; exit 1; }
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GH_REPOSITORY" --clobber
+
+          # Publish the release right here: the HAP is uploaded, so flip the
+          # draft to published (prerelease flag per the trigger).
+          if [[ "$EVENT_NAME" == 'push' ]]; then
+            if [[ "$RELEASE_TAG" == *-* ]]; then IS_PRERELEASE=true; else IS_PRERELEASE=false; fi
+          else
+            IS_PRERELEASE="$INPUT_PRERELEASE"
+          fi
+          exists=false
+          for ((attempt=1; attempt<=20; attempt++)); do
+            if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" --json isDraft 2>/dev/null); then
+              exists=true; break
             fi
-          fi
-          gh release upload "$RELEASE_TAG" "${assets[@]}" \
-            --repo "$GH_REPOSITORY" --clobber
-          if [[ "$exists" == 'false' || "$is_draft" == 'true' ]]; then
-            gh release edit "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft=false
-          fi
+            echo "Waiting for release to be created ($attempt/20)."; sleep 5
+          done
+          [[ "$exists" == 'true' ]] || exit 1
+          args=(--draft=false)
+          [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
+          gh release edit "$RELEASE_TAG" "${args[@]}" --repo "$GH_REPOSITORY"
+
+

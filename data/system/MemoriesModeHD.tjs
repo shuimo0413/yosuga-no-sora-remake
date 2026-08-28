@@ -633,9 +633,15 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		if(tgt === void || id < 0 || id >= tgt.count) return;
 		if(!isUnlocked(tgt[id])) return;
 
-		if(tgt[id].src == "movie/opening")
+		if(tgt[id].chk == 0)
 		{
 			startOpeningMovie();
+			return;
+		}
+
+		if(tgt[id].chk >= 11 && tgt[id].chk <= 15)
+		{
+			startEndingMovie(tgt[id].chk);
 			return;
 		}
 
@@ -665,6 +671,39 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		close();
 	}
 
+	function startEndingMovie(chk)
+	{
+		var file = "";
+		switch(chk)
+		{
+		case 11 : file = "staff_roll_sora"; break;
+		case 12 : file = "staff_roll_nao"; break;
+		case 13 : file = "staff_roll_akira"; break;
+		case 14 : file = "staff_roll_kazuha"; break;
+		case 15 : file = "staff_roll_motoka"; break;
+		default : return;
+		}
+
+		_decide = true;
+		setInput();
+
+		StopSystemSound();
+		StopBgm();
+		_base.visible = false;
+		_openingMovie = true;
+
+		try
+		{
+			var ok = PlayMovie(file, this);
+			if(!ok)
+				finishOpeningMovie();
+		}
+		catch(eEnd)
+		{
+			finishOpeningMovie();
+		}
+	}
+
 	function startOpeningMovie()
 	{
 		_decide = true;
@@ -684,13 +723,13 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		if(!_openingMovie) return;
 
 		_openingMovie = false;
-		StopMovie();
+		try { StopMovie(); } catch(e1) {}
 		_base.visible = true;
 		_base.opacity = 255;
 		_decide = false;
-		setInput();
-		PlayBgm("BGM17");
-		window.flushMouseTracking();
+		try { setInput(); } catch(e2) {}
+		try { PlayBgm("BGM17"); } catch(e3) {}
+		try { window.flushMouseTracking(); } catch(e4) {}
 	}
 
 	function action(ev)

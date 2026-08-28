@@ -1,0 +1,11 @@
+.git/
+*.class
+
+# DevEco / hvigor build artifacts
+.cxx/
+build/
+entry/build/
+oh_modules/
+.codegenie/
+tools/__pycache__/
+__pycache__/

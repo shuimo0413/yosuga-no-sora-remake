@@ -38,7 +38,9 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		hitType = htMask;
 		hitThreshold = 0;
 		setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
-		fillRect(0, 0, width, height, 0x0);
+		// OHOS: 0x0 (transparent) leaves the layer buffer uninitialised, which
+		// shows as white garbage before the movie; paint opaque black instead.
+		fillRect(0, 0, width, height, 0xff000000);
 		absolute = LAYER_LOGO;
 
 		_spr["BASE"] = new global.Sprite(win, this);
@@ -64,7 +66,9 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		CreateSprCover();
 		with(SPR_COVER){
-			.fillRect(0, 0, SPR_COVER.width, SPR_COVER.height, 0xffffffff);
+			// OHOS: opening the native video takes ~0.5-1s (video XComponent mount + AVPlayer prepare); during that wait this cover is the only thing on screen. Paint it black so the wait looks like a normal fade-in instead of a harsh white flash. Layers are hidden by default, so it must be shown explicitly.
+			.fillRect(0, 0, SPR_COVER.width, SPR_COVER.height, 0xff000000);
+			.visible = true;
 		}
 
 		visible = true;
@@ -315,8 +319,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 			// 参照フレームを失うと、再生時刻だけ進んで映像が停止することがある。
 			// 1 秒間隔の I フレーム、B フレームなし、映像のみで再エンコードした
 			// iOS 専用版を使用し、他プラットフォームの素材は変更しない。
-			var logoMovie = "sphere";
-			if(IsIOSPlatform()) logoMovie = "sphere_ios";
+			var logoMovie = "sphere"; // all platforms use the same sphere.mp4
 			if(!_movie.start(logoMovie, this)){
 				var failedMovie = _movie;
 				_movie = null;
@@ -1010,7 +1013,7 @@ class EndScene extends Sprite, SceneBase{
 		if(file != ""){
 			var head = file.substring(0, 2);
 			_voice = new WaveSoundBuffer(this);
-			_voice.open(file + ".ogg");
+			_voice.open(ResolveOggStorage(file + ".ogg"));
 			with(_voice){
 				var personalVol = CONFIG.voiceDetails[VCID_TO_INDEX[head]].volumeSyv;
 				.volume2 = CONFIG.volSystem * personalVol * 100000;

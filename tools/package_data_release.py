@@ -25,9 +25,34 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import zipfile
 from typing import Any, Dict, Iterable, List, Tuple
+
+
+def infer_base_url_from_git() -> str:
+    """Derive the GitHub releases download root from the origin remote.
+
+    The manifest's baseUrl must point at the repository that publishes the
+    assets, which is a property of the build environment, not of the code:
+    a hard-coded owner would silently redirect every fork's manifest to that
+    fork. Falls back to an empty string when no GitHub origin is set; the
+    caller must then fail loudly instead of guessing.
+    """
+    try:
+        url = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except Exception:
+        return ""
+    match = re.search(r"github\.com[:/]([^/]+)/(.+?)(?:\.git)?/?$", url)
+    if match:
+        return "https://github.com/%s/%s/releases/download" % (
+            match.group(1), match.group(2))
+    return ""
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,10 +60,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", type=Path, required=True, help="Content root (the data/ directory)")
     parser.add_argument("--config", type=Path, required=True, help="content-packs.json")
     parser.add_argument("--tag", required=True, help="Release tag, e.g. v0.1.0-test.1")
+    parser.add_argument("--base-url", default="",
+                        help="Download root written into data-assets.json, e.g. "
+                             "https://github.com/OWNER/REPO/releases/download. "
+                             "Defaults to the origin remote when it is a GitHub URL; "
+                             "the script fails when neither is available so no "
+                             "hard-coded fork ever ships in the manifest.")
     parser.add_argument("--out", type=Path, required=True, help="Directory for the zip assets")
     parser.add_argument("--max-size", type=int, default=1800, help="Max raw size per zip in MiB")
-    parser.add_argument("--compress-level", type=int, default=6, choices=range(0, 10),
-                        help="zip deflate level (0 = store)")
+    parser.add_argument("--compress-level", type=int, default=0, choices=range(0, 10),
+                        help="zip deflate level (0 = store, default)")
+    parser.add_argument("--manifest-only", action="store_true",
+                        help="compute the batch layout and write data-assets.json without archiving "
+                             "(used by the HAP build job, which runs parallel to the packaging job); "
+                             "sha256 is left empty and sizes are the raw batch sizes")
     return parser.parse_args()
 
 
@@ -80,6 +115,16 @@ def main() -> int:
     if not (root / "startup.tjs").is_file():
         print("error: %s/startup.tjs is missing" % root, file=sys.stderr)
         return 1
+
+    base_url = args.base_url or infer_base_url_from_git()
+    if not base_url:
+        print("error: no --base-url given and the origin remote is not a "
+              "GitHub URL; refusing to write a manifest with a guessed "
+              "download root", file=sys.stderr)
+        return 1
+    # Stored WITHOUT a trailing slash: the clients append "/" when joining
+    # asset names (see Index.ets loadManifest / BootstrapActivity).
+    base_url = base_url.rstrip("/")
 
     config = read_json(args.config)
     packs = config.get("packs", [])
@@ -130,29 +175,42 @@ def main() -> int:
     compression = zipfile.ZIP_DEFLATED if args.compress_level > 0 else zipfile.ZIP_STORED
     assets = []
     for index, batch in enumerate(batches, start=1):
-        name = "Yosuga-no-Sora-HD-Remake-OpenHarmony-data-%02d-%s.zip" % (index, args.tag)
+        name = "Yosuga-no-Sora-HD-Remake-data-%02d-%s.zip" % (index, args.tag)
         archive = args.out / name
-        print("archiving %s ..." % name)
         file_count = 0
-        with zipfile.ZipFile(str(archive), "w", compression, compresslevel=args.compress_level) as zf:
-            for pack_id, files in batch:
-                for relative in files:
-                    zf.write(str(root / relative), "data/" + relative)
-                    file_count += 1
-        size = archive.stat().st_size
+        for pack_id, files in batch:
+            file_count += len(files)
+        if args.manifest_only:
+            # Parallel HAP job: just report the layout; sizes are the raw
+            # batch sizes (exact for store) and sha256 is deferred to the
+            # packaging job that actually writes the archives.
+            size = sum((root / f).stat().st_size for pack_id, files in batch for f in files)
+            raw_size = size
+            sha256 = ""
+            print("manifest-only %s: raw %d bytes, packs=%s" % (name, size, ",".join(p for p, _ in batch)))
+        else:
+            print("archiving %s ..." % name)
+            with zipfile.ZipFile(str(archive), "w", compression, compresslevel=args.compress_level) as zf:
+                for pack_id, files in batch:
+                    for relative in files:
+                        zf.write(str(root / relative), "data/" + relative)
+            raw_size = sum((root / f).stat().st_size for pack_id, files in batch for f in files)
+            size = archive.stat().st_size
+            sha256 = sha256_file(archive)
+            print("asset %s: %d bytes (raw %d), packs=%s" % (name, size, raw_size, ",".join(p for p, _ in batch)))
         assets.append({
             "name": name,
             "size": size,
-            "sha256": sha256_file(archive),
+            "sha256": sha256,
+            "rawSize": raw_size,
             "packs": [pack_id for pack_id, _ in batch],
             "fileCount": file_count,
         })
-        print("asset %s: %d bytes, packs=%s" % (name, size, ",".join(assets[-1]["packs"])))
 
     manifest = {
         "schemaVersion": 2,
         "releaseTag": args.tag,
-        "baseUrl": "https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/download/%s" % args.tag,
+        "baseUrl": base_url,
         "kind": "zip-parts",
         "assets": assets,
         "totalSize": total,

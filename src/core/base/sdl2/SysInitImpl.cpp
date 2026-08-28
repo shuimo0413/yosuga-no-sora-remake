@@ -10,6 +10,7 @@
 //---------------------------------------------------------------------------
 #include "tjsCommHead.h"
 
+#include <cstdio>
 
 #include "FilePathUtil.h"
 #if 0
@@ -23,6 +24,9 @@
 #include "SysInitImpl.h"
 #include "StorageIntf.h"
 #include "StorageImpl.h"
+#if defined(__IPHONEOS__)
+#include "../../sdl2/ios/IOSBootstrap.h"
+#endif
 #include "MsgIntf.h"
 #include "GraphicsLoaderIntf.h"
 #include "SystemControl.h"
@@ -53,12 +57,15 @@
 #include "TickCount.h"
 #include <SDL.h>
 #include <errno.h>
+#include <stdlib.h>
 #ifdef __APPLE__
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #elif defined(_WIN32) && defined(_MSC_VER)
 #include <time.h>
 #endif
+
+
 
 //---------------------------------------------------------------------------
 // global data
@@ -917,6 +924,153 @@ static void TVPInitRandomGenerator()
 
 
 //---------------------------------------------------------------------------
+// TVPLoadExternalPatchArchives
+//---------------------------------------------------------------------------
+// Scans the public game data folder (the parent of the save directory) for
+// patch archives (patch.xp3, patch2.xp3, ...) and registers them with the
+// engine so updates can be applied without reinstalling the app.  The input
+// is the save directory path in UTF-8 (Android: Downloads/YosugaSoraHD/
+// savedata; iOS: Documents/<bundle>/savedata); the parent folder is scanned.
+//---------------------------------------------------------------------------
+void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
+{
+	/* Also write a human-readable log to the public folder so the result can
+	   be inspected with a file manager (no adb/logcat needed). */
+	FILE *scanLog = NULL;
+
+	/* The public save folder may not be resolvable yet (JNI/permission), so
+	   build a list of candidate patch folders: the parent of the save folder
+	   plus a few well-known public locations. */
+	std::vector<tjs_string> candidates;
+
+	if(saveDirUtf8 && *saveDirUtf8)
+	{
+		tjs_string saveDirU16;
+		if(TVPUtf8ToUtf16(saveDirU16, std::string(saveDirUtf8)) && !saveDirU16.empty())
+		{
+			tjs_string parent = ExtractFileDir(saveDirU16);
+			if(!parent.empty())
+				candidates.push_back(parent);
+		}
+	}
+	/* Fallbacks for Android: /sdcard/Download/YosugaSoraHD and /sdcard/Download. */
+#if defined(__ANDROID__)
+	candidates.push_back(tjs_string(TJS_W("/sdcard/Download/YosugaSoraHD")));
+	candidates.push_back(tjs_string(TJS_W("/sdcard/Download")));
+#endif
+
+	/* Open the diagnostic log file inside the public save folder (which the
+	   engine has already created and can write to). */
+#if defined(__ANDROID__)
+	if(saveDirUtf8 && *saveDirUtf8)
+	{
+		std::string logPath = std::string(saveDirUtf8) + "/patch_scan.log";
+		scanLog = fopen(logPath.c_str(), "w");
+	}
+#endif
+	if(scanLog)
+		fprintf(scanLog, "Patch scan start. saveDir=%s\n",
+			saveDirUtf8 ? saveDirUtf8 : "(null)");
+#if defined(__ANDROID__)
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+		"Patch scan start, saveDir=%s", saveDirUtf8 ? saveDirUtf8 : "(null)");
+#endif
+
+	bool any = false;
+	tjs_string loadedPatchPath;
+	for(size_t c = 0; c < candidates.size(); ++c)
+	{
+		/* Use '/' explicitly: on Android IncludeTrailingBackslash returns a
+		   backslash which corrupts the POSIX path (e.g. .../YosugaSoraHD\
+		   patch.xp3), so the file is never found. */
+		tjs_string prefix = candidates[c];
+		if(prefix.empty() || prefix[prefix.length() - 1] != TJS_W('/'))
+			prefix += TJS_W('/');
+		ttstr folderLog(TJS_W("(info) Patch scan folder: "));
+		folderLog += ttstr(candidates[c]);
+		TVPAddImportantLog(folderLog);
+		if(scanLog)
+		{
+			std::string utf8;
+			if(TVPUtf16ToUtf8(utf8, candidates[c]))
+				fprintf(scanLog, "folder: %s\n", utf8.c_str());
+		}
+		for(int i = 1; i <= 32; ++i)
+		{
+			tjs_string name = prefix + TJS_W("patch");
+			if(i > 1) name += ttstr((tjs_int)i).AsStdString();
+			name += TJS_W(".xp3");
+			ttstr nativeName = ttstr(name);
+			if(TVPCheckExistentLocalFile(nativeName))
+			{
+				ttstr archiveName = ttstr(name + TJS_W(">"));
+				TVPAddAutoPath(archiveName);
+				if(loadedPatchPath.empty())
+					loadedPatchPath = name;
+				ttstr log(TJS_W("(info) Loaded patch archive: "));
+				log += nativeName;
+				TVPAddImportantLog(log);
+				if(scanLog)
+				{
+					std::string utf8;
+					if(TVPUtf16ToUtf8(utf8, name))
+						fprintf(scanLog, "LOADED: %s\n", utf8.c_str());
+				}
+				any = true;
+			}
+			else
+			{
+				TVPAddImportantLog(TJS_W("(info) Patch scan: not found ") + nativeName);
+				if(scanLog)
+				{
+					std::string utf8;
+					if(TVPUtf16ToUtf8(utf8, name))
+						fprintf(scanLog, "not found: %s\n", utf8.c_str());
+				}
+			}
+		}
+	}
+	if(!any)
+		TVPAddImportantLog(TJS_W("(info) Patch scan: no patch archives found."));
+	else if(!loadedPatchPath.empty())
+	{
+		/* Execute the patch bootstrap script directly from inside the
+		   archive using KRKR's 'archive>file' path syntax.  At this point
+		   (right after system init) the normal auto paths are not yet
+		   registered, so a bare file name would not be resolved. */
+		tjs_string scriptPath = loadedPatchPath + TJS_W(">system/patch_test.tjs");
+		ttstr scriptName = ttstr(scriptPath);
+		TVPAddImportantLog(TJS_W("(info) Patch scan: executing ") + scriptName);
+		if(scanLog)
+		{
+			std::string utf8;
+			if(TVPUtf16ToUtf8(utf8, scriptPath))
+				fprintf(scanLog, "executing: %s\n", utf8.c_str());
+		}
+		try
+		{
+			if(TVPIsExistentStorage(scriptName))
+				TVPExecuteStorage(scriptName, NULL, false, TJS_W(""));
+			else
+			{
+				TVPAddImportantLog(TJS_W("(info) Patch scan: bootstrap script not found: ") + scriptName);
+				if(scanLog)
+					fprintf(scanLog, "bootstrap script NOT found\n");
+			}
+		}
+		catch(...)
+		{
+			TVPAddImportantLog(TJS_W("(info) Patch scan: patch bootstrap execution failed."));
+		}
+	}
+	if(scanLog)
+	{
+		fprintf(scanLog, "Patch scan finished. loaded=%s\n", any ? "yes" : "no");
+		fclose(scanLog);
+	}
+}
+
+//---------------------------------------------------------------------------
 // TVPInitializeBaseSystems
 //---------------------------------------------------------------------------
 void TVPInitializeBaseSystems()
@@ -940,6 +1094,10 @@ void TVPInitializeBaseSystems()
 		if(TVPIsExistentStorage(name_msgmap))
 			TVPExecuteStorage(name_msgmap, NULL, false, TJS_W(""));
 	}
+
+	// Note: external patch archives are loaded later in
+	// TVPInitializeStartupScript's caller once SDL/JNI is fully ready;
+	// see TVPLoadExternalPatchArchives usage in Application.cpp.
 }
 //---------------------------------------------------------------------------
 
@@ -1290,10 +1448,26 @@ void TVPBeforeSystemInit()
 		base_path_utf8 = base_path;
 		SDL_free(base_path);
 	}
-#if defined(__ANDROID__) || defined(__OHOS__)
-	// Special case for Android and OpenHarmony when SDL_GetBasePath returns NULL.
-	// On OpenHarmony SDL_GetBasePath normally returns the application sandbox
-	// files directory, which already contains the extracted game data.
+#if defined(__OHOS__)
+	// OpenHarmony: the game data lives in the public Download app folder.
+	// The NAPI shell exports it via KRKR_OHOS_DATA_DIR (set before
+	// StartApplication) so the engine finds startup.tjs / data.xp3 there
+	// instead of the bundle directory or the empty sandbox files dir.
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd != nullptr && dd[0] != '\0')
+		{
+			base_path_utf8 = dd;
+			// The engine appends names without a separator (base + "data.xp3"),
+			// so the base must end with a slash.
+			if (base_path_utf8.length() > 0 && base_path_utf8[base_path_utf8.length() - 1] != '/')
+			{
+				base_path_utf8 += "/";
+			}
+		}
+	}
+#endif
+#if defined(__ANDROID__)
 	if (base_path_utf8.length() == 0)
 	{
 		base_path_utf8 = "/";
@@ -1301,6 +1475,24 @@ void TVPBeforeSystemInit()
 #endif
 	tjs_string base_path_utf16;
 	TVPUtf8ToUtf16(base_path_utf16, base_path_utf8);
+#if defined(__IPHONEOS__)
+	// External data flow: the bootstrap page installed the game data into
+	// Documents/<bundle>/data. Treat Documents/<bundle> as the base so the
+	// "data" probe below selects that directory as the project dir (in an
+	// externalized build the bundle has no data, and the getcwd fallback
+	// would leave the engine pointed at the .app bundle).
+	{
+		const char *iosRoot = krkrsdl2_ios_data_root();
+		if (iosRoot && iosRoot[0])
+		{
+			std::string root_dir = std::string(iosRoot) + "/";
+			tjs_string root_utf16;
+			if (TVPUtf8ToUtf16(root_utf16, root_dir))
+				base_path_utf16 = root_utf16;
+		}
+	}
+#endif
+
 	if (base_path_utf16.length() != 0 && !TVPGetCommandLine(TJS_W("-nosel")))
 	{
 		tjs_string found_dir;
@@ -1354,7 +1546,14 @@ void TVPBeforeSystemInit()
 		}
 		if (found_dir.length() != 0)
 		{
+#if defined(__OHOS__) || defined(__IPHONEOS__)
+			// OHOS/iOS: keep the raw absolute path; NormalizeStorageName would
+			// turn /storage/... or /var/mobile/... into a relative path that
+			// fails to resolve after chdir into the public data folder.
+			TVPProjectDir = found_dir;
+#else
 			TVPProjectDir = TVPNormalizeStorageName(found_dir);
+#endif
 			TVPSetCurrentDirectory(TVPProjectDir);
 			TVPNativeProjectDir = found_dir;
 			TVPProjectDirSelected = true;
@@ -1409,7 +1608,11 @@ void TVPBeforeSystemInit()
 				TVPProjectDirSelected = true;
 			}
 			dir_utf16 += TJS_W("/");
+#if defined(__OHOS__)
+			TVPProjectDir = dir_utf16;
+#else
 			TVPProjectDir = TVPNormalizeStorageName(dir_utf16);
+#endif
 			TVPSetCurrentDirectory(TVPProjectDir);
 			TVPNativeProjectDir = dir_utf16;
 		}
@@ -1435,7 +1638,11 @@ void TVPBeforeSystemInit()
 				}
 				if (TVPProjectDirSelected)
 				{
+#if defined(__OHOS__)
+					TVPProjectDir = dirbuf;
+#else
 					TVPProjectDir = TVPNormalizeStorageName(dirbuf);
+#endif
 					TVPSetCurrentDirectory(TVPProjectDir);
 					TVPNativeProjectDir = dirbuf.AsStdString();
 				}
@@ -1669,7 +1876,7 @@ bool TVPTerminateOnWindowClose = false;
 bool TVPTerminateOnNoWindowStartup = false;
 #else
 bool TVPTerminateOnWindowClose = true;
-bool TVPTerminateOnNoWindowStartup = true;
+bool TVPTerminateOnNoWindowStartup = false;
 #endif
 int TVPTerminateCode = 0;
 //---------------------------------------------------------------------------
@@ -1682,9 +1889,15 @@ void TVPTerminateAsync(int code)
 	// posting dummy message will prevent "missing WM_QUIT bug" in Direct3D framework.
 	if(TVPSystemControl) TVPSystemControl->CallDeliverAllEventsOnIdle();
 
-	Application->Terminate();
+
 
 	if(TVPSystemControl) TVPSystemControl->CallDeliverAllEventsOnIdle();
+
+	/* Link the async-terminate global flag (set by window close -> TVPMainWindowClosed
+	 * -> TVPTerminateAsync) to the application terminate flag. The main loop only exits
+	 * on IsTarminate(), so without this the loop never ends, krkrsdl2_cleanup() never
+	 * runs, and an in-game "exit" leaves a black frame with the Activity still open. */
+	if (::Application) ::Application->Terminate();
 }
 //---------------------------------------------------------------------------
 void TVPTerminateSync(int code)
@@ -1930,7 +2143,31 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 			tjs_string config_datapath;
 			if(TVPGetCommandLine(TJS_W("-datapath"), &val))
 				config_datapath = ((ttstr)val).AsStdString();
+
+#if defined(__OHOS__)
+			// OHOS: ignore any configured -datapath so GetDataPathDirectory
+			// falls through to the public-Download savedata branch.
+			config_datapath.clear();
+#endif
 			TVPNativeDataPath = ApplicationSpecialPath::GetDataPathDirectory(config_datapath, ExePath());
+
+#if defined(__OHOS__)
+			// OHOS: set the save dir directly from the NAPI env (bypasses the
+			// fragile GetDataPathDirectory branch chain entirely).
+			{
+				const char *save_env = getenv("KRKR_OHOS_SAVE_DIR");
+				if (save_env && *save_env)
+				{
+					std::string se(save_env);
+					if (se[se.length() - 1] != '/') se += "/";
+					tjs_string se16;
+					if (TVPUtf8ToUtf16(se16, se))
+					{
+						TVPNativeDataPath = se16;
+					}
+				}
+			}
+#endif
 
 			if(stop_after_datapath_got) return;
 
@@ -1957,7 +2194,12 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 
 
 		// set data path
+#if defined(__OHOS__)
+		// OHOS: keep the raw absolute public path (normalize would mis-handle it).
+		TVPDataPath = TVPNativeDataPath;
+#else
 		TVPDataPath = TVPNormalizeStorageName(TVPNativeDataPath);
+#endif
 		TVPAddImportantLog( TVPFormatMessage( TVPInfoDataPath, TVPDataPath) );
 
 		// set log output directory

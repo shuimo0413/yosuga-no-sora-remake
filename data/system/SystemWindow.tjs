@@ -1,4 +1,4 @@
-﻿//  这个是文本记录界面 
+//  这个是文本记录界面 
 
 // 侧边菜单缩放基准（原 800×600 设计稿）
 var SIDE_MENU_BASE_WIDTH = 800;
@@ -44,9 +44,9 @@ var HISTORY_FADE_ZONE = 72;           // 列表上下边缘淡出区域高度
 
 // 人物名
 var ROLE_NAME_IMAGES = [
-	["心の声", "nothing.png"],
-	["語り", "nothing.png"],
-	["モノローグ", "nothing.png"],
+	["内心", "nothing.png"],
+	["旁白", "nothing.png"],
+	["独白", "nothing.png"],
 	["穹", "MP-01.png"],
 	["奈绪", "MP-02.png"],
 	["瑛", "MP-03.png"],
@@ -64,7 +64,7 @@ var ROLE_NAME_IMAGES = [
 	["孩子B", "MP-15.png"],
 	["高野店长", "MP-16.png"],
 	["一叶・父", "MP-17.png"],
-	["月之见", "MP-18.png"],
+	["月见山", "MP-18.png"],
 	["邻居爷爷", "MP-19.png"],
 	["祖父儿媳", "MP-20.png"],
 	["邻居奶奶", "MP-21.png"],
@@ -118,7 +118,27 @@ var ROLE_NAME_IMAGES = [
 	["棒球社员A", "MP-69.png"],
 	["棒球社员C", "MP-70.png"],
 	["棒球社员B", "MP-71.png"],
-	["女生C", "MP-72.png"]
+	["女生C", "MP-72.png"],
+	["悠&初佳", "MP-73.png"],
+	["瑛&奈绪&一叶", "MP-74.png"],
+	["瑛&初佳&亮平", "MP-75.png"],
+	["胆怯声", "MP-76.png"],
+	["哭泣声", "MP-77.png"],
+	["梢&一叶", "MP-78.png"],
+	["男生", "MP-79.png"],
+	["瑛&奈绪", "MP-80.png"],
+	["悠&一叶", "MP-81.png"],
+	["西装男", "MP-82.png"],
+	["悠&女孩", "MP-83.png"],
+	["男性", "MP-84.png"],
+	["奈绪・母", "MP-85.png"],
+	["一叶・母", "MP-86.png"],
+	["悠・母", "MP-87.png"],
+	["老师", "MP-88.png"],
+	["一齐", "MP-89.png"],
+	["女孩＆悠", "MP-90.png"],
+	["日志", "MP-91.png"],
+	["声音", "MP-92.png"]
 ];
 var ROLE_NAME_IMAGE_DEFAULT = "nothing.png";
 

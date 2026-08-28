@@ -476,12 +476,14 @@ class ConfigWindowHD2 extends SettingWindowBase
         if(page !== null && page.handleButton(target))
         {
             syncFromConfig();
+                        SaveSystemRegister();
         }
     }
 
     function applyToConfig()
     {
         syncFromConfig();
+        SaveSystemRegister();
     }
 
     function resetSettings()
@@ -561,7 +563,7 @@ class ConfigWindowHD2 extends SettingWindowBase
         _sampleSound.stop();
         with(_sampleSound)
         {
-            .open(file + ".ogg");
+            .open(ResolveOggStorage(file + ".ogg"));
             .looping = false;
             .volume = 100000 * CONFIG.volMaster * CONFIG.volVoice * CONFIG.voiceDetails[item.detailIndex].volume;
             .play();
@@ -586,6 +588,8 @@ class ConfigWindowHD2 extends SettingWindowBase
     {
         onSliderMove(target);
         if(target == _audioPage._voiceVolumeSlider) playVoiceVolumeSample();
+        //实时保存：滑块调整结束后立即写入 system.dat
+        SaveSystemRegister();
     }
     function onSliderEnter(target)
     {
@@ -666,6 +670,8 @@ class ConfigWindowHD2 extends SettingWindowBase
 
         rememberControl(target);
         onSliderMove(target, true);
+        //实时保存：键盘调整滑块后立即写入 system.dat
+        SaveSystemRegister();
         return true;
     }
 
@@ -717,7 +723,11 @@ class ConfigWindowHD2 extends SettingWindowBase
     function action(ev)
     {
         if(ev.type == "onChangeScreenMode" || ev.type == "onMoveSizeEnd")
+        {
             syncFromConfig();
+            //实时保存：屏幕模式/窗口尺寸变化后立即写入 system.dat
+            SaveSystemRegister();
+        }
         else
             super.action(ev);
     }

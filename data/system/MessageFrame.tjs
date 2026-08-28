@@ -105,9 +105,9 @@ function PaintMenuRoundedRect(
 // 说话人 PNG（与 SystemWindow 履历一致）
 var MESSAGE_NAME_UI_PATH = "ui_1920/name/";
 var ROLE_NAME_IMAGES = [
-	["心の声", "nothing.png"],
-	["語り", "nothing.png"],
-	["モノローグ", "nothing.png"],
+	["内心", "nothing.png"],
+	["旁白", "nothing.png"],
+	["独白", "nothing.png"],
 	["穹", "MP-01.png"],
 	["奈绪", "MP-02.png"],
 	["瑛", "MP-03.png"],
@@ -125,7 +125,7 @@ var ROLE_NAME_IMAGES = [
 	["孩子B", "MP-15.png"],
 	["高野店长", "MP-16.png"],
 	["一叶・父", "MP-17.png"],
-	["月之见", "MP-18.png"],
+	["月见山", "MP-18.png"],
 	["邻居爷爷", "MP-19.png"],
 	["祖父儿媳", "MP-20.png"],
 	["邻居奶奶", "MP-21.png"],
@@ -179,7 +179,26 @@ var ROLE_NAME_IMAGES = [
 	["棒球社员A", "MP-69.png"],
 	["棒球社员C", "MP-70.png"],
 	["棒球社员B", "MP-71.png"],
-	["女生C", "MP-72.png"]
+	["女生C", "MP-72.png"],
+	["悠&初佳", "MP-73.png"],
+	["瑛&奈绪&一叶", "MP-74.png"],
+	["瑛&初佳&亮平", "MP-75.png"],
+	["胆怯声", "MP-76.png"],
+	["哭泣声", "MP-77.png"],
+	["梢&一叶", "MP-78.png"],
+	["男生", "MP-79.png"],
+	["瑛&奈绪", "MP-80.png"],
+	["悠&一叶", "MP-81.png"],
+	["西装男", "MP-82.png"],
+	["悠&女孩", "MP-83.png"],
+	["男性", "MP-84.png"],
+	["奈绪・母", "MP-85.png"],
+	["一叶・母", "MP-86.png"],
+	["悠・母", "MP-87.png"],
+	["老师", "MP-88.png"],
+	["女孩＆悠", "MP-89.png"],
+	["日志", "MP-90.png"],
+	["声音", "MP-91.png"]
 ];
 
 var ROLE_NAME_IMAGE_DEFAULT = "nothing.png";
@@ -287,13 +306,13 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var	MESS_MSG_W = WINDOW_WIDTH - MESS_MSG_X - 300;	// 正文区域宽（右留 300）
 	var	MESS_MSG_LINES = 4;			// 正文可见行数
 	var	MESS_MSG_MARGIN_X = 12;		// 正文左右内边距
-	var	MESS_MSG_MARGIN_Y = 22;		// 正文上下内边距
+	var	MESS_MSG_MARGIN_Y = 7;		// 正文上下内边距（原文22，文字整体上移15px）
 	var	NAME_MSG_W = FRAME_WIDTH - 80;	// 说话人 PNG 区域宽
 	var	NAME_MSG_H = 60;			// 说话人 PNG 区域高
 
 	var	FACE_IMG_PATH = "character_1920/";		// avatar path
 	var	FACE_IMG_X = 0;				// avatar X
-	var	FACE_IMG_Y = BASE_Y - 40;			// avatar Y
+	var	FACE_IMG_Y = BASE_Y - 35;			// avatar Y（原文-40，头像整体下移5px）
 	var	FACE_IMG_W = 500;				// avatar maxW
 	var	FACE_IMG_H = 360;				// avatar maxH
 	var	BTN_BASE_X1 = (WINDOW_WIDTH - MENU_WIDTH) -100;	// 菜单呼出热区 X
@@ -1100,6 +1119,8 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(name == "亮平") return "CF";
 		if(name == "八寻") return "CG";
 		if(name == "梢") return "CH";
+		if(name == "月见山") return "CJ";
+		if(name == "一叶・父") return "CK";
 		return "";
 	}
 
@@ -1112,6 +1133,8 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(name == "亮平") return "CF01_01L";
 		if(name == "八寻") return "CG01_01L";
 		if(name == "梢") return "CH01_01L";
+		if(name == "月见山") return "CJ01_01L";
+		if(name == "一叶・父") return "CK01_01L";
 		return "";
 	}
 
@@ -1161,13 +1184,13 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 				faceFile = _lastBustupMap[name] + "L";
 			}else{
 				// 从当前画面立绘同步（@Char 后 _face 可能已被清空）
-				var talkName = name.split("＆")[0];
+				var talkName = name.split("&")[0];
 				var obj = _advObj.getADVObjectObject(talkName);
 				if(obj != -1 && obj.info !== void && obj.info.file !== void && obj.info.file != ""){
 					faceFile = obj.info.file;
 				}else if(talkName == "穹"){
 					faceFile = "CA02_01L";
-				}else if(talkName == "奈绪" || talkName == "瑛" || talkName == "一叶" || talkName == "初佳" || talkName == "亮平" || talkName == "八寻" || talkName == "梢"){
+				}else if(talkName == "奈绪" || talkName == "瑛" || talkName == "一叶" || talkName == "初佳" || talkName == "亮平" || talkName == "八寻" || talkName == "梢" || talkName == "月见山" || talkName == "一叶・父"){
 					faceFile = getDefaultFace(talkName);
 				}
 			}
@@ -1218,7 +1241,8 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	function isExistentVoiceFile(voice){
 		var voices = voice.split(",/");
 		for(var i=0;i<voices.count;i++){
-			if(Storages.isExistentStorage(voices[i] + ".ogg")) return true;
+			// audio_ogg/ 不在 AutoPath，裸文件名检查会失败导致语音收藏按钮被禁用。
+			if(Storages.isExistentStorage(ResolveOggStorage(voices[i] + ".ogg"))) return true;
 		}
 		return false;
 	}
@@ -1328,7 +1352,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	}
 
 	function isMonologue(name){
-		return (name == "" || name == "心の声" || name == "語り" || name == "モノローグ");
+		return (name == "" || name == "内心" || name == "旁白" || name == "独白");
 	}
 
 	function refreshMenu(){
@@ -1910,7 +1934,7 @@ class FaceWindow extends Layer{
 			return false;
 		}
 
-		var name = names.split("＆")[0];
+		var name = names.split("&")[0];
 		with(_face){
 			var obj = _advObj.getADVObjectObject(name);
 
@@ -4959,7 +4983,7 @@ class ConfigSubMenu extends SubMenu{
 				//浴缸回声ON
 				//如果当前正在播放浴缸回声OFF，则进行切换
 					var pos = obj.position;
-					if(Storages.isExistentStorage(obj.file+"_ECH.ogg")){
+					if(Storages.isExistentStorage(ResolveOggStorage(obj.file+"_ECH.ogg"))){
 						_adv.playBgv(%[file:obj.file+"_ECH", fade:0]);
 						obj = BGV.objectOfId(id);
 						if(obj.isPlay()) obj.position = pos;

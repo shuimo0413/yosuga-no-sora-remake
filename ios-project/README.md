@@ -21,8 +21,20 @@ open build/ios/krkrsdl2.xcodeproj
 Choose the `krkrsdl2` target and your Apple Development Team before installing
 on a device. Local device builds use Xcode's automatic signing, and the
 generator preserves the selected Team when the project is regenerated. The
-generated project embeds `data/` inside the application bundle and targets
-iPhone and iPad in landscape orientation.
+generated project embeds `data/` inside the application bundle
+(IOS_EMBED_DATA=OFF disables that) and targets iPhone and iPad in landscape
+orientation.
+
+## Data externalization
+
+Release builds (and local builds with `IOS_EMBED_DATA=OFF`) ship WITHOUT the
+game data. On first launch a bootstrap page (mirroring the OpenHarmony shell
+page) shows over the engine: it downloads the data zips from the GitHub
+Release (data-assets.json, with a user-editable download URL and the three
+proxy presets 直连 / gh-proxy / Craft-Hello Proxy) or imports a local zip /
+data.xp3, extracts everything into Documents/<bundle>/data and then starts
+the game. The screen stays awake during download/import/extraction, the
+status bar is hidden and the home indicator auto-hides.
 
 The first application installed with a Personal Team may require explicit
 approval on the iPhone under **Settings > General > VPN & Device Management**.
@@ -45,5 +57,5 @@ The signing secrets are `IOS_CERTIFICATE_P12_BASE64`,
 `IOS_CERTIFICATE_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, and
 `IOS_DEVELOPMENT_TEAM`. The certificate and mobile provisioning profile values
 must be base64 encoded. If the profile does not use the default
-`com.lightwinder.yosuganosora.hdremake` identifier, set the repository variable
+`com.shuimo0413.yosuganosora.hdremake` identifier, set the repository variable
 `IOS_BUNDLE_IDENTIFIER` as well.
