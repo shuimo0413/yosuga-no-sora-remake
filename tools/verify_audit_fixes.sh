@@ -23,23 +23,19 @@ grep -q '"bundleName": "com.shuimo0413.yosuganosora.hdremake"' ohos-project/AppS
   && ok "app.json5 bundleName" || no "app.json5 bundleName"
 grep -q '"versionName": "0.0.0"' ohos-project/AppScope/app.json5 && ok "app.json5 versionName 0.0.0" || no "app.json5 versionName"
 
-echo "== 4. Version regex behaviour (same ERE as the workflows) =="
+echo "== 4. Version extraction behaviour (tag -> numeric, shared by all platforms) =="
 ver() {
-  local release_tag="$1" version_source version_name
-  version_source="${release_tag#v}"
-  if [[ "$version_source" =~ ^([0-9]+)(\.([0-9]+))?(\.([0-9]+))?($|[^0-9.]) ]]; then
-    version_name="${BASH_REMATCH[1]}.${BASH_REMATCH[3]:-0}.${BASH_REMATCH[5]:-0}"
-    echo "$version_name"
-  else
-    echo "ERR"
-  fi
+  printf '%s' "$1" | sed -nE 's/^v?([0-9]+(\.[0-9]+)*).*/\1/p'
 }
 [[ "$(ver v0.1.0)" == "0.1.0" ]] && ok "v0.1.0 -> 0.1.0" || no "v0.1.0 -> $(ver v0.1.0)"
 [[ "$(ver v1.2.3)" == "1.2.3" ]] && ok "v1.2.3 -> 1.2.3" || no "v1.2.3 -> $(ver v1.2.3)"
-[[ "$(ver v2)" == "2.0.0" ]] && ok "v2 -> 2.0.0" || no "v2 -> $(ver v2)"
+[[ "$(ver v2)" == "2" ]] && ok "v2 -> 2" || no "v2 -> $(ver v2)"
+[[ "$(ver v1.01)" == "1.01" ]] && ok "v1.01 -> 1.01 (leading zero kept)" || no "v1.01 -> $(ver v1.01)"
+[[ "$(ver v123)" == "123" ]] && ok "v123 -> 123" || no "v123 -> $(ver v123)"
 [[ "$(ver v0.1.0-ohos-x)" == "0.1.0" ]] && ok "v0.1.0-ohos-x -> 0.1.0" || no "v0.1.0-ohos-x -> $(ver v0.1.0-ohos-x)"
 [[ "$(ver v1.2.3-test.1)" == "1.2.3" ]] && ok "v1.2.3-test.1 -> 1.2.3" || no "v1.2.3-test.1 -> $(ver v1.2.3-test.1)"
-[[ "$(ver vabc)" == "ERR" ]] && ok "vabc rejected" || no "vabc -> $(ver vabc)"
+[[ -z "$(ver vabc)" ]] && ok "vabc rejected" || no "vabc -> $(ver vabc)"
+python tools/inject_game_version.py --tag v1.2.3-rc.4 --dry-run | grep -q "1.2.3" && ok "inject tool extraction" || no "inject tool extraction"
 
 echo "== 5. Bundle-id consistency =="
 want='com.shuimo0413.yosuganosora.hdremake'

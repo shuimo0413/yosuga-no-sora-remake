@@ -82,12 +82,13 @@ jobs:
             echo "Invalid release tag: $release_tag" >&2
             exit 1
           fi
-          # Numeric x.y.z version from the tag, consistent with every platform.
-          version_source="${release_tag#v}"
-          if [[ "$version_source" =~ ^([0-9]+)(\.([0-9]+))?(\.([0-9]+))?($|[^0-9.]) ]]; then
-            version_name="${BASH_REMATCH[1]}.${BASH_REMATCH[3]:-0}.${BASH_REMATCH[5]:-0}"
-          else
-            echo "Cannot derive a numeric x.y.z version from tag: $release_tag" >&2
+          # Numeric version extracted from the tag verbatim: v1.0.0 -> 1.0.0,
+          # v1.0 -> 1.0, v1.01 -> 1.01, v123 -> 123; platform suffixes and
+          # test markers dropped. Shared by every platform display version
+          # and the in-game status.tjs GAME_VERSION.
+          version_name="$(printf '%s' "$release_tag" | sed -nE 's/^v?([0-9]+(\.[0-9]+)*).*/\1/p')"
+          if [[ -z "$version_name" ]]; then
+            echo "Cannot derive a numeric version from tag: $release_tag" >&2
             exit 1
           fi
           bundle_identifier="${REPOSITORY_BUNDLE_IDENTIFIER:-com.shuimo0413.yosuganosora.hdremake}"
@@ -111,15 +112,17 @@ jobs:
           git lfs pull
           git lfs fsck
 
-      # Single version source: KRKRSDL2_VERSION_NAME in CMakeLists.txt is
+      # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest, so the DMG ships a
-      # status.tjs whose GAME_VERSION matches the configured version.
+      # status.tjs whose GAME_VERSION matches the release.
       - name: Inject the game version into status.tjs
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           python3 tools/inject_game_version.py \
-            --cmake CMakeLists.txt \
+            --tag "$RELEASE_TAG" \
             --status data/system/status.tjs
 
       - name: Generate complete content manifest

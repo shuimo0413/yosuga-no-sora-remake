@@ -133,13 +133,13 @@ jobs:
             exit 1
           fi
 
-          # Numeric x.y.z version derived from the tag (platform suffixes
-          # and test markers dropped), consistent with the other platforms.
-          version_source="${release_tag#v}"
-          if [[ "$version_source" =~ ^([0-9]+)(\.([0-9]+))?(\.([0-9]+))?($|[^0-9.]) ]]; then
-            version_name="${BASH_REMATCH[1]}.${BASH_REMATCH[3]:-0}.${BASH_REMATCH[5]:-0}"
-          else
-            echo "Cannot derive a numeric x.y.z version from tag: $release_tag" >&2
+          # Numeric version extracted from the tag verbatim: v1.0.0 -> 1.0.0,
+          # v1.0 -> 1.0, v1.01 -> 1.01, v123 -> 123; platform suffixes and
+          # test markers dropped. Shared by every platform display version
+          # and the in-game status.tjs GAME_VERSION.
+          version_name="$(printf '%s' "$release_tag" | sed -nE 's/^v?([0-9]+(\.[0-9]+)*).*/\1/p')"
+          if [[ -z "$version_name" ]]; then
+            echo "Cannot derive a numeric version from tag: $release_tag" >&2
             exit 1
           fi
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"

@@ -72,13 +72,15 @@ jobs:
           git lfs fsck
           if ($LASTEXITCODE -ne 0) { throw 'git lfs fsck failed' }
 
-      # Single version source: KRKRSDL2_VERSION_NAME in CMakeLists.txt is
+      # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest and the data.xp3 pack.
       - name: Inject the game version into status.tjs
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           python tools/inject_game_version.py `
-            --cmake CMakeLists.txt `
+            --tag $env:RELEASE_TAG `
             --status data/system/status.tjs
           if ($LASTEXITCODE -ne 0) { throw 'Game version injection failed' }
 
