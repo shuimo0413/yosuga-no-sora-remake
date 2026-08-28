@@ -111,6 +111,17 @@ jobs:
           git lfs pull
           git lfs fsck
 
+      # Single version source: KRKRSDL2_VERSION_NAME in CMakeLists.txt is
+      # stamped into status.tjs before the manifest, so the DMG ships a
+      # status.tjs whose GAME_VERSION matches the configured version.
+      - name: Inject the game version into status.tjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/inject_game_version.py \
+            --cmake CMakeLists.txt \
+            --status data/system/status.tjs
+
       - name: Generate complete content manifest
         shell: bash
         run: |

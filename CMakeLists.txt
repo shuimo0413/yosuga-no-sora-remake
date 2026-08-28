@@ -47,7 +47,7 @@ option(KRKRSDL2_BUILD_ENABLE_WARNINGS "Enable warnings when building the project
 set(KRKRSDL2_PRODUCT_NAME "缘之空：高清重制" CACHE STRING "Application display name.")
 set(KRKRSDL2_BUNDLE_OUTPUT_NAME "YosugaNoSoraHD" CACHE STRING "Application bundle filename without the extension.")
 set(KRKRSDL2_BUNDLE_IDENTIFIER "com.shuimo0413.yosuganosora.hdremake" CACHE STRING "Apple bundle identifier.")
-set(KRKRSDL2_VERSION_NAME "0.0.0" CACHE STRING "Human-readable application version.")
+set(KRKRSDL2_VERSION_NAME "1.0.0" CACHE STRING "Human-readable application version.")
 set(KRKRSDL2_BUILD_NUMBER "1" CACHE STRING "Monotonically increasing application build number.")
 
 if((NOT DEFINED CMAKE_BUILD_TYPE) OR (NOT CMAKE_BUILD_TYPE) OR (CMAKE_BUILD_TYPE STREQUAL ""))
