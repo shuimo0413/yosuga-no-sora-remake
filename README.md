@@ -30,23 +30,32 @@ port that produced the first Android release).
 
 ## Getting the Source
 
-Clone the repository with its submodules, then fetch the game data from the
-data source release (the repository no longer carries game data in Git LFS):
+Run the one-shot bootstrap (submodules + game data):
 
 ```sh
 git clone --recurse-submodules https://github.com/shuimo0413/yosuga-no-sora-remake.git
 cd yosuga-no-sora-remake
-python tools/fetch_data_parts.py \
-  --url "https://github.com/shuimo0413/yosuga-no-sora-remake/releases/download/data-v1" \
-  --dest data
+./setup.sh            # Windows: setup.bat
 ```
 
-To update the dependencies in an existing working tree:
+The repository itself no longer carries game data in Git LFS. `setup.sh`
+calls `tools/fetch_data_parts.py`, which reads `data-source.json` (the
+repository-level pointer to the current data source release), downloads the
+multipart zips, verifies every SHA-256, and extracts them into `data/`.
+Re-running the fetch only downloads parts that changed.
+
+### Updating the game data
+
+After editing files under `data/`:
 
 ```sh
-git submodule sync --recursive
-git submodule update --init --recursive
+python tools/publish_data_source.py
 ```
+
+This detects the changes, packages a new `data-vN` source release, uploads
+it via the `gh` CLI (or prints manual upload steps), repoints
+`data-source.json`, and commits — every consumer and CI run then follows the
+new location automatically.
 
 ## Current Status
 

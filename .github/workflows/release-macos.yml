@@ -111,14 +111,12 @@ jobs:
       # SHA-256), so CI never spends the GitHub LFS bandwidth quota.
       - name: Download the game data from the source release
         shell: bash
-        env:
-          DATA_SOURCE: ${{ vars.DATA_SOURCE_RELEASE || format('{0}/releases/download/data-v1', github.repository) }}
         run: |
           set -euo pipefail
           rm -rf data
-          python3 tools/fetch_data_parts.py \
-            --url "https://github.com/$DATA_SOURCE" \
-            --dest data
+          # data-source.json in the repo points at the current data release;
+          # moving the data location is a one-line commit, no workflow edits.
+          python3 tools/fetch_data_parts.py --dest data
 
       # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest, so the DMG ships a

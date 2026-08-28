@@ -58,16 +58,33 @@ def sha256_file(path: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True,
+    parser.add_argument("--url", default="",
                         help="Release download base, e.g. "
-                             "https://github.com/OWNER/REPO/releases/download/data-v1")
+                             "https://github.com/OWNER/REPO/releases/download/data-v1 "
+                             "(default: read baseUrl from data-source.json)")
+    parser.add_argument("--source-manifest", default="data-source.json",
+                        help="Repository-level pointer to the current data "
+                             "source release (default: data-source.json)")
     parser.add_argument("--dest", default="data",
                         help="Directory to extract the game data into (default: data)")
     parser.add_argument("--work", default="",
                         help="Download cache directory (default: a fresh temp dir)")
     args = parser.parse_args()
 
-    base = args.url.rstrip("/")
+    if args.url:
+        base = args.url.rstrip("/")
+    else:
+        if not os.path.exists(args.source_manifest):
+            raise SystemExit(
+                "error: %s not found and no --url given; the data source is "
+                "published via a GitHub release and recorded in that file"
+                % args.source_manifest)
+        pointer = json.load(io.open(args.source_manifest, encoding="utf-8"))
+        base = str(pointer.get("baseUrl", "")).rstrip("/")
+        if not base:
+            raise SystemExit("error: %s has no baseUrl" % args.source_manifest)
+        log("data source: %s (release %s)"
+            % (base, pointer.get("releaseTag", "unknown")))
     work = args.work or tempfile.mkdtemp(prefix="data-parts-")
     os.makedirs(work, exist_ok=True)
     os.makedirs(args.dest, exist_ok=True)

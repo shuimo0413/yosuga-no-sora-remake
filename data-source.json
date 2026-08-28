@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "releaseTag": "data-v1",
+  "baseUrl": "https://github.com/shuimo0413/yosuga-no-sora-remake/releases/download/data-v1",
+  "kind": "zip-parts",
+  "totalSize": 4146059932,
+  "fileCount": 23016,
+  "assets": [
+    {
+      "name": "Yosuga-no-Sora-HD-Remake-data-01-data-v1.zip",
+      "size": 1770530977,
+      "sha256": "3176143009832c13e783c64faa56cebd1c472003f572c64b51150d6ac8b7ee35"
+    },
+    {
+      "name": "Yosuga-no-Sora-HD-Remake-data-02-data-v1.zip",
+      "size": 1584169700,
+      "sha256": "e9a3456d11b16d042cd3812e8f181c3a028be442f982b0d45810bd78b6a3f9e4"
+    },
+    {
+      "name": "Yosuga-no-Sora-HD-Remake-data-03-data-v1.zip",
+      "size": 794361159,
+      "sha256": "3c0ca5d35ec3cbfb007a840690c39f1ee1f59c03c643d604190ac73c8b9b4958"
+    }
+  ]
+}
