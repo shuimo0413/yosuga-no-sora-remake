@@ -105,10 +105,34 @@ jobs:
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
+      # LFS quota guard: the data tree is keyed by its git tree hash, so a
+      # run only pays the LFS download when the game data actually changed.
+      # Every other run restores ~4 GB from the Actions cache (which does
+      # not consume the monthly LFS bandwidth quota) and skips git lfs pull.
+      - name: Compute the data tree key
+        id: data-key
+        shell: bash
+        run: echo "key=$(git rev-parse HEAD:data)" >> "$GITHUB_OUTPUT"
+      - name: Restore the game data from cache
+        id: data-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: data
+          key: lfs-data-${{ steps.data-key.outputs.key }}
       - name: Verify Git LFS content
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "${{ steps.data-cache.outputs.cache-hit }}" == 'true' ]]; then
+            echo "data restored from cache; skipping the LFS download"
+            expect=$(git ls-files data | wc -l)
+            actual=$(find data -type f | wc -l)
+            if [[ "$actual" -ne "$expect" ]]; then
+              echo "cached data is incomplete ($actual/$expect files)" >&2
+              exit 1
+            fi
+            exit 0
+          fi
           git lfs pull
           git lfs fsck
 
