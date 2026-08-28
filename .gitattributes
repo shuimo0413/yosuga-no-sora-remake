@@ -11,5 +11,3 @@ data/**/*.webm filter=lfs diff=lfs merge=lfs -text
 data/**/*.ogg filter=lfs diff=lfs merge=lfs -text
 data/**/*.sli filter=lfs diff=lfs merge=lfs -text
 
-platform/windows-krkrz/*.dll filter=lfs diff=lfs merge=lfs -text
-platform/windows-krkrz/*.exe filter=lfs diff=lfs merge=lfs -text
