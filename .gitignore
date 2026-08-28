@@ -8,7 +8,6 @@
 /krkrsdl2
 /savedata/
 /data/savedata/
-/data/content-manifest.json
 
 /build/
 /build-*/
@@ -47,3 +46,6 @@ android-project/gradle/gradle-daemon-jvm.properties
 # Python bytecode cache
 tools/__pycache__/
 __pycache__/
+
+# local incremental-hashing cache for generate_content_manifest.py
+tools/.content-manifest-cache.json
