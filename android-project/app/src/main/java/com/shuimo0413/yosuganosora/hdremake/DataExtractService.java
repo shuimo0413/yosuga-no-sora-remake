@@ -1,4 +1,4 @@
-package com.lightwinder.yosuganosora.hdremake;
+package com.shuimo0413.yosuganosora.hdremake;
 
 import android.app.Notification;
 import android.app.NotificationChannel;

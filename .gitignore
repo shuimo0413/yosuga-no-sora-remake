@@ -43,3 +43,7 @@ android-project/gradle/gradle-daemon-jvm.properties
 # Huge game data archives
 *.xp3
 .idea/
+
+# Python bytecode cache
+tools/__pycache__/
+__pycache__/

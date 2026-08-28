@@ -35,37 +35,51 @@ def make_chunk(tag: bytes, content: bytes) -> bytes:
 
 
 def pack_directory(root: str, output: str) -> int:
-    entries = []
+    # Two-pass streaming packer: the first pass only records (path, size) so
+    # the multi-GiB data tree never has to fit in memory; the second pass
+    # copies each file through a fixed 1 MiB buffer while computing the
+    # adler32 checksum on the fly. The emitted archive is byte-identical to
+    # the previous read-everything-into-RAM implementation.
+    file_list = []
     for dirpath, _dirnames, filenames in os.walk(root):
         for filename in filenames:
             full = os.path.join(dirpath, filename)
             rel = os.path.relpath(full, root).replace(os.sep, "/")
-            with open(full, "rb") as stream:
-                data = stream.read()
-            entries.append((rel, data))
-    entries.sort(key=lambda entry: entry[0])
+            file_list.append((rel, full))
+    file_list.sort(key=lambda entry: entry[0])
 
+    block_size = 1024 * 1024
     with open(output, "wb") as out:
         out.write(SIGNATURE)
         out.write(struct.pack("<Q", 0))  # index offset placeholder
 
         data_offset = out.tell()
-        index_entries = []
-        for rel, data in entries:
-            index_entries.append((rel, data, data_offset))
-            out.write(data)
-            data_offset += len(data)
+        index_entries = []  # (rel, size, offset, adler32)
+        for rel, full in file_list:
+            adler = 1  # zlib.adler32's starting value
+            size = 0
+            index_entries.append((rel, full, data_offset))
+            with open(full, "rb") as stream:
+                while True:
+                    block = stream.read(block_size)
+                    if not block:
+                        break
+                    size += len(block)
+                    adler = zlib.adler32(block, adler)
+                    out.write(block)
+            index_entries[-1] = (rel, size, data_offset, adler & 0xFFFFFFFF)
+            data_offset += size
 
         index_data = bytearray()
-        for rel, data, offset in index_entries:
+        for rel, size, offset, adler in index_entries:
             name = rel.encode("utf-16-le")
             info_content = (
-                struct.pack("<IQQ", 0, len(data), len(data))
+                struct.pack("<IQQ", 0, size, size)
                 + struct.pack("<H", len(rel))
                 + name
             )
-            segm_content = struct.pack("<IQQQ", 0, offset, len(data), len(data))
-            adlr_content = struct.pack("<I", zlib.adler32(data) & 0xFFFFFFFF)
+            segm_content = struct.pack("<IQQQ", 0, offset, size, size)
+            adlr_content = struct.pack("<I", adler)
             file_content = (
                 make_chunk(b"info", info_content)
                 + make_chunk(b"segm", segm_content)
@@ -81,7 +95,7 @@ def pack_directory(root: str, output: str) -> int:
         out.write(struct.pack("<Q", len(index_data)))
         out.write(index_data)
 
-    return len(entries)
+    return len(file_list)
 
 
 def main() -> None:

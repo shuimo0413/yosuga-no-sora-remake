@@ -255,6 +255,16 @@ def generate(args: argparse.Namespace) -> Mapping[str, Any]:
             reused_hashes += 1
         else:
             checksum = sha256_file(physical_path)
+            # Re-stat after hashing: if the file changed between the size
+            # snapshot and the digest, the manifest would pair one file's
+            # size with another file's hash (TOCTOU). Fail loudly instead.
+            post_stat = physical_path.stat()
+            if (post_stat.st_size, post_stat.st_mtime_ns) != (size, mtime_ns):
+                print(
+                    "error: %s changed while it was being hashed" % relative_path,
+                    file=sys.stderr,
+                )
+                return 1
             calculated_hashes += 1
 
         pack_id = select_pack(relative_path, packs, default_pack)

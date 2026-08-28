@@ -31,12 +31,12 @@ jobs:
 
     steps:
       - name: Check out repository and LFS content
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           lfs: true
 
       - name: Set up Python for the release manifest
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
 
@@ -182,6 +182,28 @@ jobs:
               throw "Release asset exceeds GitHub's 2 GiB limit: $($volume.Name)"
             }
           }
+
+          # Record the SHA-256 of every published volume in BUILD-INFO.txt so
+          # downloads can be verified as promised in the release notes.
+          $digests = foreach ($volume in $volumes) {
+            $hash = (Get-FileHash -LiteralPath $volume.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($volume.Name)"
+          }
+          @"
+          Yosuga no Sora: HD Remake
+          Runtime: Windows KRKRZ
+          Release: $env:RELEASE_TAG
+          Commit: $env:COMMIT_SHA
+
+          SHA-256 checksums of the release assets:
+          $($digests -join [Environment]::NewLine)
+          "@ | Set-Content -LiteralPath (Join-Path $assetDirectory 'BUILD-INFO.txt') `
+            -Encoding utf8NoBOM
+
+          # Third-party license texts travel with the binary package.
+          python tools/generate_notices.py `
+            --output (Join-Path $assetDirectory 'THIRD-PARTY-NOTICES.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'THIRD-PARTY-NOTICES generation failed' }
 
           "asset-directory=$assetDirectory" >> $env:GITHUB_OUTPUT
           Get-ChildItem -LiteralPath $assetDirectory -File |

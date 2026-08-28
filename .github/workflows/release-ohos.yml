@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 360
     steps:
       - name: Check out repository, submodules, and LFS content
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           lfs: false
@@ -67,16 +67,16 @@ jobs:
             /usr/local/lib/android/sdk/system-images /usr/local/share/boost /usr/share/dotnet
           sudo apt-get clean
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
       - name: Resolve release metadata
@@ -88,7 +88,11 @@ jobs:
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
           INPUT_SIGN_MODE: ${{ inputs.sign_mode }}
+          INPUT_DATA_MODE: ${{ inputs.data_mode }}
           OHOS_DEFAULT_SIGN_MODE: ${{ vars.OHOS_DEFAULT_SIGN_MODE }}
+          # Forks/renames set the repository variable APP_BUNDLE_IDENTIFIER;
+          # the default matches the app's published bundle name.
+          APP_BUNDLE_IDENTIFIER: ${{ vars.APP_BUNDLE_IDENTIFIER || 'com.shuimo0413.yosuganosora.hdremake' }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == 'push' ]]; then
@@ -101,10 +105,24 @@ jobs:
           if [[ ! "$release_tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
             echo "Invalid release tag: $release_tag" >&2; exit 1
           fi
-          version_name="${release_tag#v}"
+          # Numeric x.y.z version derived from the tag (platform suffixes
+          # and test markers dropped) so every platform reports the same
+          # three-segment versionName for one release.
+          version_source="${release_tag#v}"
+          if [[ "$version_source" =~ ^([0-9]+)(\.([0-9]+))?(\.([0-9]+))?($|[^0-9.]) ]]; then
+            version_name="${BASH_REMATCH[1]}.${BASH_REMATCH[3]:-0}.${BASH_REMATCH[5]:-0}"
+          else
+            echo "Cannot derive a numeric x.y.z version from tag: $release_tag" >&2
+            exit 1
+          fi
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
           sign_mode="${INPUT_SIGN_MODE}"
           if [[ -z "$sign_mode" ]]; then sign_mode="${OHOS_DEFAULT_SIGN_MODE:-community}"; fi
+          # Push builds never bundle data (the app downloads it); only a
+          # manual dispatch can select bundled/mini. Defaulting here prevents
+          # the empty-value LFS pull on push triggers.
+          data_mode="${INPUT_DATA_MODE}"
+          if [[ -z "$data_mode" ]]; then data_mode='external'; fi
           case "$sign_mode" in none|community|agc) ;; *) echo "Bad sign mode: $sign_mode" >&2; exit 1 ;; esac
           {
             echo "tag=$release_tag"
@@ -112,14 +130,14 @@ jobs:
             echo "version-name=$version_name"
             echo "version-code=$version_code"
             echo "sign-mode=$sign_mode"
-            echo "data-mode=${{ inputs.data_mode }}"
+            echo "data-mode=$data_mode"
           } >> "$GITHUB_OUTPUT"
       # build-app does not need game data (external mode): NO git lfs pull,
       # no content/asset manifest generation. The app fetches data-assets.json
       # from the Release at runtime, so the HAP build never touches data/.
       - name: Restore cached OHOS SDK
         id: sdk-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ohos-sdk-cache
           key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
@@ -127,6 +145,7 @@ jobs:
         shell: bash
         env:
           OHOS_COMMAND_LINE_TOOLS_URL: ${{ vars.OHOS_COMMAND_LINE_TOOLS_URL }}
+          OHOS_CLI_TOOLS_SHA256: ${{ vars.OHOS_CLI_TOOLS_SHA256 }}
           CACHE_HIT: ${{ steps.sdk-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
@@ -140,6 +159,14 @@ jobs:
             cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
             echo "Downloading command line tools"
             curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/commandline-tools.zip" "$cli_url"
+            # Supply-chain guard: log the digest and, when the repository
+            # variable OHOS_CLI_TOOLS_SHA256 is set, fail on any mismatch.
+            cli_sha="$(sha256sum "$RUNNER_TEMP/commandline-tools.zip" | cut -d' ' -f1)"
+            echo "commandline-tools sha256: $cli_sha"
+            if [[ -n "${OHOS_CLI_TOOLS_SHA256:-}" && "$cli_sha" != "$OHOS_CLI_TOOLS_SHA256" ]]; then
+              echo 'command line tools sha256 mismatch (expected OHOS_CLI_TOOLS_SHA256)' >&2
+              exit 1
+            fi
             unzip -q -o "$RUNNER_TEMP/commandline-tools.zip" -d "$sdk_root/"
             [[ -d "$sdk_root/command-line-tools" ]] || { echo 'command-line-tools missing' >&2; exit 1; }
             bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
@@ -170,7 +197,7 @@ jobs:
           cp -r "$RUNNER_TEMP/ohos-sdk" ohos-sdk-cache
       - name: Save cached OHOS SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ohos-sdk-cache
           key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
@@ -267,6 +294,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.OHOS_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OHOS_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OHOS_KEY_PASSWORD }}
+          OHOS_SIGN_TOOL_SHA256: ${{ vars.OHOS_SIGN_TOOL_SHA256 }}
           APP_CERT_BASE64: ${{ secrets.OHOS_APP_CERT_BASE64 }}
           PROFILE_BASE64: ${{ secrets.OHOS_PROFILE_P7B_BASE64 }}
           OHOS_SIGN_TOOL_URL: ${{ vars.OHOS_SIGN_TOOL_URL }}
@@ -282,6 +310,14 @@ jobs:
           else
             sign_tool="$RUNNER_TEMP/hap-sign-tool.jar"
             curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
+            # Supply-chain guard: log the digest and, when the repository
+            # variable OHOS_SIGN_TOOL_SHA256 is set, fail on any mismatch.
+            tool_sha="$(sha256sum "$sign_tool" | cut -d' ' -f1)"
+            echo "hap-sign-tool sha256: $tool_sha"
+            if [[ -n "${OHOS_SIGN_TOOL_SHA256:-}" && "$tool_sha" != "$OHOS_SIGN_TOOL_SHA256" ]]; then
+              echo 'hap-sign-tool sha256 mismatch (expected OHOS_SIGN_TOOL_SHA256)' >&2
+              exit 1
+            fi
           fi
           [[ -f "$sign_tool" ]] || { echo 'Signing tool missing' >&2; exit 1; }
           if [[ "$SIGN_MODE" == 'agc' ]]; then
@@ -302,13 +338,16 @@ jobs:
             echo 'Signing with the community OpenHarmony debug certificate.'
             sign_dir="$RUNNER_TEMP/ohos-autosign"; mkdir -p "$sign_dir"
             cp "$sign_tool" "$sign_dir/hap-sign-tool.jar"
+            # Vendored from openharmony/developtools_hapsigner
+            # (tools/ohos/autosign/, source commit b7c706fcc71a4a4a81ed5b091fc141d23f240e86)
+            # so community signing never executes un-pinned upstream code.
             for file in autosign.py createRootAndSubCert.config createAppCertAndProfile.config signHap.config UnsgnedReleasedProfileTemplate.json; do
-              curl -fL --retry 3 --retry-delay 10 -o "$sign_dir/$file" "https://raw.githubusercontent.com/openharmony/developtools_hapsigner/master/autosign/$file"
+              cp "$GITHUB_WORKSPACE/tools/ohos/autosign/$file" "$sign_dir/$file"
             done
             cd "$sign_dir"
             sed -i "s#config.signtool=.*#config.signtool=$sign_dir/hap-sign-tool.jar#" *.config
             now="$(date +%s)"; future="$(date -d '+10 years' +%s)"
-            jq --arg now "$now" --arg future "$future" '.validity = {"not-before": ($now|tonumber), "not-after": ($future|tonumber)} | .["bundle-info"]["bundle-name"]="com.lightwinder.yosuganosora.hdremake" | .["bundle-info"]["app-feature"]="hos_normal_app"' UnsgnedReleasedProfileTemplate.json > profile.tmp.json
+            jq --arg now "$now" --arg future "$future" '.validity = {"not-before": ($now|tonumber), "not-after": ($future|tonumber)} | .["bundle-info"]["bundle-name"]="$APP_BUNDLE_IDENTIFIER" | .["bundle-info"]["app-feature"]="hos_normal_app"' UnsgnedReleasedProfileTemplate.json > profile.tmp.json
             mv profile.tmp.json UnsgnedReleasedProfileTemplate.json
             sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createRootAndSubCert.config
             sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createAppCertAndProfile.config
@@ -379,8 +418,12 @@ jobs:
               package_name="Yosuga-no-Sora-HD-Remake-${os_label}-arm64-x86_64${data_suffix}-unsigned-$RELEASE_TAG.hap"
             fi
             cp "$file" "$asset_dir/$package_name"
-            printf 'Yosuga no Sora: HD Remake\nRuntime: Kirikiri SDL2 for %s 5.0 (API 12, ARM64 + x86_64)\nFlavor: %s\nRelease: %s\nCommit: %s\nSigning: %s\nData: %s\nNative optimization: Release\n' \
+            # Record the asset digest in BUILD-INFO so every published file
+            # carries a verifiable SHA-256 next to its provenance data.
+            hap_sha256="$(sha256sum "$file" | cut -d' ' -f1)"
+            printf 'Yosuga no Sora: HD Remake\nRuntime: Kirikiri SDL2 for %s 5.0 (API 12, ARM64 + x86_64)\nFlavor: %s\nRelease: %s\nCommit: %s\nSigning: %s\nData: %s\nNative optimization: Release\nSHA-256: %s  %s\n' \
               "$os_label" "$flavor" "$RELEASE_TAG" "$GITHUB_SHA" "${signed_hap:-unsigned}" "${DATA_MODE:-external}" \
+              "$hap_sha256" "$package_name" \
               > "$asset_dir/$package_name-BUILD-INFO.txt"
           }
           verify_and_package harmonyos "$HAP_HARMONYOS" "$SIGNED_HARMONYOS"

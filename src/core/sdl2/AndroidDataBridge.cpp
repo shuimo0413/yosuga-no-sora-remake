@@ -11,6 +11,7 @@
 
 #include <jni.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -21,13 +22,19 @@
 
 static std::string gDataDir;
 
+// Extraction worker state. gExtractRunning is atomic: the Java side polls
+// it from another thread and the start/done race previously left the flag
+// latched after a completed run, permanently blocking re-extraction.
+static std::atomic<bool> gExtractRunning{false};
+static std::thread gExtractThread;
+
 const char *AndroidDataDir_Get()
 {
 	return gDataDir.empty() ? nullptr : gDataDir.c_str();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_lightwinder_yosuganosora_hdremake_KirikiriSDL2Activity_nativeSetDataDir(
+Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeSetDataDir(
 	JNIEnv *env, jobject thiz, jstring dir)
 {
 	if (dir == nullptr) return;
@@ -75,6 +82,10 @@ void AndroidExtractWorker(AndroidExtractCtx *ctx)
 	{
 		snprintf(res.error, sizeof(res.error), "worker exception");
 	}
+	/* Reset the latch BEFORE publishing the status file: once the status
+	 * file exists the Java side may immediately start the next extraction,
+	 * whose join below waits for this worker to fully finish anyway. */
+	gExtractRunning = false;
 	FILE *s = fopen(ctx->statusPath.c_str(), "w");
 	if (s)
 	{
@@ -93,14 +104,12 @@ void AndroidExtractWorker(AndroidExtractCtx *ctx)
 
 } /* namespace */
 
-static bool gExtractRunning = false;
-static std::thread gExtractThread;
-
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lightwinder_yosuganosora_hdremake_BootstrapActivity_nativeExtractXp3Start(
+Java_com_shuimo0413_yosuganosora_hdremake_BootstrapActivity_nativeExtractXp3Start(
 	JNIEnv *env, jobject thiz, jstring xp3Path, jstring outDir)
 {
-	if (gExtractRunning) return JNI_FALSE;
+	// Atomic test-and-set: closes the check/start race window.
+	if (gExtractRunning.exchange(true)) return JNI_FALSE;
 	if (xp3Path == nullptr || outDir == nullptr) return JNI_FALSE;
 	const char *xp3 = env->GetStringUTFChars(xp3Path, nullptr);
 	const char *out = env->GetStringUTFChars(outDir, nullptr);
@@ -121,9 +130,11 @@ Java_com_lightwinder_yosuganosora_hdremake_BootstrapActivity_nativeExtractXp3Sta
 	if (p) fclose(p);
 	FILE *s = fopen(ctx->statusPath.c_str(), "w");
 	if (s) fclose(s);
-	gExtractRunning = true;
 	try
 	{
+		// A finished-but-not-detached previous worker must be reaped
+		// before the thread object is reassigned, or std::terminate fires.
+		if (gExtractThread.joinable()) gExtractThread.join();
 		gExtractThread = std::thread(AndroidExtractWorker, ctx);
 	}
 	catch (...)
@@ -136,7 +147,7 @@ Java_com_lightwinder_yosuganosora_hdremake_BootstrapActivity_nativeExtractXp3Sta
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_lightwinder_yosuganosora_hdremake_KirikiriSDL2Activity_nativeDetachExtractThread(
+Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeDetachExtractThread(
 	JNIEnv *env, jobject thiz)
 {
 	if (gExtractThread.joinable()) gExtractThread.detach();

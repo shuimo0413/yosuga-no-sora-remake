@@ -150,8 +150,20 @@ def vendor_sdl():
         source = DRIVER_SOURCE / name
         if not source.is_file():
             fail("missing driver source: %s" % source)
+        # The OHOS CMake build compiles the same driver sources from both the
+        # video and the filesystem trees; both copies come straight from the
+        # same source file, and the second is kept as a hard link so the two
+        # trees can never drift apart.
         shutil.copy2(source, video_dir / name)
-        shutil.copy2(source, filesystem_dir / name)
+        linked = filesystem_dir / name
+        if linked.exists():
+            linked.unlink()
+        try:
+            os.link(video_dir / name, linked)
+        except OSError:
+            # Cross-device or filesystems without hard links: fall back to a
+            # plain copy (still byte-identical at this point).
+            shutil.copy2(video_dir / name, linked)
 
     audio_dir = SDL_DEST / "src" / "audio" / "ohos"
     audio_dir.mkdir(parents=True, exist_ok=True)

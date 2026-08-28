@@ -448,6 +448,12 @@ int Krkr_ExtractZip(const char *zipPath, const char *outDir,
   int done = 0;
   int rc = 0;
   std::string errStr;
+  /* Safety cap: the multi-part release zips are each well under 4 GiB
+   * uncompressed, and the on-device filesystems this runs on have no
+   * free-space check, so a runaway or malicious archive must stop before
+   * it can fill the whole volume. */
+  const uint64_t kMaxExtractedBytes = (uint64_t)4 * 1024 * 1024 * 1024;
+  uint64_t extractedTotal = 0;
   if (!Mkdirs(outDir, &errStr))
   {
     fclose(f);
@@ -533,6 +539,13 @@ int Krkr_ExtractZip(const char *zipPath, const char *outDir,
       break;
     }
     done++;
+    extractedTotal += e.uncompressedSize;
+    if (extractedTotal > kMaxExtractedBytes)
+    {
+      errStr = "archive exceeds the 4 GiB extraction limit (at " + e.name + ")";
+      rc = -1;
+      break;
+    }
     if (progress)
     {
       if (!progress(ctx, done, total, e.name.c_str()))

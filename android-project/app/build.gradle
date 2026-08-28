@@ -50,18 +50,26 @@ def androidVersionName = providers.gradleProperty('androidVersionName')
     .getOrElse('1.0')
 
 android {
-    namespace = "com.lightwinder.yosuganosora.hdremake"
+    namespace = "com.shuimo0413.yosuganosora.hdremake"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
         if (buildAsApplication) {
-            applicationId = "com.lightwinder.yosuganosora.hdremake"
+            applicationId = "com.shuimo0413.yosuganosora.hdremake"
         }
         minSdk = 23
         targetSdk = 37
         versionCode = androidVersionCode
         versionName = androidVersionName
+        // The in-app downloader's fallback base URL is injected at build
+        // time (CI passes -PdefaultBaseUrl=... from the publishing repo;
+        // local builds leave it empty and the UI asks for the address).
+        buildFeatures {
+            buildConfig = true
+        }
+        buildConfigField 'String', 'DEFAULT_BASE_URL',
+            '"${providers.gradleProperty('defaultBaseUrl').getOrElse('')}"'
         externalNativeBuild {
             cmake {
                 abiFilters = []

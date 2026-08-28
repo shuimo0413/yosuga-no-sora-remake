@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Check out repository, submodules, and LFS content
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           lfs: false
@@ -55,7 +55,7 @@ jobs:
           df -h "$GITHUB_WORKSPACE"
 
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
@@ -66,14 +66,14 @@ jobs:
             android-project/gradle/wrapper/gradle-wrapper.properties
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
 
       # Cache the Android SDK / NDK components so the multi-GB downloads
       # (platform-37, build-tools, cmake, ndk) are not repeated every run.
       # setup-android exports ANDROID_HOME, which cache uses as the path.
       - name: Restore cached Android SDK components
         id: sdk-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
@@ -97,7 +97,7 @@ jobs:
       - name: Save cached Android SDK components
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
@@ -133,7 +133,15 @@ jobs:
             exit 1
           fi
 
-          version_name="${release_tag#v}"
+          # Numeric x.y.z version derived from the tag (platform suffixes
+          # and test markers dropped), consistent with the other platforms.
+          version_source="${release_tag#v}"
+          if [[ "$version_source" =~ ^([0-9]+)(\.([0-9]+))?(\.([0-9]+))?($|[^0-9.]) ]]; then
+            version_name="${BASH_REMATCH[1]}.${BASH_REMATCH[3]:-0}.${BASH_REMATCH[5]:-0}"
+          else
+            echo "Cannot derive a numeric x.y.z version from tag: $release_tag" >&2
+            exit 1
+          fi
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
           {
             echo "tag=$release_tag"
@@ -150,7 +158,7 @@ jobs:
       # over an older one fails with "signatures do not match".
       - name: Restore development signing keystore
         id: keystore-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/krkrsdl2-development.jks
           key: krkrsdl2-android-signing-v1
@@ -226,7 +234,7 @@ jobs:
       - name: Save development signing keystore
         if: steps.keystore-cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/krkrsdl2-development.jks
           key: krkrsdl2-android-signing-v1
@@ -285,6 +293,7 @@ jobs:
 
           rm -rf android-project/app/build android-project/app/.cxx build
 
+          apk_sha256="$(sha256sum "$asset_dir/$package_name" | cut -d' ' -f1)"
           cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Android Kirikiri SDL2 (ARM64)
@@ -292,7 +301,12 @@ jobs:
           Commit: $GITHUB_SHA
           Signing: $SIGNING_MODE
           Native optimization: RelWithDebInfo -O3, NDEBUG, ARM64 NEON with fallback
+          SHA-256: $apk_sha256  $package_name
           EOF
+
+          # Third-party license texts travel with the binary package.
+          python3 tools/generate_notices.py \
+            --output "$asset_dir/THIRD-PARTY-NOTICES.txt"
 
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"

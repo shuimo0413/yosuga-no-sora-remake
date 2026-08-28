@@ -1,4 +1,4 @@
-package com.lightwinder.yosuganosora.hdremake;
+package com.shuimo0413.yosuganosora.hdremake;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -59,8 +59,10 @@ public class BootstrapActivity extends Activity {
     private static final String TAG = "YosugaBootstrap";
     private static final String PREFS = "data_setup";
     private static final String KEY_CONFIRMED_VERSION = "confirmed_version";
-    private static final String DEFAULT_BASE_URL =
-            "https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/latest/download/";
+    // Injected at build time (gradle property defaultBaseUrl, set by CI from
+    // the publishing repository). Local builds leave it empty: the download
+    // field then requires the user to type the data-assets.json location.
+    private static final String DEFAULT_BASE_URL = BuildConfig.DEFAULT_BASE_URL;
 
     private LinearLayout root;
     private TextView messageView;
@@ -188,7 +190,7 @@ public class BootstrapActivity extends Activity {
         baseUrlInput.setText("");
         baseUrlInput.setTextSize(12f);
         baseUrlInput.setSingleLine(true);
-        baseUrlInput.setHint("下载地址（留空使用默认值）");
+        baseUrlInput.setHint("下载地址（留空使用构建内置的发布仓库）");
 
         proxyInput = new EditText(this);
         proxyInput.setText("");
@@ -473,7 +475,13 @@ public class BootstrapActivity extends Activity {
     private List<String[]> loadManifest() throws Exception {
         List<String[]> out = new ArrayList<>();
         String base = baseUrlInput.getText().toString().trim();
-        if (base.isEmpty()) base = DEFAULT_BASE_URL;
+        if (base.isEmpty()) {
+            base = DEFAULT_BASE_URL;
+            if (base.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "请在下载地址框填写 data-assets.json 所在的目录链接");
+            }
+        }
         if (!base.endsWith("/")) base += "/";
         final String proxy = proxyInput.getText().toString().trim();
         String manifestUrl = proxy.isEmpty() ? (base + "data-assets.json")

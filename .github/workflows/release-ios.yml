@@ -4,8 +4,6 @@ name: Release iOS SDL2
   push:
     tags:
       - 'v*-ios-*'
-    branches:
-      - 'codex/feature-ios-macos-releases'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -33,7 +31,7 @@ jobs:
 
     steps:
       - name: Check out repository and submodules
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           lfs: false
@@ -63,7 +61,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
-          REPOSITORY_BUNDLE_IDENTIFIER: ${{ vars.IOS_BUNDLE_IDENTIFIER }}
+          REPOSITORY_BUNDLE_IDENTIFIER: ${{ vars.APP_BUNDLE_IDENTIFIER || vars.IOS_BUNDLE_IDENTIFIER }}
         run: |
           set -euo pipefail
           publish=true
@@ -78,7 +76,7 @@ jobs:
             is_prerelease=true
             publish=false
           fi
-          bundle_identifier="${REPOSITORY_BUNDLE_IDENTIFIER:-com.lightwinder.yosuganosora.hdremake}"
+          bundle_identifier="${REPOSITORY_BUNDLE_IDENTIFIER:-com.shuimo0413.yosuganosora.hdremake}"
           if [[ ! "$release_tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
             echo "Invalid release tag: $release_tag" >&2
             exit 1
@@ -205,8 +203,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # 图标.ico is a 256x256 PNG; regenerate every AppIcon size from it.
-          SRC="$GITHUB_WORKSPACE/图标.ico"
+          # icon.ico is a 256x256 PNG; regenerate every AppIcon size from it.
+          SRC="$GITHUB_WORKSPACE/icon.ico"
           WD="$RUNNER_TEMP/appicon"
           mkdir -p "$WD"
           cp "$SRC" "$WD/src.png"
@@ -257,10 +255,12 @@ jobs:
 
       - name: Restore cached Xcode derived data
         id: ios-dd-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ios-derived-data
-          key: ios-deriveddata-${{ github.sha }}
+          key: ios-deriveddata-v1-${{ github.sha }}
+          restore-keys: |
+            ios-deriveddata-v1-
 
       - name: Build optimized iPhone application
         shell: bash
@@ -292,10 +292,10 @@ jobs:
       - name: Save cached Xcode derived data
         if: steps.ios-dd-cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ios-derived-data
-          key: ios-deriveddata-${{ github.sha }}
+          key: ios-deriveddata-v1-${{ github.sha }}
 
       - name: Verify application and create IPA
         id: package
@@ -356,6 +356,7 @@ jobs:
           rm -rf build/ios data "$package" "$RUNNER_TEMP/ios-derived-data"
           # The IPA is data-external and small: upload it directly, no split.
           mv "$ipa" "$asset_dir/$ipa_name"
+          ipa_sha256="$(shasum -a 256 "$asset_dir/$ipa_name" | cut -d' ' -f1)"
           cat > "$asset_dir/$ipa_name-BUILD-INFO.txt" <<EOF
           Yosuga no Sora: HD Remake
           Runtime: Kirikiri SDL2 for iOS (arm64)
@@ -364,7 +365,12 @@ jobs:
           Commit: $GITHUB_SHA
           Signing: $IOS_SIGNING_MODE
           Native optimization: Release
+          SHA-256: $ipa_sha256  $ipa_name
           EOF
+
+          # Third-party license texts travel with the binary package.
+          python3 tools/generate_notices.py \
+            --output "$asset_dir/THIRD-PARTY-NOTICES.txt"
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"
 
@@ -439,7 +445,7 @@ jobs:
 
       - name: Upload non-release IPA artifact
         if: steps.release.outputs.publish != 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Yosuga-no-Sora-HD-Remake-iOS-arm64-${{ steps.release.outputs.tag }}
           path: ${{ steps.package.outputs.asset-directory }}

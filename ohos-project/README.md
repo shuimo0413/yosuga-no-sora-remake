@@ -120,7 +120,7 @@ Then install the signed HAP with `hdc install <signed.hap>`.
 ### Getting AGC materials for HarmonyOS 5+
 
 1. Register an app in AppGallery Connect. Its bundle name must be
-   `com.lightwinder.yosuganosora.hdremake` (the name baked into
+   `com.shuimo0413.yosuganosora.hdremake` (the name baked into
    AppScope/app.json5). If you register a different name, change
    AppScope/app.json5 and rebuild.
 2. Create the keystore (.p12) and download the application certificate

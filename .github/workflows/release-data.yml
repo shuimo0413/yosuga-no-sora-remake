@@ -39,12 +39,12 @@ jobs:
       release-tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Check out repository, submodules, and LFS content
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           lfs: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
       - name: Resolve release metadata
@@ -72,18 +72,34 @@ jobs:
           set -euo pipefail
           git lfs pull
           git lfs fsck
+      - name: Generate and validate the content manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/generate_content_manifest.py \
+            --root data \
+            --output data/content-manifest.json \
+            --config content-packs.json \
+            --cache "$RUNNER_TEMP/content-manifest-cache.json" \
+            --full
       - name: Package game data assets
         id: data
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          GH_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           out_dir="$RUNNER_TEMP/data-assets"
           mkdir -p "$out_dir"
+          # The manifest baseUrl must point at THIS repository (not a fork),
+          # so it is injected from the build context instead of being coded
+          # in the tool.
           python3 tools/package_data_release.py \
             --root data --config content-packs.json \
-            --tag "$RELEASE_TAG" --out "$out_dir"
+            --tag "$RELEASE_TAG" \
+            --base-url "https://github.com/$GH_REPOSITORY/releases/download" \
+            --out "$out_dir"
           echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$out_dir"
       - name: Publish data assets to Release

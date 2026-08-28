@@ -57,5 +57,5 @@ The signing secrets are `IOS_CERTIFICATE_P12_BASE64`,
 `IOS_CERTIFICATE_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, and
 `IOS_DEVELOPMENT_TEAM`. The certificate and mobile provisioning profile values
 must be base64 encoded. If the profile does not use the default
-`com.lightwinder.yosuganosora.hdremake` identifier, set the repository variable
+`com.shuimo0413.yosuganosora.hdremake` identifier, set the repository variable
 `IOS_BUNDLE_IDENTIFIER` as well.
