@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -54,6 +55,31 @@ def sha256_file(path: str) -> str:
         for chunk in iter(lambda: handle.read(CHUNK), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def extract_part(archive_path: str, dest: str) -> None:
+    """Extract one part zip into dest, stripping the leading 'data/'
+    component that package_data_release.py prepends to every entry.
+    Otherwise --dest data would nest everything under data/data/."""
+    dest_abs = os.path.abspath(dest)
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            name = member.filename
+            if name == "data/" or name == "data":
+                continue
+            if name.startswith("data/"):
+                name = name[len("data/"):]
+            if not name:
+                continue
+            target = os.path.abspath(os.path.join(dest, name))
+            if os.path.commonpath([dest_abs, target]) != dest_abs:
+                raise SystemExit("error: unsafe path in archive: %s" % member.filename)
+            if name.endswith("/"):
+                os.makedirs(target, exist_ok=True)
+                continue
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with archive.open(member) as source, open(target, "wb") as handle:
+                shutil.copyfileobj(source, handle)
 
 
 def main() -> int:
@@ -114,8 +140,7 @@ def main() -> int:
         log("verified %s" % name)
 
     for asset in assets:
-        with zipfile.ZipFile(os.path.join(work, asset["name"])) as archive:
-            archive.extractall(args.dest)
+        extract_part(os.path.join(work, asset["name"]), args.dest)
         log("extracted %s -> %s" % (asset["name"], args.dest))
 
     log("game data ready in %s (%d parts)" % (args.dest, len(assets)))
