@@ -30,11 +30,12 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Check out repository and LFS content
+      - name: Check out repository, submodules, and LFS content
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          # LFS content is restored further down from the Actions cache when
-          # possible; smudging here would always spend the LFS bandwidth.
+          submodules: recursive
+          # data/ pointer stubs are replaced further down by a full copy of
+          # the game data from the data source release; LFS is never pulled.
           lfs: false
 
       - name: Set up Python for the release manifest
