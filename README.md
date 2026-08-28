@@ -30,21 +30,32 @@ port that produced the first Android release).
 
 ## Getting the Source
 
-Clone the repository with its submodules, then download the Git LFS content:
+Run the one-shot bootstrap (submodules + game data):
 
 ```sh
 git clone --recurse-submodules https://github.com/shuimo0413/yosuga-no-sora-remake.git
 cd yosuga-no-sora-remake
-git lfs pull
+./setup.sh            # Windows: setup.bat
 ```
 
-To update the dependencies in an existing working tree:
+The repository itself no longer carries game data in Git LFS. `setup.sh`
+calls `tools/fetch_data_parts.py`, which reads `data-source.json` (the
+repository-level pointer to the current data source release), downloads the
+multipart zips, verifies every SHA-256, and extracts them into `data/`.
+Re-running the fetch only downloads parts that changed.
+
+### Updating the game data
+
+After editing files under `data/`:
 
 ```sh
-git submodule sync --recursive
-git submodule update --init --recursive
-git lfs pull
+python tools/publish_data_source.py
 ```
+
+This detects the changes, packages a new `data-vN` source release, uploads
+it via the `gh` CLI (or prints manual upload steps), repoints
+`data-source.json`, and commits — every consumer and CI run then follows the
+new location automatically.
 
 ## Current Status
 
@@ -97,7 +108,8 @@ so changes to game scripts and assets do not require repackaging.
 ## Windows KRKRZ Releases
 
 Pushing a tag matching `v*` runs the Windows KRKRZ release workflow. It
-validates the Git LFS content, regenerates the full content manifest, packages
+validates the game data from the source release, regenerates the full content
+manifest, packages
 the native runtime with `data/`, and creates a GitHub Release automatically.
 The workflow can also be started manually with a release tag and prerelease
 option.

@@ -33,7 +33,9 @@ jobs:
       - name: Check out repository and LFS content
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          lfs: true
+          # LFS content is restored further down from the Actions cache when
+          # possible; smudging here would always spend the LFS bandwidth.
+          lfs: false
 
       - name: Set up Python for the release manifest
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -64,13 +66,18 @@ jobs:
           "tag=$releaseTag" >> $env:GITHUB_OUTPUT
           "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      - name: Verify Git LFS content
+      # The game data is no longer served from LFS: the checkout only has
+      # pointer stubs for data/. Real content comes from the data source
+      # release (multipart zips described by data-assets.json with per-part
+      # SHA-256), so CI never spends the GitHub LFS bandwidth quota.
+      - name: Download the game data from the source release
         shell: pwsh
         run: |
-          git lfs pull
-          if ($LASTEXITCODE -ne 0) { throw 'git lfs pull failed' }
-          git lfs fsck
-          if ($LASTEXITCODE -ne 0) { throw 'git lfs fsck failed' }
+          if (Test-Path data) { Remove-Item -Recurse -Force data }
+          # data-source.json in the repo points at the current data release;
+          # moving the data location is a one-line commit, no workflow edits.
+          python tools/fetch_data_parts.py --dest data
+          if ($LASTEXITCODE -ne 0) { throw 'Data source download failed' }
 
       # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest and the data.xp3 pack.
