@@ -83,8 +83,20 @@ def main() -> int:
             "apl": "normal",
             "app-feature": "hos_normal_app",
         },
-        "acls": {"allowed-acls": [""]},
-        "permissions": {"restricted-permissions": []},
+        # Strict ROMs (KaihongOS) only grant system_basic-level permissions
+        # when the signing profile lists them in allowed-acls, and
+        # restricted ones additionally in restricted-permissions. Without
+        # these the app's sockets are denied (every http.request() hangs,
+        # download stays at 0 bytes forever) and the download-directory
+        # permission dialog can never succeed - while other devices on the
+        # same network work fine because their grant policy auto-approves.
+        "acls": {"allowed-acls": [
+            "ohos.permission.INTERNET",
+            "ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY",
+        ]},
+        "permissions": {"restricted-permissions": [
+            "ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY",
+        ]},
         "issuer": "pki_internal",
     }
     profile_json = os.path.join(work, "profile.json")

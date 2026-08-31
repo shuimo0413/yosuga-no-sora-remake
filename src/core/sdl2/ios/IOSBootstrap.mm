@@ -262,8 +262,18 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 @property (nonatomic) NSUInteger assetIndex;
 @property (nonatomic) long long doneBytes;
 @property (nonatomic) long long totalBytes;
+/* Whole-download start instant for the average speed display. */
+@property (nonatomic) CFAbsoluteTime downloadStart;
 @property (nonatomic, strong) NSURLSession *activeSession;
 @property (nonatomic, strong) NSURLSessionDownloadTask *activeTask;
+/* 6-way concurrent Range download state (8MB chunks, like the Android
+ * build). chunkPlans holds one dict per in-flight data task; the shared
+ * NSFileHandle does positional writes so order never matters. */
+@property (nonatomic, strong) NSFileHandle *chunkFile;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *chunkPlans;
+@property (nonatomic, assign) long long chunkReceivedTotal;
+@property (nonatomic, assign) NSInteger chunksRemaining;
+@property (nonatomic, assign) BOOL chunkFailed;
 @property (nonatomic, copy) NSDictionary *activeTaskState;
 @end
 
@@ -289,6 +299,12 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     UIView *_container;
     BOOL _busy;
     BOOL _importPickerOpen;
+    /* Pointer-hover highlight (mouse / trackpad), mirroring the touch
+     * pressed state. */
+    NSInteger _hoverAction;
+    NSInteger _hoverProxy;
+    /* Background execution time while a transfer runs (see setBusy:). */
+    UIBackgroundTaskIdentifier _bgTask;
     NSInteger _selectedProxy;
     NSInteger _activeAction;
 }
@@ -406,6 +422,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+    _bgTask = UIBackgroundTaskInvalid;
     self.view.backgroundColor = UIColor.blackColor;
 
     /* The supplied artwork and every hit target share one 1920x1080
@@ -473,6 +490,9 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     _ghProxyButton.frame = CGRectMake(570, 425, 410, 145);
     _craftProxyButton = [self makeOverlayButton:@"CRAFT-HELLO PROXY"];
     _craftProxyButton.tag = 3;
+    [self attachHover:_directButton];
+    [self attachHover:_ghProxyButton];
+    [self attachHover:_craftProxyButton];
     _craftProxyButton.frame = CGRectMake(980, 425, 740, 145);
     for (UIButton *button in @[_directButton, _ghProxyButton, _craftProxyButton])
     {
@@ -490,6 +510,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                                UIControlEventTouchUpOutside];
     [_downloadButton addTarget:self action:@selector(onDownload)
               forControlEvents:UIControlEventTouchUpInside];
+    [self attachHover:_downloadButton];
     _downloadButton.frame = CGRectMake(1240, 755, 300, 135);
     [_container addSubview:_downloadButton];
     UILongPressGestureRecognizer *settingsGesture = [[UILongPressGestureRecognizer alloc]
@@ -505,6 +526,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                              UIControlEventTouchUpOutside];
     [_importButton addTarget:self action:@selector(onImport)
             forControlEvents:UIControlEventTouchUpInside];
+    [self attachHover:_importButton];
     _importButton.frame = CGRectMake(1450, 755, 430, 135);
     [_container addSubview:_importButton];
 
@@ -591,11 +613,46 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     [self updateProxyArtwork];
 }
 
+/* Mouse / trackpad hover (iPad pointer): show the active artwork while the
+ * pointer is over a button, restore when it leaves. UIHoverGestureRecognizer
+ * is iOS 13+; on older systems this simply does nothing. */
+- (void)attachHover:(UIButton *)button
+{
+    if (@available(iOS 13.0, *))
+    {
+        UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc]
+            initWithTarget:self action:@selector(onPointerHover:)];
+        [button addGestureRecognizer:hover];
+    }
+}
+
+- (void)onPointerHover:(UIHoverGestureRecognizer *)recognizer
+{
+    UIButton *button = (UIButton *)recognizer.view;
+    if (![button isKindOfClass:[UIButton class]])
+        return;
+    BOOL over = recognizer.state == UIGestureRecognizerStateBegan
+             || recognizer.state == UIGestureRecognizerStateChanged;
+    BOOL isProxy = button == _directButton || button == _ghProxyButton
+                || button == _craftProxyButton;
+    if (isProxy)
+    {
+        _hoverProxy = over ? button.tag : (_hoverProxy == button.tag ? 0 : _hoverProxy);
+        [self updateProxyArtwork];
+    }
+    else
+    {
+        _hoverAction = over ? button.tag : (_hoverAction == button.tag ? 0 : _hoverAction);
+        [self updateActionArtwork];
+    }
+}
+
 - (void)updateProxyArtwork
 {
     for (NSInteger tag = 1; tag <= 3; ++tag)
     {
-        NSString *suffix = _selectedProxy == tag ? @"_selected" : @"";
+        NSString *suffix = (_selectedProxy == tag || _hoverProxy == tag)
+            ? @"_selected" : @"";
         [self setArtwork:[self proxyArtworkForTag:tag]
                     name:[self proxyArtworkNameForTag:tag suffix:suffix]];
     }
@@ -619,8 +676,9 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 
 - (void)updateActionArtwork
 {
-    BOOL downloadActive = _busy && _activeAction == 1;
-    BOOL importActive = (_busy && _activeAction == 2) || _importPickerOpen;
+    BOOL downloadActive = (_busy && _activeAction == 1) || _hoverAction == 1;
+    BOOL importActive = (_busy && _activeAction == 2) || _importPickerOpen
+        || _hoverAction == 2;
     [self setArtwork:_downloadArtwork name:downloadActive
         ? @"download_label_active" : @"download_label"];
     [self setArtwork:_importArtwork name:importActive
@@ -636,6 +694,30 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     {
         _activeAction = 0;
         _importPickerOpen = NO;
+    }
+    /* Hold background execution time while a transfer runs: without it iOS
+     * suspends the app seconds after backgrounding, the socket dies, the
+     * download errors out, and the user comes back to a reset page where a
+     * second tap starts the whole transfer over (two flows in parallel). */
+    if (busy && _bgTask == UIBackgroundTaskInvalid)
+    {
+        __weak typeof(self) weakSelf = self;
+        _bgTask = [[UIApplication sharedApplication]
+            beginBackgroundTaskWithName:@"yosuga-transfer"
+                      expirationHandler:^{
+            typeof(self) blockSelf = weakSelf;
+            if (blockSelf && blockSelf->_bgTask != UIBackgroundTaskInvalid)
+            {
+                [[UIApplication sharedApplication]
+                    endBackgroundTask:blockSelf->_bgTask];
+                blockSelf->_bgTask = UIBackgroundTaskInvalid;
+            }
+        }];
+    }
+    else if (!busy && _bgTask != UIBackgroundTaskInvalid)
+    {
+        [[UIApplication sharedApplication] endBackgroundTask:_bgTask];
+        _bgTask = UIBackgroundTaskInvalid;
     }
     [UIApplication sharedApplication].idleTimerDisabled = busy;
     _downloadButton.enabled = !busy;
@@ -719,6 +801,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
         self->_assetIndex = 0;
         self->_doneBytes = 0;
         self->_totalBytes = 0;
+        self->_downloadStart = CFAbsoluteTimeGetCurrent();
         for (NSDictionary *a in assets)
         {
             NSNumber *size = a[@"size"];
@@ -770,49 +853,198 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg
         delegate:self delegateQueue:[NSOperationQueue mainQueue]];
     self.activeSession = session;
-    NSURLSessionDownloadTask *task = [session downloadTaskWithURL:
-        [NSURL URLWithString:url]];
-    self.activeTask = task;
     self.activeTaskState = @{@"name": name, @"size": size ?: @0,
         @"sha256": sha256 ?: @"", @"tmp": tmp, @"url": url,
         @"retried": @NO};
-    /* progress handled in the delegate below */
-    [task resume];
+
+    /* Split the asset into 8MB chunks and fetch 6 at a time with Range
+     * requests, writing each response at its exact file offset. */
+    RemoveTree([tmp stringByAppendingString:@".parts"]);
+    if (![[NSFileManager defaultManager] createFileAtPath:tmp
+        contents:nil attributes:nil])
+    {
+        [self downloadFailed:@"无法创建下载临时文件"];
+        return;
+    }
+    self.chunkFile = [NSFileHandle fileHandleForWritingAtPath:tmp];
+    if (!self.chunkFile)
+    {
+        [self downloadFailed:@"无法打开下载临时文件"];
+        return;
+    }
+    long long total = size.longLongValue;
+    const long long kChunk = 8LL * 1024 * 1024;
+    self.chunkPlans = [NSMutableArray array];
+    self.chunkReceivedTotal = 0;
+    self.chunkFailed = NO;
+    self.chunksRemaining = 0;
+    for (long long start = 0; start < total; start += kChunk)
+    {
+        long long end = MIN(start + kChunk, total) - 1;
+        [self.chunkPlans addObject:@{
+            @"start": @(start), @"end": @(end), @"received": @0
+        }];
+        self.chunksRemaining++;
+    }
+    __block NSInteger launched = 0;
+    [self.chunkPlans enumerateObjectsUsingBlock:
+        ^(NSDictionary *plan, NSUInteger idx, BOOL *stop)
+    {
+        if (launched >= 6 || self.chunkFailed) { *stop = YES; return; }
+        launched++;
+        NSMutableURLRequest *req = [NSMutableURLRequest
+            requestWithURL:[NSURL URLWithString:url]];
+        NSString *range = [NSString stringWithFormat:@"bytes=%@-%@",
+            plan[@"start"], plan[@"end"]];
+        [req setValue:range forHTTPHeaderField:@"Range"];
+        NSURLSessionDataTask *task = [session dataTaskWithRequest:req];
+        NSMutableDictionary *m = [self.chunkPlans[idx] mutableCopy];
+        m[@"task"] = task;
+        self.chunkPlans[idx] = m;
+        [task resume];
+    }];
 }
 
-- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task
-    didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten
-    totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task
+    didReceiveResponse:(NSURLResponse *)response
+    completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
 {
+    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+    if (http.statusCode != 206 && !self.chunkFailed)
+    {
+        self.chunkFailed = YES;
+        [session invalidateAndCancel];
+        [self handleChunkFailure:[NSString stringWithFormat:@"HTTP %ld",
+            (long)http.statusCode]];
+    }
+    completionHandler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task
+    didReceiveData:(NSData *)data
+{
+    if (self.chunkFailed) return;
+    NSInteger hit = -1;
+    for (NSUInteger i = 0; i < self.chunkPlans.count; i++)
+    {
+        if (self.chunkPlans[i][@"task"] == task) { hit = (NSInteger)i; break; }
+    }
+    if (hit < 0) return;
+    NSMutableDictionary *m = [self.chunkPlans[hit] mutableCopy];
+    long long start = [m[@"start"] longLongValue];
+    long long received = [m[@"received"] longLongValue];
+    @try
+    {
+        /* seek+write (not writeData:atOffset:error: - that is iOS 13+).
+         * Delegates run on the main queue, so seek and write are never
+         * interleaved with another chunk's seek+write. */
+        [self.chunkFile seekToFileOffset:(unsigned long long)(start + received)];
+        [self.chunkFile writeData:data];
+    }
+    @catch (NSException *exc)
+    {
+        self.chunkFailed = YES;
+        [session invalidateAndCancel];
+        [self handleChunkFailure:exc.reason ?: @"写入失败"];
+        return;
+    }
+    m[@"received"] = @(received + data.length);
+    self.chunkPlans[hit] = m;
+    self.chunkReceivedTotal += data.length;
+
     NSDictionary *st = self.activeTaskState;
     NSString *name = st[@"name"];
-    long long doneTotal = self.doneBytes + totalBytesWritten;
+    long long doneTotal = self.doneBytes + self.chunkReceivedTotal;
     float pct = self.totalBytes > 0
         ? (float)((double)doneTotal * 100.0 / (double)self.totalBytes) : 0.0f;
+    /* Progress text unified with the OHOS build:
+     * "正在下载 <name>  <pct>%  <done> / <total>  (<speed>)". */
+    NSTimeInterval elapsed = MAX(0.001, CFAbsoluteTimeGetCurrent() - self.downloadStart);
+    NSString *speed = [[self fmtSize:(long long)(doneTotal / elapsed)]
+        stringByAppendingString:@"/s"];
     [self setProgressText:[NSString stringWithFormat:
-        @"正在下载 %@  %.0f%%  %@ / %@", name, pct,
-        [self fmtSize:doneTotal], [self fmtSize:self.totalBytes]]
+        @"正在下载 %@  %.0f%%  %@ / %@  (%@)", name, pct,
+        [self fmtSize:doneTotal], [self fmtSize:self.totalBytes], speed]
         progress:MIN(0.99f, pct / 100.0f)];
 }
 
-- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task
-    didFinishDownloadingToURL:(NSURL *)location
+/* One chunk finished (or errored): launch the next unlaunched chunk, and
+ * when every chunk is done move to the verify+extract stage. */
+- (void)chunkDidFinish:(NSURLSessionDataTask *)task error:(NSError *)error
 {
-    NSDictionary *st = self.activeTaskState;
-    NSString *name = st[@"name"];
-    NSString *tmp = st[@"tmp"];
-    NSString *sha256 = st[@"sha256"];
-    NSError *err = nil;
-    RemoveTree(tmp);
-    /* The temporary download file is deleted once this delegate method
-     * returns, so the rename must complete synchronously here. */
-    if (![[NSFileManager defaultManager] moveItemAtURL:location
-        toURL:[NSURL fileURLWithPath:tmp] error:&err])
+    if (self.chunkFailed) return;
+    NSInteger hit = -1;
+    for (NSUInteger i = 0; i < self.chunkPlans.count; i++)
     {
-        [self downloadFailed:[NSString stringWithFormat:
-            @"下载保存失败：%@", err.localizedDescription]];
+        if (self.chunkPlans[i][@"task"] == task) { hit = (NSInteger)i; break; }
+    }
+    if (hit < 0) return;
+    NSMutableDictionary *m = [self.chunkPlans[hit] mutableCopy];
+    long long start = [m[@"start"] longLongValue];
+    long long end = [m[@"end"] longLongValue];
+    long long expected = end - start + 1;
+    if (error || [m[@"received"] longLongValue] != expected)
+    {
+        self.chunkFailed = YES;
+        [self.activeSession invalidateAndCancel];
+        [self handleChunkFailure:error.localizedDescription ?: @"块不完整"];
         return;
     }
+    /* launch the next pending chunk to keep 6 workers busy */
+    for (NSUInteger i = 0; i < self.chunkPlans.count; i++)
+    {
+        if (!self.chunkPlans[i][@"task"])
+        {
+            NSDictionary *plan = self.chunkPlans[i];
+            NSMutableURLRequest *req = [NSMutableURLRequest
+                requestWithURL:[NSURL URLWithString:self.activeTaskState[@"url"]]];
+            [req setValue:[NSString stringWithFormat:@"bytes=%@-%@",
+                plan[@"start"], plan[@"end"]] forHTTPHeaderField:@"Range"];
+            NSURLSessionDataTask *nt = [self.activeSession dataTaskWithRequest:req];
+            NSMutableDictionary *nm = [self.chunkPlans[i] mutableCopy];
+            nm[@"task"] = nt;
+            self.chunkPlans[i] = nm;
+            [nt resume];
+            break;
+        }
+    }
+    self.chunksRemaining--;
+    if (self.chunksRemaining == 0)
+    {
+        NSDictionary *st = self.activeTaskState;
+        [self.chunkFile closeFile];
+        self.chunkFile = nil;
+        [self verifyAndProcessAsset:st[@"tmp"] name:st[@"name"]
+            sha256:st[@"sha256"] assetSize:st[@"size"]];
+    }
+}
+
+- (void)handleChunkFailure:(NSString *)reason
+{
+    if (self.chunkFile)
+    {
+        [self.chunkFile closeFile];
+        self.chunkFile = nil;
+    }
+    NSDictionary *st = self.activeTaskState;
+    NSString *tmp = st[@"tmp"];
+    if (tmp.length > 0) RemoveTree(tmp);
+    if (![st[@"retried"] boolValue])
+    {
+        NSMutableDictionary *m = [st mutableCopy];
+        m[@"retried"] = @YES;
+        self.activeTaskState = m;
+        [self setProgressText:@"下载失败，正在重试…" progress:0];
+        [self downloadNextAsset];
+        return;
+    }
+    [self downloadFailed:[NSString stringWithFormat:
+        @"下载失败：%@", reason]];
+}
+
+- (void)verifyAndProcessAsset:(NSString *)tmp name:(NSString *)name
+    sha256:(NSString *)sha256 assetSize:(NSNumber *)assetSize
+{
     [self setProgressText:[NSString stringWithFormat:@"正在校验 %@", name] progress:0];
     /* sha256 over ~1.5 GB must NOT run on the main thread: it blocks the
      * run loop long enough for the iOS watchdog to kill the app (this was
@@ -835,33 +1067,34 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setProgressText:[NSString stringWithFormat:@"正在解压 %@", name] progress:0];
-            self.doneBytes += [st[@"size"] longLongValue];
+            self.doneBytes += assetSize.longLongValue;
         });
         IosLog([NSString stringWithFormat:@"verified %@, extracting", name]);
         [self processArchive:tmp name:name];
     });
 }
 
+/* The former single-stream downloadTask flow is superseded by the
+ * concurrent Range dataTask path above. */
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task
+    didFinishDownloadingToURL:(NSURL *)location
+{
+    /* Not used anymore: downloads go through the Range dataTask path. */
+}
+
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
     didCompleteWithError:(NSError *)error
 {
+    if ([task isKindOfClass:[NSURLSessionDataTask class]]
+        && self.activeSession == session)
+    {
+        [self chunkDidFinish:(NSURLSessionDataTask *)task error:error];
+        return;
+    }
     if (error && !self.finished)
     {
-        NSDictionary *st = self.activeTaskState;
-        if (![st[@"retried"] boolValue])
-        {
-            /* retry the same asset once before giving up */
-            NSMutableDictionary *m = [st mutableCopy];
-            m[@"retried"] = @YES;
-            self.activeTaskState = m;
-            [self setProgressText:@"下载失败，正在重试…" progress:0];
-            [self downloadNextAsset];
-            return;
-        }
-        [self downloadFailed:[NSString stringWithFormat:
-            @"下载失败：%@", error.localizedDescription]];
+        [self handleChunkFailure:error.localizedDescription];
     }
-    [session invalidateAndCancel];
 }
 
 - (void)downloadFailed:(NSString *)message

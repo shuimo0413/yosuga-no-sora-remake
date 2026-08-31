@@ -1,5 +1,4 @@
 import entryNapi from 'libentry.so';
-import deviceInfo from '@ohos.deviceInfo';
 import { common, wantAgent, Want, bundleManager, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
@@ -66,6 +65,15 @@ interface DataManifest {
 const APP_FOLDER = 'com.shuimo0413.yosuganosora.hdremake';
 const DOWNLOAD_ROOT = '/storage/Users/currentUser/Download';
 
+// Module-level transfer state: these survive an ability recreation (the
+// system can destroy and rebuild the page while a download/import thread
+// keeps running in the background). A per-instance flag would reset to
+// false on recreation and let a second tap start a PARALLEL transfer
+// against the still-running first one - two loops fighting over the same
+// progress UI and the same partial files.
+let transferActive: boolean = false;
+let transferAction: number = 0; // 1 download, 2 import
+
 @Entry
 @Component
 struct Index {
@@ -77,6 +85,10 @@ struct Index {
   @State proxyUrl: string = '';
   @State selectedProxy: number = 1;
   @State pressedAction: number = 0;
+  // Pointer-hover highlight (mouse / trackpad): mirrors pressedAction so
+  // hovering a button shows its active artwork without pressing.
+  @State hoverAction: number = 0;
+  @State hoverProxy: number = 0;
   @State activeAction: number = 0;
   @State message: string = '';
   @State needInit: boolean = false;
@@ -98,6 +110,7 @@ struct Index {
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
+  private bgTaskCount: number = 0;
   @State readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
@@ -125,6 +138,21 @@ struct Index {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
     this.buildFlavor = this.readBuildFlavor();
     this.log('appear t=0 flavor=' + this.buildFlavor);
+    if (transferActive) {
+      // A transfer thread survived this ability recreation: re-show the
+      // progress screen instead of the action buttons. The running thread
+      // still holds the OLD page instance, so the live numbers keep
+      // updating there; this re-shown screen tells the user the transfer
+      // is still going and blocks a duplicate start.
+      this.activeAction = transferAction;
+      this.bootState = transferAction === 2 ? 4 : 3;
+      this.message = '';
+      this.progressText = '传输仍在后台进行，请稍候…';
+      this.progressValue = 0;
+      this.uiEpoch++;
+      this.log('appear: transfer active (action=' + transferAction + '), progress screen restored');
+      return;
+    }
     // Raise the video XComponent above the game XComponent while the AVPlayer
     // plays; poll the native flag (100ms) instead of a NAPI callback thread.
     setInterval(() => {
@@ -219,7 +247,12 @@ struct Index {
     // page is visible (avoid stalling startup). Never disturb a game that is
     // already starting (black transition screen).
     setTimeout(() => {
-      if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
+      // Downloading (3) / importing (4) keep running in the background and
+      // keep updating the progress screen: NEVER reset the page for them,
+      // or the bars vanish while the transfer continues and a second tap
+      // starts a parallel flow (two loops fighting over the same UI).
+      if (transferActive || this.bootState === 3 || this.bootState === 4 ||
+        this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
         this.startingGame || this.confirming) {
         return;
       }
@@ -233,9 +266,13 @@ struct Index {
   }
 
   async prepare(): Promise<void> {
-    if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
+    // transferActive is module-level: after an ability recreation the new
+    // instance boots with bootState=0, so without it the probe would reset
+    // the re-shown progress screen.
+    if (transferActive || this.bootState === 3 || this.bootState === 4 ||
+      this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
       this.startingGame || this.confirming) {
-      return; // already running / starting / extracting / asking
+      return; // already running / downloading / importing / starting / asking
     }
     // Back on the setup page: stop keeping the screen on (the bars stay
     // hidden - the whole app is immersive now).
@@ -299,6 +336,7 @@ struct Index {
   private async startExtractTask(): Promise<void> {
     try {
       if (this.extractTaskStarted) {
+        this.bgTaskCount++;
         return;
       }
       const ctx = getContext(this) as common.UIAbilityContext;
@@ -319,6 +357,7 @@ struct Index {
         agent
       );
       this.extractTaskStarted = true;
+      this.bgTaskCount = 1;
       this.log('extract continuous task started');
     } catch (e) {
       this.log('startExtractTask failed: ' + JSON.stringify(e));
@@ -327,9 +366,17 @@ struct Index {
 
   private async stopExtractTask(): Promise<void> {
     try {
+      // Reference-counted: downloadAll/importLocal hold the task for the
+      // whole transfer while unzip/install still start their own inner
+      // scopes, so an inner stop must not drop the outer protection.
       if (!this.extractTaskStarted) {
         return;
       }
+      if (this.bgTaskCount > 1) {
+        this.bgTaskCount--;
+        return;
+      }
+      this.bgTaskCount = 0;
       await backgroundTaskManager.stopBackgroundRunning(
         getContext(this) as common.UIAbilityContext
       );
@@ -596,22 +643,23 @@ struct Index {
       const originalManifestUrl = this.baseUrl + 'data-assets.json';
       const proxy = this.proxyUrl.trim();
       const manifestUrl = proxy !== '' ? proxy + originalManifestUrl : originalManifestUrl;
-      const req = http.createHttp();
       let parsed: DataManifest | null = null;
       try {
-        const resp: http.HttpResponse = await req.request(manifestUrl, {
+        // Same hard-timeout wrapper as the transfer loop: on KaihongOS even
+        // this small STRING request can hang with no built-in timeout.
+        const resp: http.HttpResponse = await this.fetchWithTimeout(manifestUrl, {
           method: http.RequestMethod.GET,
           expectDataType: http.HttpDataType.STRING,
-          connectTimeout: 30000,
-          readTimeout: 60000
-        });
+          connectTimeout: 15000,
+          readTimeout: 15000
+        }, 20000);
         if (resp.responseCode === 200) {
           parsed = JSON.parse(resp.result as string) as DataManifest;
         } else {
           this.message = '获取数据清单失败（HTTP ' + resp.responseCode + '），请检查下载地址';
         }
       } finally {
-        req.destroy();
+        // lifecycle owned by fetchWithTimeout
       }
       if (parsed !== null) {
         // Keep the user's base (direct or proxy); only adopt the bundled
@@ -868,6 +916,29 @@ struct Index {
   }
 
   async downloadAll(): Promise<void> {
+    // Cross-instance re-entry guard: transferActive is module-level and
+    // survives an ability recreation, so a second tap can never start a
+    // parallel transfer against the still-running first one.
+    if (transferActive || this.bootState === 3 || this.bootState === 4) {
+      return;
+    }
+    transferActive = true;
+    transferAction = 1;
+    try {
+      // Long-running DATA_TRANSFER task held for the WHOLE download: while
+      // the user is away the system would otherwise reclaim the ability,
+      // the UI would reset to the action buttons and a re-tap would start
+      // a parallel download.
+      await this.startExtractTask();
+      await this.downloadAllRun();
+    } finally {
+      transferActive = false;
+      transferAction = 0;
+      await this.stopExtractTask();
+    }
+  }
+
+  private async downloadAllRun(): Promise<void> {
     // Enter the download screen IMMEDIATELY - fetching data-assets.json
     // over the network can take a while and must not look like a hang.
     // Keep the screen ON and the bars hidden while downloading/extracting.
@@ -914,6 +985,11 @@ struct Index {
       const url = proxy !== '' ? proxy + originalUrl : originalUrl;
       this.progressText = '正在下载 ' + asset.name;
       const tmp = cacheDir + '/' + asset.name;
+      // uiEpoch forces a full page rebuild (incl. re-decoding the large
+      // background art); driving it from every progress tick can black out
+      // the screen mid-download. State updates alone repaint the text and
+      // bar; the rebuild is throttled to 2 Hz as a belt-and-braces refresh.
+      let lastUiRebuild = 0;
       try {
         await this.downloadFile(url, tmp, asset.size, (downloaded: number) => {
           const doneTotal = doneBytes + downloaded;
@@ -924,16 +1000,38 @@ struct Index {
           this.progressText = '正在下载 ' + asset.name + '  ' + pct + '%  ' +
             this.fmtSize(doneTotal) + ' / ' + this.fmtSize(totalBytes) +
             '  (' + this.fmtSpeed(speed) + ')';
-          // Force a rebuild so the progress text is repainted even if the
-          // state-driven refresh fails on this system version.
-          this.uiEpoch++;
+          const now = Date.now();
+          if (now - lastUiRebuild >= 500) {
+            lastUiRebuild = now;
+            this.uiEpoch++;
+          }
+        }, (attempt: number) => {
+          // Only announce RETRIES. attempt 0 fires at the start of every
+          // 1MB chunk - rewriting the text there would wipe the live
+          // progress readout and make it flicker back to the bare
+          // "正在下载 <name>" between chunks.
+          if (attempt === 0) {
+            return;
+          }
+          this.progressText = '正在下载 ' + asset.name +
+            '  （网络停滞，重试 ' + attempt + '）';
+          if (Date.now() - lastUiRebuild >= 500) {
+            lastUiRebuild = Date.now();
+            this.uiEpoch++;
+          }
         });
         if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {
           throw new Error('SHA-256 校验失败，请重试');
         }
       } catch (e) {
-        this.bootState = 5;
+        // bootState 5 renders a bare black placeholder (engine-startup
+        // stage) - landing there reads as a random black screen. Go back to
+        // the setup page instead, where the error text and the proxy
+        // buttons are visible for an immediate retry.
         await this.setScreenOn(false);
+        this.progressValue = 0;
+        this.bootState = 2;
+        this.uiEpoch++;
         this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）\n' +
           '若为网络问题，请返回引导页点击「gh-proxy」或「我的代理」切换加速后再下载';
         return;
@@ -959,76 +1057,142 @@ struct Index {
     }
   }
 
-  async downloadFile(url: string, dest: string, totalSize: number,
-    onProgress?: (downloaded: number) => void): Promise<void> {
-    // Range-chunked download with resume + retry. GitHub release downloads
-    // commonly drop mid-transfer; each chunk is retried a few times and
-    // written at its exact offset so a retry continues where it left off.
-    const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
-    const chunkSize = 8 * 1024 * 1024;
-    let offset = 0;
-    try {
-      while (offset < totalSize) {
-        const end = Math.min(offset + chunkSize - 1, totalSize - 1);
-        let got = false;
-        for (let attempt = 0; attempt < 4 && !got; attempt++) {
-          if (attempt > 0) {
-            await this.delay(2000);
-          }
-          const httpRequest = http.createHttp();
+  /** Hard-per-request-timeout wrapper: on some system versions (observed
+   *  on KaihongOS) http.request() can hang forever - the documented
+   *  connect/read timeouts never fire, the TCP connection is torn down
+   *  before any byte arrives, and the download UI freezes on its initial
+   *  text with no connection open. This wrapper enforces the deadline at
+   *  the JS layer: when it fires the request is destroyed and the attempt
+   *  loop retries. */
+  private fetchWithTimeout(url: string, options: http.HttpRequestOptions,
+    timeoutMs: number): Promise<http.HttpResponse> {
+    return new Promise<http.HttpResponse>((resolve, reject) => {
+      const httpRequest = http.createHttp();
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
           try {
-            const response: http.HttpResponse = await httpRequest.request(url, {
-              method: http.RequestMethod.GET,
-              header: { 'Range': 'bytes=' + offset + '-' + end },
-              expectDataType: http.HttpDataType.ARRAY_BUFFER,
-              connectTimeout: 60000,
-              readTimeout: 120000
-            });
-            if (response.responseCode === 206) {
-              const data = response.result as ArrayBuffer;
-              const length = data.byteLength;
-              if (length > 0) {
-                fs.writeSync(file.fd, data, { offset: offset });
-                offset += length;
-                if (onProgress) {
-                  onProgress(offset);
-                }
-                got = true;
-              }
-            } else if (response.responseCode === 200) {
-              // Server ignored the Range: write the whole body from the start.
-              const data = response.result as ArrayBuffer;
-              fs.truncateSync(file.fd, 0);
-              fs.writeSync(file.fd, data, { offset: 0 });
-              offset = totalSize;
-              got = true;
-              if (onProgress) {
-                onProgress(totalSize);
-              }
-            } else if (response.responseCode === 416) {
-              offset = totalSize;
-              got = true;
-            } else if (attempt === 3) {
-              throw new Error('HTTP ' + response.responseCode);
-            }
-          } catch (e) {
-            if (attempt === 3) {
-              if (e instanceof Error) {
-                throw e;
-              }
-              throw new Error(String(e));
-            }
-          } finally {
             httpRequest.destroy();
+          } catch (e) {
+            // already gone
+          }
+          reject(new Error('请求超时（' + Math.round(timeoutMs / 1000) + 's 无响应）'));
+        }
+      }, timeoutMs);
+      httpRequest.request(url, options).then((res: http.HttpResponse) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(res);
+        } else {
+          try {
+            httpRequest.destroy();
+          } catch (e) {
+            // already gone
           }
         }
-        if (!got && offset < totalSize) {
-          throw new Error('下载中断，无法继续');
+      }).catch((e: Error) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(e);
         }
-        await this.delay(50);
-      }
+      });
+    });
+  }
+
+  async downloadFile(url: string, dest: string, totalSize: number,
+    onProgress?: (downloaded: number) => void,
+    onAttempt?: (attempt: number) => void): Promise<void> {
+    // Range-chunked download with retry; each chunk is written at its exact
+    // offset so a retry continues where it left off. All flavors run 6
+    // concurrent workers; only the chunk size differs:
+    //  - HarmonyOS: healthy network stack, 8MB chunks for max throughput.
+    //  - OpenHarmony/KaihongOS: its http stack hangs on large responses
+    //    (observed at 8MB, fine at 1MB), so keep 1MB there.
+    const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
+    try {
+      await this.downloadParallel(file, url, totalSize, onProgress, onAttempt);
     } finally {
       fs.closeSync(file);
+    }
+  }
+
+  /** All flavors: 6 concurrent Range workers over per-flavor chunk size. */
+  private async downloadParallel(file: fs.File, url: string, totalSize: number,
+    onProgress?: (downloaded: number) => void,
+    onAttempt?: (attempt: number) => void): Promise<void> {
+    const chunkSize = this.buildFlavor === 'harmonyos' ? 8 * 1024 * 1024 : 1024 * 1024;
+    const starts: number[] = [];
+    for (let off = 0; off < totalSize; off += chunkSize) {
+      starts.push(off);
+    }
+    let nextIndex = 0;
+    let doneTotal = 0;
+    let failed = false;
+    try {
+      const worker = async (): Promise<void> => {
+        while (!failed && nextIndex < starts.length) {
+          const start = starts[nextIndex++];
+          const end = Math.min(start + chunkSize - 1, totalSize - 1);
+          let got = false;
+          for (let attempt = 0; attempt < 10 && !got; attempt++) {
+            if (attempt > 0) {
+              await this.delay(2000 * attempt);
+            }
+            if (onAttempt && attempt > 0) {
+              onAttempt(attempt);
+            }
+            try {
+              const response: http.HttpResponse = await this.fetchWithTimeout(url, {
+                method: http.RequestMethod.GET,
+                header: { 'Range': 'bytes=' + start + '-' + end },
+                expectDataType: http.HttpDataType.ARRAY_BUFFER,
+                connectTimeout: 15000,
+                readTimeout: 15000
+              }, 20000);
+              if (response.responseCode === 206) {
+                const data = response.result as ArrayBuffer;
+                const length = data.byteLength;
+                if (length > 0) {
+                  fs.writeSync(file.fd, data, { offset: start });
+                  doneTotal += length;
+                  if (onProgress) {
+                    onProgress(doneTotal);
+                  }
+                  got = true;
+                }
+              } else if (response.responseCode === 416) {
+                // Range beyond EOF - treat as covered; SHA-256 guards holes.
+                got = true;
+              } else if (attempt === 3) {
+                throw new Error('HTTP ' + response.responseCode);
+              }
+            } catch (e) {
+              if (attempt === 3) {
+                failed = true;
+                if (e instanceof Error) {
+                  throw e;
+                }
+                throw new Error(String(e));
+              }
+            }
+          }
+          if (!got) {
+            failed = true;
+            throw new Error('下载中断，无法继续');
+          }
+        }
+      };
+      await Promise.all([
+        worker(), worker(), worker(), worker(), worker(), worker()
+      ]);
+    } catch (e) {
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new Error(String(e));
     }
   }
 
@@ -1379,6 +1543,23 @@ struct Index {
   }
 
   async importLocal(): Promise<void> {
+    // Cross-instance re-entry guard (see downloadAll).
+    if (transferActive || this.bootState === 3 || this.bootState === 4) {
+      return;
+    }
+    transferActive = true;
+    transferAction = 2;
+    try {
+      await this.startExtractTask();
+      await this.importLocalRun();
+    } finally {
+      transferActive = false;
+      transferAction = 0;
+      await this.stopExtractTask();
+    }
+  }
+
+  private async importLocalRun(): Promise<void> {
     await this.setScreenOn(true);
     this.applyImmersive();
     this.activeAction = 2;
@@ -1386,36 +1567,127 @@ struct Index {
     this.message = '';
     this.progressText = '正在导入，请稍等';
     const documentPicker = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
-    let uris: string[] = [];
-    try {
-      const result = await documentPicker.select({ maxSelectNumber: 20 });
-      uris = result;
-    } catch (e) {
-      // User cancelled the picker: rebuild the whole bootstrap page so the
-      // picker (also a UIExtension) cannot leave it blank.
-      this.message = '未选择文件';
-      this.prepare();
-      return;
-    }
-    if (uris.length === 0) {
-      this.message = '未选择文件';
-      this.prepare();
-      return;
-    }
-    // Force a rebuild after the picker (UIExtension) closes so the page is
-    // not left blank, then continue importing.
-    this.uiEpoch++;
-    this.bootState = 4;
     const cacheDir = this.sandboxFiles + '/cache';
     try {
       fs.mkdirSync(cacheDir, true);
     } catch (e) {
       // already exists
     }
-    // Pass 1: a bare data.xp3 owns the whole flow immediately. Multi-part
-    // zips are collected and extracted TOGETHER below (the CI packer puts
-    // every part under the "data/" prefix, so merging them in one staging
-    // dir reproduces the tree).
+    if (this.buildFlavor !== 'harmonyos') {
+      // KaihongOS / OpenHarmony: scoped storage blocks multi-select and
+      // every folder-uri read, so take ONE file per picker round and let
+      // the user decide when the payload is complete.
+      await this.showNotice('导入须知', '每次只能选择一个压缩包或 data.xp3。\n分卷请逐个添加，全部添加完后点「完成导入」。');
+      const staging = this.sandboxFiles + '/unzip.tmp';
+      await taskpool.execute(removeTreeTask, staging);
+      let zipCount = 0;
+      let cancelled = false;
+      while (!cancelled) {
+        this.uiEpoch++;
+        let uris: string[] = [];
+        try {
+          const result = await documentPicker.select({ maxSelectNumber: 1 });
+          uris = result;
+        } catch (e) {
+          cancelled = true;
+          break;
+        }
+        if (uris.length === 0) {
+          cancelled = true;
+          break;
+        }
+        this.bootState = 4;
+        const uri = uris[0];
+        const name = uri.substring(uri.lastIndexOf('/') + 1);
+        const lower = name.toLowerCase();
+        try {
+          if (lower.endsWith('.xp3')) {
+            this.progressText = '正在导入 ' + name;
+            this.uiEpoch++;
+            await this.copyFromUri(uri, this.baseDir + '/data.xp3');
+            await this.extractAndFinalize(this.baseDir + '/data.xp3');
+            return;
+          } else if (lower.endsWith('.zip')) {
+            this.progressText = '正在解压 ' + name + (zipCount > 0 ? '（第 ' + (zipCount + 1) + ' 个）' : '');
+            this.uiEpoch++;
+            const tmp = cacheDir + '/' + name;
+            await this.copyFromUri(uri, tmp);
+            try {
+              await this.unzipTo(tmp, staging);
+            } catch (eZ) {
+              try {
+                fs.unlinkSync(tmp);
+              } catch (e) {
+                // ignore
+              }
+              await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
+              continue;
+            }
+            try {
+              fs.unlinkSync(tmp);
+            } catch (e) {
+              // ignore
+            }
+            zipCount++;
+          } else if (lower.endsWith('.7z') || lower.endsWith('.001') || lower.endsWith('.002')) {
+            await this.showNotice('暂不支持 7z 格式', '请选择 zip 压缩包或 data.xp3 文件');
+            continue;
+          } else {
+            await this.showNotice('不支持的文件类型：' + name, '请选择 zip 压缩包或 data.xp3 文件');
+            continue;
+          }
+        } catch (e) {
+          this.bootState = 2;
+          const detail = JSON.stringify(e);
+          await this.setScreenOn(false);
+          this.uiEpoch++;
+          this.message = '导入失败：' + name + ' | ' + detail;
+          await this.showNotice('导入失败', detail);
+          return;
+        }
+        const goOn = await this.showConfirm('继续添加？', '已添加 ' + zipCount + ' 个压缩包。分卷请全部添加完再点「完成导入」。', '继续添加', '完成导入');
+        if (!goOn) {
+          break;
+        }
+      }
+      if (zipCount === 0) {
+        this.bootState = 2;
+        this.uiEpoch++;
+        this.message = '未选择文件';
+        return;
+      }
+      this.progressText = '正在合并安装已添加的 ' + zipCount + ' 个压缩包…';
+      this.uiEpoch++;
+      const ok = await this.installUnzipped(staging);
+      if (!ok) {
+        this.bootState = 2;
+        this.progressValue = 0;
+        this.uiEpoch++;
+        this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+        await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+      }
+      return;
+    }
+    // HarmonyOS: original multi-select flow, untouched.
+    let uris: string[] = [];
+    try {
+      const result = await documentPicker.select({ maxSelectNumber: 20 });
+      uris = result;
+    } catch (e) {
+      // User cancelled the picker: fall back to the setup page.
+      this.bootState = 2;
+      this.uiEpoch++;
+      this.message = '未选择文件';
+      return;
+    }
+    if (uris.length === 0) {
+      this.bootState = 2;
+      this.uiEpoch++;
+      this.message = '未选择文件';
+      return;
+    }
+    this.uiEpoch++;
+    this.bootState = 4;
     const zipUris: string[] = [];
     for (let i = 0; i < uris.length; i++) {
       const uri = uris[i];
@@ -1441,13 +1713,11 @@ struct Index {
         this.bootState = 2;
         const detail = JSON.stringify(e);
         await this.setScreenOn(false);
-        this.message = '导入失败：' + name + '\n' + detail + '\nuri: ' + uri;
+        this.message = '导入失败：' + name + ' | ' + detail + ' | uri: ' + uri;
         await this.showNotice('导入失败', detail);
         return;
       }
     }
-    // Pass 2: extract every selected zip into ONE staging dir (parts merge
-    // there), then install the result.
     if (zipUris.length > 0) {
       const unzipTmp = this.sandboxFiles + '/unzip.tmp';
       await taskpool.execute(removeTreeTask, unzipTmp);
@@ -1463,7 +1733,8 @@ struct Index {
           await this.unzipTo(tmp, unzipTmp);
         } catch (eZ) {
           this.bootState = 2;
-        await this.setScreenOn(false);
+          await this.setScreenOn(false);
+          this.uiEpoch++;
           this.message = '导入失败：' + name + ' 不是有效的 zip 压缩包，请重新选择';
           await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
           return;
@@ -1478,14 +1749,16 @@ struct Index {
       if (!ok) {
         this.bootState = 2;
         this.progressValue = 0;
+        this.uiEpoch++;
         this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
         await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
       }
       return;
     }
-    // Nothing usable was selected: back to the setup page.
-    this.prepare();
+    this.bootState = 2;
+    this.uiEpoch++;
   }
+
 
   /** First data.xp3 candidate: the app root, then the app-owned public
    *  Download folder. Returns '' when none exists. */
@@ -1824,6 +2097,14 @@ struct Index {
     }
   }
 
+  private trackActionHover(action: number, isHover: boolean): void {
+    this.hoverAction = isHover ? action : (this.hoverAction === action ? 0 : this.hoverAction);
+  }
+
+  private trackProxyHover(proxy: number, isHover: boolean): void {
+    this.hoverProxy = isHover ? proxy : (this.hoverProxy === proxy ? 0 : this.hoverProxy);
+  }
+
   build() {
     Stack({ alignContent: Alignment.Center }) {
       // Title background image shipped inside the HAP (rawfile); only on
@@ -2036,7 +2317,7 @@ struct Index {
           // The proxy/action labels are shipped as images because their
           // outline typography is part of the supplied artwork. Buttons
           // below remain transparent hit targets layered above these views.
-          if (this.selectedProxy === 1) {
+          if (this.selectedProxy === 1 || this.hoverProxy === 1) {
             Image($rawfile('github_direct_selected.png'))
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
@@ -2045,7 +2326,7 @@ struct Index {
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 2) {
+          if (this.selectedProxy === 2 || this.hoverProxy === 2) {
             Image($rawfile('gh_proxy_label_selected.png'))
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
@@ -2054,7 +2335,7 @@ struct Index {
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 3) {
+          if (this.selectedProxy === 3 || this.hoverProxy === 3) {
             Image($rawfile('craft_hello_label_selected.png'))
               .width('35.05%').height('9.72%')
               .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
@@ -2063,7 +2344,7 @@ struct Index {
               .width('35.05%').height('9.72%')
               .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
           }
-          if (this.pressedAction === 1) {
+          if (this.pressedAction === 1 || this.hoverAction === 1) {
             Image($rawfile('download_label_active.png'))
               .width('7.08%').height('5.28%')
               .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
@@ -2072,7 +2353,7 @@ struct Index {
               .width('7.08%').height('5.28%')
               .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
           }
-          if (this.pressedAction === 2) {
+          if (this.pressedAction === 2 || this.hoverAction === 2) {
             Image($rawfile('import_label_active.png'))
               .width('10.47%').height('5.28%')
               .position({ x: '76.56%', y: '74.07%' }).objectFit(ImageFit.Fill)
@@ -2098,6 +2379,9 @@ struct Index {
             .position({ x: '1%', y: '39.4%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('直连')
+            .onHover((isHover: boolean) => {
+              this.trackProxyHover(1, isHover);
+            })
             .onClick(() => {
               this.toggleProxy(1);
             })
@@ -2105,6 +2389,9 @@ struct Index {
             .position({ x: '29.7%', y: '39.4%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('GH-PROXY')
+            .onHover((isHover: boolean) => {
+              this.trackProxyHover(2, isHover);
+            })
             .onClick(() => {
               this.toggleProxy(2);
             })
@@ -2112,6 +2399,9 @@ struct Index {
             .position({ x: '51%', y: '39.4%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('CRAFT-HELLO PROXY')
+            .onHover((isHover: boolean) => {
+              this.trackProxyHover(3, isHover);
+            })
             .onClick(() => {
               this.toggleProxy(3);
             })
@@ -2120,6 +2410,9 @@ struct Index {
             .position({ x: '64.6%', y: '69.9%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('开始下载')
+            .onHover((isHover: boolean) => {
+              this.trackActionHover(1, isHover);
+            })
             .onTouch((event: TouchEvent) => {
               this.trackActionTouch(1, event);
             })
@@ -2130,6 +2423,9 @@ struct Index {
             .position({ x: '75.5%', y: '69.9%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('导入本地文件')
+            .onHover((isHover: boolean) => {
+              this.trackActionHover(2, isHover);
+            })
             .onTouch((event: TouchEvent) => {
               this.trackActionTouch(2, event);
             })
@@ -2143,7 +2439,7 @@ struct Index {
         // progress control on the supplied center track. This makes the
         // button action observable without changing the fixed canvas layout.
         Stack({ alignContent: Alignment.TopStart }) {
-          if (this.selectedProxy === 1) {
+          if (this.selectedProxy === 1 || this.hoverProxy === 1) {
             Image($rawfile('github_direct_selected.png'))
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
@@ -2152,7 +2448,7 @@ struct Index {
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 2) {
+          if (this.selectedProxy === 2 || this.hoverProxy === 2) {
             Image($rawfile('gh_proxy_label_selected.png'))
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
@@ -2161,7 +2457,7 @@ struct Index {
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 3) {
+          if (this.selectedProxy === 3 || this.hoverProxy === 3) {
             Image($rawfile('craft_hello_label_selected.png'))
               .width('35.05%').height('9.72%')
               .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)

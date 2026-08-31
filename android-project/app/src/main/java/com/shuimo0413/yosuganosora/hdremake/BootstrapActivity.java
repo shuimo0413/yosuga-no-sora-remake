@@ -42,7 +42,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
+import java.nio.channels.FileChannel;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -134,9 +141,33 @@ public class BootstrapActivity extends Activity {
     private Button craftProxyButton;
     private Button downloadButton;
     private Button importButton;
-    private boolean busy = false;
+    // Static + volatile on purpose: the transfer threads outlive an Activity
+    // recreation (backgrounding the app can destroy and rebuild it). An
+    // instance flag would reset to false on recreation, so the re-shown
+    // action buttons would let a second tap start a PARALLEL download that
+    // fights the still-running first one over the same files and the UI.
+    private static volatile boolean busy = false;
     private int selectedProxy = PROXY_DIRECT;
-    private int activeAction = ACTION_NONE;
+    private static volatile int activeAction = ACTION_NONE;
+    // Pointer-hover highlight (mouse / trackpad): mirrors pressed state so
+    // hovering a button shows its active artwork without pressing.
+    private int hoverAction = ACTION_NONE;
+    private int hoverProxy = ACTION_NONE;
+
+    /** The currently alive activity instance. Transfer threads keep running
+     *  across recreations; routing their UI callbacks through this reference
+     *  keeps the progress bar updating on the NEW instance. */
+    private static volatile BootstrapActivity sCurrent;
+
+    private void runOnUi(Runnable r) {
+        BootstrapActivity a = sCurrent;
+        if (a != null) {
+            // MUST be runOnUiThread: it was mass-renamed to runOnUi in one
+            // sed pass, which made runOnUi call itself and blow the stack
+            // (StackOverflowError) the first time any message was shown.
+            a.runOnUiThread(r);
+        }
+    }
 
     private static final int STORAGE_PERMISSION_REQUEST = 9001;
 
@@ -150,7 +181,23 @@ public class BootstrapActivity extends Activity {
         buildUi();
         applyImmersive();
         requestStoragePermissionIfNeeded();
-        probeData();
+        sCurrent = this;
+        if (busy) {
+            // A transfer survived this recreation: re-attach the progress UI
+            // (setBusy is idempotent and rebinds every view to this instance)
+            // instead of probing back to the setup page.
+            setBusy(true);
+        } else {
+            probeData();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (sCurrent == this) {
+            sCurrent = null;
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -159,8 +206,14 @@ public class BootstrapActivity extends Activity {
         applyImmersive();
         // Returning from the system Settings screen (MANAGE_EXTERNAL_STORAGE
         // on Android 11+) may have just granted public storage: re-probe so
-        // a ready data tree starts the game directly.
-        if (!busy) probeData();
+        // a ready data tree starts the game directly. While a transfer is
+        // running, re-attach the progress UI instead - probing would reset
+        // the page and invite a parallel second download.
+        if (busy) {
+            setBusy(true);
+        } else {
+            probeData();
+        }
     }
 
     /** Storage permission for the public Downloads write (mirrors the engine
@@ -314,9 +367,9 @@ public class BootstrapActivity extends Activity {
         importButton = makeOverlayButton("导入本地文件");
         importButton.setOnClickListener(v -> startImport());
         attachActionFeedback(downloadButton, downloadLabelView,
-                R.drawable.download_label, R.drawable.download_label_active);
+                R.drawable.download_label, R.drawable.download_label_active, ACTION_DOWNLOAD);
         attachActionFeedback(importButton, importLabelView,
-                R.drawable.import_label, R.drawable.import_label_active);
+                R.drawable.import_label, R.drawable.import_label_active, ACTION_IMPORT);
         canvas.addView(downloadButton, frame(300, 135, 1240, 755));
         canvas.addView(importButton, frame(430, 125, 1450, 755));
 
@@ -367,6 +420,16 @@ public class BootstrapActivity extends Activity {
 
     private void attachProxyFeedback(Button button, int proxy) {
         button.setOnClickListener(view -> toggleProxy(proxy));
+        button.setOnHoverListener((view, event) -> {
+            if (view.isEnabled() && event.getAction() == MotionEvent.ACTION_HOVER_ENTER) {
+                hoverProxy = proxy;
+                updateProxyArtwork();
+            } else if (event.getAction() == MotionEvent.ACTION_HOVER_EXIT) {
+                if (hoverProxy == proxy) hoverProxy = ACTION_NONE;
+                updateProxyArtwork();
+            }
+            return false;
+        });
     }
 
     private void toggleProxy(int proxy) {
@@ -384,11 +447,14 @@ public class BootstrapActivity extends Activity {
     }
 
     private void updateProxyArtwork() {
-        directLabelView.setImageResource(selectedProxy == PROXY_DIRECT
+        directLabelView.setImageResource(
+                selectedProxy == PROXY_DIRECT || hoverProxy == PROXY_DIRECT
                 ? R.drawable.github_direct_selected : R.drawable.github_direct);
-        ghProxyLabelView.setImageResource(selectedProxy == PROXY_GH
+        ghProxyLabelView.setImageResource(
+                selectedProxy == PROXY_GH || hoverProxy == PROXY_GH
                 ? R.drawable.gh_proxy_label_selected : R.drawable.gh_proxy_label);
-        craftProxyLabelView.setImageResource(selectedProxy == PROXY_CRAFT
+        craftProxyLabelView.setImageResource(
+                selectedProxy == PROXY_CRAFT || hoverProxy == PROXY_CRAFT
                 ? R.drawable.craft_hello_label_selected : R.drawable.craft_hello_label);
         directButton.setSelected(selectedProxy == PROXY_DIRECT);
         ghProxyButton.setSelected(selectedProxy == PROXY_GH);
@@ -396,7 +462,7 @@ public class BootstrapActivity extends Activity {
     }
 
     private void attachActionFeedback(Button button, ImageView artwork,
-            int normalResource, int activeResource) {
+            int normalResource, int activeResource, int action) {
         button.setOnTouchListener((view, event) -> {
             if (!view.isEnabled()) return false;
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -407,12 +473,26 @@ public class BootstrapActivity extends Activity {
             }
             return false;
         });
+        // Mouse / trackpad hover: light the button up while the pointer is
+        // over it, restore the normal artwork when it leaves.
+        button.setOnHoverListener((view, event) -> {
+            if (view.isEnabled() && event.getAction() == MotionEvent.ACTION_HOVER_ENTER) {
+                hoverAction = action;
+                artwork.setImageResource(activeResource);
+            } else if (event.getAction() == MotionEvent.ACTION_HOVER_EXIT) {
+                if (hoverAction == action) hoverAction = ACTION_NONE;
+                updateActionArtwork();
+            }
+            return false;
+        });
     }
 
     private void updateActionArtwork() {
-        downloadLabelView.setImageResource(busy && activeAction == ACTION_DOWNLOAD
+        downloadLabelView.setImageResource(
+                (busy && activeAction == ACTION_DOWNLOAD) || hoverAction == ACTION_DOWNLOAD
                 ? R.drawable.download_label_active : R.drawable.download_label);
-        importLabelView.setImageResource(busy && activeAction == ACTION_IMPORT
+        importLabelView.setImageResource(
+                (busy && activeAction == ACTION_IMPORT) || hoverAction == ACTION_IMPORT
                 ? R.drawable.import_label_active : R.drawable.import_label);
     }
 
@@ -449,7 +529,7 @@ public class BootstrapActivity extends Activity {
     }
 
     private void setProgress(String text, int percent) {
-        runOnUiThread(() -> {
+        runOnUi(() -> {
             progressView.setText(text);
             int clamped = Math.max(0, Math.min(100, percent));
             FrameLayout.LayoutParams params =
@@ -460,13 +540,13 @@ public class BootstrapActivity extends Activity {
     }
 
     private void setMessage(String text) {
-        runOnUiThread(() -> messageView.setText(text));
+        runOnUi(() -> messageView.setText(text));
     }
 
     private void setBusy(boolean value) {
         busy = value;
         if (!value) activeAction = ACTION_NONE;
-        runOnUiThread(() -> {
+        runOnUi(() -> {
             downloadButton.setEnabled(!value);
             importButton.setEnabled(!value);
             directButton.setEnabled(!value);
@@ -648,6 +728,7 @@ public class BootstrapActivity extends Activity {
                     long total = 0;
                     for (String[] a : assets) total += Long.parseLong(a[2]);
                     long done = 0;
+                    long startTime = System.currentTimeMillis();
                     int index = 0;
                     for (String[] asset : assets) {
                         index++;
@@ -655,7 +736,7 @@ public class BootstrapActivity extends Activity {
                         String sha = asset[1];
                         long size = Long.parseLong(asset[2]);
                         File zip = new File(getCacheDir(), name);
-                        downloadFile(asset[3], zip, size, done, total, name);
+                        downloadFile(asset[3], zip, size, done, total, name, startTime);
                         verifySha(zip, sha);
                         extractZipTo(zip, dataDir, "解压 " + name);
                         zip.delete();
@@ -720,26 +801,123 @@ public class BootstrapActivity extends Activity {
     }
 
     private void downloadFile(String urlStr, File dest, long size,
-            long doneBase, long total, String label) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(60000);
-        conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
-        long done = 0;
-        try (InputStream in = new BufferedInputStream(conn.getInputStream());
-             OutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
-            byte[] buf = new byte[1 << 20];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
-                done += n;
-                int pct = total > 0 ? (int) ((doneBase + done) * 100 / total) : 0;
-                setProgress(String.format(Locale.US, "正在下载 %s  %.1f%%", label,
-                        total > 0 ? (doneBase + done) * 100.0 / total : 0), Math.min(99, pct));
+            long doneBase, long total, String label, long startTime) throws IOException {
+        // 6 concurrent Range workers over 8MB chunks, same scheme as the
+        // OHOS build: throughput comes from parallelism. Each worker writes
+        // its chunk at the exact offset via FileChannel.positional write,
+        // so retries stay resume-safe and SHA-256 guards the result.
+        final int threads = 6;
+        final long chunk = 8L * 1024 * 1024;
+        final long nChunks = (size + chunk - 1) / chunk;
+        final AtomicInteger next = new AtomicInteger(0);
+        final AtomicLong doneSum = new AtomicLong(0);
+        final AtomicReference<IOException> failure = new AtomicReference<>(null);
+        final FileChannel channel = new RandomAccessFile(dest, "rw").getChannel();
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            java.util.List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    byte[] buf = new byte[1 << 16];
+                    while (failure.get() == null) {
+                        int idx = next.getAndIncrement();
+                        if (idx >= nChunks) return;
+                        long start = idx * chunk;
+                        long end = Math.min(start + chunk, size) - 1;
+                        boolean got = false;
+                        for (int attempt = 0; attempt < 3 && !got; attempt++) {
+                            if (attempt > 0) {
+                                try { Thread.sleep(2000); }
+                                catch (InterruptedException ie) { return; }
+                            }
+                            HttpURLConnection conn = null;
+                            try {
+                                conn = (HttpURLConnection) new URL(urlStr).openConnection();
+                                conn.setConnectTimeout(20000);
+                                conn.setReadTimeout(60000);
+                                conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
+                                conn.setRequestProperty("Range",
+                                        "bytes=" + start + "-" + end);
+                                int code = conn.getResponseCode();
+                                if (code != 206) {
+                                    throw new IOException("HTTP " + code);
+                                }
+                                long pos = start;
+                                try (InputStream in = new BufferedInputStream(
+                                        conn.getInputStream())) {
+                                    int n;
+                                    while ((n = in.read(buf)) > 0) {
+                                        channel.write(java.nio.ByteBuffer.wrap(buf, 0, n), pos);
+                                        pos += n;
+                                    }
+                                }
+                                if (pos != end + 1) {
+                                    throw new IOException("short chunk: " + pos);
+                                }
+                                long done = doneSum.addAndGet(end + 1 - start);
+                                got = true;
+                                int pct = total > 0 ? (int) (done * 100 / total) : 0;
+                                // Progress text unified with the OHOS build.
+                                long doneTotal = doneBase + done;
+                                double elapsedSec = Math.max(0.001,
+                                        (System.currentTimeMillis() - startTime) / 1000.0);
+                                setProgress(String.format(Locale.US,
+                                        "正在下载 %s  %d%%  %s / %s  (%s)",
+                                        label, Math.min(99, pct), fmtSize(doneTotal),
+                                        fmtSize(total),
+                                        fmtSize((long) (doneTotal / elapsedSec)) + "/s"),
+                                        Math.min(99, pct));
+                            } catch (IOException e) {
+                                if (attempt == 2) failure.compareAndSet(null, e);
+                            } finally {
+                                if (conn != null) conn.disconnect();
+                            }
+                        }
+                        if (!got) return;
+                    }
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (java.util.concurrent.ExecutionException ee) {
+                    if (ee.getCause() instanceof IOException) {
+                        failure.compareAndSet(null, (IOException) ee.getCause());
+                    } else {
+                        failure.compareAndSet(null,
+                                new IOException(String.valueOf(ee.getCause())));
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("下载被中断", ie);
+                }
             }
         } finally {
-            conn.disconnect();
+            pool.shutdownNow();
+            try {
+                channel.close();
+            } catch (IOException e) {
+                // ignore
+            }
         }
+        IOException err = failure.get();
+        if (err != null) {
+            throw err;
+        }
+    }
+
+    /** Human-readable size, matching the OHOS fmtSize() scale. */
+    private static String fmtSize(long bytes) {
+        if (bytes >= 1024L * 1024 * 1024) {
+            return String.format(Locale.US, "%.2f GB", bytes / 1073741824.0);
+        }
+        if (bytes >= 1024L * 1024) {
+            return String.format(Locale.US, "%.1f MB", bytes / 1048576.0);
+        }
+        if (bytes >= 1024) {
+            return String.format(Locale.US, "%.0f KB", bytes / 1024.0);
+        }
+        return bytes + " B";
     }
 
     private void verifySha(File file, String expectedSha) throws IOException {
@@ -935,7 +1113,7 @@ public class BootstrapActivity extends Activity {
         } else if (new File(dataDir, "startup.tjs").isFile()) {
             markConfirmed();
             final File ready = dataDir;
-            runOnUiThread(() -> {
+            runOnUi(() -> {
                 if (dataReady(ready)) startEngine(ready);
                 else fail("数据安装后仍不可用，请重新导入");
             });
@@ -1021,7 +1199,7 @@ public class BootstrapActivity extends Activity {
             new File(tmp.getAbsolutePath() + ".progress").delete();
             markConfirmed();
             final File ready = dataDir;
-            runOnUiThread(() -> {
+            runOnUi(() -> {
                 if (dataReady(ready)) startEngine(ready);
                 else fail("解包完成但数据不可用");
             });
@@ -1057,7 +1235,7 @@ public class BootstrapActivity extends Activity {
 
     private void fail(String message) {
         Log.e(TAG, message);
-        runOnUiThread(() -> {
+        runOnUi(() -> {
             setMessage(message);
             setProgress("", 0);
         });
