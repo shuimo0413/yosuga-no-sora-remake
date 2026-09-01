@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
+import android.graphics.Color;
 import android.graphics.SurfaceTexture;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
@@ -31,6 +32,9 @@ public class KirikiriSDL2Activity extends SDLActivity {
     private static final int STORAGE_PERMISSION_REQUEST = 9001;
     private static final String SAVE_SUBDIR = "YosugaSoraHD" + File.separator + "savedata";
     private static final String NO_MEDIA = ".nomedia";
+    /** Game art is 16:9; the SDL surface is letterboxed to this aspect (OHOS parity). */
+    private static final int GAME_ASPECT_W = 16;
+    private static final int GAME_ASPECT_H = 9;
     // Cached public save directory absolute path (UTF-8), shared with native.
     private static String sPublicSaveDir = null;
 
@@ -46,6 +50,12 @@ public class KirikiriSDL2Activity extends SDLActivity {
     private int movieLeft, movieTop, movieWidth, movieHeight;
     private boolean movieHasBounds;
     private int screenWidthPx, screenHeightPx;
+    // Last parent size passed to applyGameFrameLayout (skip redundant relayout).
+    private int lastLayoutWidth = -1;
+    private int lastLayoutHeight = -1;
+    // Logical movie bounds from native; replayed after surface relayout.
+    private int movieLogicalLeft, movieLogicalTop, movieLogicalWidth, movieLogicalHeight;
+    private int movieLogicalWindowW, movieLogicalWindowH;
 
     private static native void nativeOnMovieFinished();
     private static native void nativeOnMovieError(String message);
@@ -64,6 +74,8 @@ public class KirikiriSDL2Activity extends SDLActivity {
             nativeSetDataDir(dataDir);
         }
         if (mLayout == null) return;
+
+        mLayout.setBackgroundColor(Color.BLACK);
 
         movieView = new TextureView(this);
         movieView.setOpaque(true);
@@ -87,10 +99,19 @@ public class KirikiriSDL2Activity extends SDLActivity {
             public void onSurfaceTextureUpdated(SurfaceTexture texture) {}
         });
 
-        RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT);
+        RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(0, 0);
+        params.addRule(RelativeLayout.CENTER_IN_PARENT);
         mLayout.addView(movieView, params);
+
+        mLayout.addOnLayoutChangeListener((v, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            int w = right - left;
+            int h = bottom - top;
+            if (w > 0 && h > 0 && (w != lastLayoutWidth || h != lastLayoutHeight)) {
+                applyGameFrameLayout();
+            }
+        });
+        mLayout.post(this::applyGameFrameLayout);
 
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
         screenWidthPx = dm.widthPixels;
@@ -251,6 +272,131 @@ public class KirikiriSDL2Activity extends SDLActivity {
     }
 
     /**
+     * Sizes {@link #mSurface} and {@link #movieView} to a centered 16:9 rect
+     * inside {@link #mLayout}. The engine window then matches the game aspect
+     * (OHOS XComponent parity) instead of seeing an ultrawide drawable.
+     */
+    private void applyGameFrameLayout() {
+        if (mLayout == null || mSurface == null) return;
+
+        int parentW = mLayout.getWidth();
+        int parentH = mLayout.getHeight();
+        if (parentW <= 0 || parentH <= 0) return;
+        if (parentW == lastLayoutWidth && parentH == lastLayoutHeight) return;
+
+        lastLayoutWidth = parentW;
+        lastLayoutHeight = parentH;
+
+        int[] frame = computeGameFrameSize(parentW, parentH);
+        int frameW = frame[0];
+        int frameH = frame[1];
+        if (frameW <= 0 || frameH <= 0) return;
+
+        RelativeLayout.LayoutParams surfaceLp =
+            new RelativeLayout.LayoutParams(frameW, frameH);
+        surfaceLp.addRule(RelativeLayout.CENTER_IN_PARENT);
+        mSurface.setLayoutParams(surfaceLp);
+
+        if (movieView != null) {
+            RelativeLayout.LayoutParams movieLp =
+                new RelativeLayout.LayoutParams(frameW, frameH);
+            movieLp.addRule(RelativeLayout.CENTER_IN_PARENT);
+            movieView.setLayoutParams(movieLp);
+            movieView.setX(0f);
+            movieView.setY(0f);
+        }
+
+        mLayout.requestLayout();
+        replayMovieBoundsIfNeeded();
+    }
+
+    /** Integer contain-16:9 inside parentW x parentH (clamped, no overflow). */
+    private static int[] computeGameFrameSize(int parentW, int parentH) {
+        if (parentW <= 0 || parentH <= 0) {
+            return new int[]{0, 0};
+        }
+        int frameW;
+        int frameH;
+        long parentWScaled = (long) parentW * GAME_ASPECT_H;
+        long parentHScaled = (long) parentH * GAME_ASPECT_W;
+        if (parentWScaled > parentHScaled) {
+            frameH = parentH;
+            frameW = (int) ((long) frameH * GAME_ASPECT_W / GAME_ASPECT_H);
+            if (frameW > parentW) frameW = parentW;
+        } else {
+            frameW = parentW;
+            frameH = (int) ((long) frameW * GAME_ASPECT_H / GAME_ASPECT_W);
+            if (frameH > parentH) frameH = parentH;
+        }
+        return new int[]{frameW, frameH};
+    }
+
+    private void replayMovieBoundsIfNeeded() {
+        if (movieView == null) return;
+        if (movieHasBounds) {
+            applyMovieBounds(movieLogicalLeft, movieLogicalTop,
+                movieLogicalWidth, movieLogicalHeight,
+                movieLogicalWindowW, movieLogicalWindowH);
+        } else if (movieView.getVisibility() == View.VISIBLE || pendingMoviePath != null) {
+            applyMovieBounds(0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    /**
+     * Maps engine logical movie bounds onto the centered game surface rect.
+     */
+    private void applyMovieBounds(int left, int top, int width, int height,
+            int logicalWidth, int logicalHeight) {
+        if (movieView == null || mSurface == null) return;
+
+        int frameW = mSurface.getWidth();
+        int frameH = mSurface.getHeight();
+        if (frameW <= 0 || frameH <= 0) {
+            movieView.post(() -> applyMovieBounds(left, top, width, height,
+                logicalWidth, logicalHeight));
+            return;
+        }
+
+        int frameLeft = mSurface.getLeft();
+        int frameTop = mSurface.getTop();
+        boolean hasBounds = width > 0 && height > 0 && logicalWidth > 0 && logicalHeight > 0;
+
+        ViewGroup.LayoutParams lp = movieView.getLayoutParams();
+        if (!(lp instanceof RelativeLayout.LayoutParams)) {
+            lp = new RelativeLayout.LayoutParams(0, 0);
+        }
+        RelativeLayout.LayoutParams rlp = (RelativeLayout.LayoutParams) lp;
+
+        if (hasBounds) {
+            float sx = (float) frameW / logicalWidth;
+            float sy = (float) frameH / logicalHeight;
+            int pw = (int) (width * sx);
+            int ph = (int) (height * sy);
+            int px = frameLeft + (int) (left * sx);
+            int py = frameTop + (int) (top * sy);
+            rlp.width = pw;
+            rlp.height = ph;
+            rlp.leftMargin = 0;
+            rlp.topMargin = 0;
+            rlp.removeRule(RelativeLayout.CENTER_IN_PARENT);
+            movieView.setLayoutParams(rlp);
+            movieView.setX(px);
+            movieView.setY(py);
+        } else {
+            rlp.width = frameW;
+            rlp.height = frameH;
+            rlp.leftMargin = 0;
+            rlp.topMargin = 0;
+            rlp.addRule(RelativeLayout.CENTER_IN_PARENT);
+            movieView.setLayoutParams(rlp);
+            movieView.setX(0f);
+            movieView.setY(0f);
+        }
+        movieView.requestLayout();
+        fitMovieView();
+    }
+
+    /**
      * Places the movie view inside the engine's overlay rectangle.
      *
      * The engine reports the rectangle in game-space logical coordinates
@@ -267,49 +413,15 @@ public class KirikiriSDL2Activity extends SDLActivity {
             movieTop = top;
             movieWidth = width;
             movieHeight = height;
+            movieLogicalLeft = left;
+            movieLogicalTop = top;
+            movieLogicalWidth = width;
+            movieLogicalHeight = height;
+            movieLogicalWindowW = logicalWidth;
+            movieLogicalWindowH = logicalHeight;
             movieHasBounds = width > 0 && height > 0 && logicalWidth > 0 && logicalHeight > 0;
-            if (movieView != null && movieHasBounds) {
-                // Scale logical game coordinates to the actual view size.
-                int viewW = mLayout.getWidth();
-                int viewH = mLayout.getHeight();
-                if (viewW > 0 && viewH > 0) {
-                    float sx = (float) viewW / logicalWidth;
-                    float sy = (float) viewH / logicalHeight;
-                    float px = left * sx;
-                    float py = top * sy;
-                    float pw = width * sx;
-                    float ph = height * sy;
-                    movieView.setX(px);
-                    movieView.setY(py);
-                    ViewGroup.LayoutParams lp = movieView.getLayoutParams();
-                    if (lp instanceof RelativeLayout.LayoutParams) {
-                        RelativeLayout.LayoutParams rlp =
-                            (RelativeLayout.LayoutParams) lp;
-                        rlp.width = (int) pw;
-                        rlp.height = (int) ph;
-                        rlp.leftMargin = 0;
-                        rlp.topMargin = 0;
-                    }
-                    movieView.setLayoutParams(lp);
-                    movieView.requestLayout();
-                    fitMovieView();
-                }
-            } else if (movieView != null) {
-                // No bounds: fullscreen fallback (OP/ED).
-                movieView.setX(0);
-                movieView.setY(0);
-                ViewGroup.LayoutParams lp = movieView.getLayoutParams();
-                if (lp instanceof RelativeLayout.LayoutParams) {
-                    RelativeLayout.LayoutParams rlp =
-                        (RelativeLayout.LayoutParams) lp;
-                    rlp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-                    rlp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-                    rlp.leftMargin = 0;
-                    rlp.topMargin = 0;
-                }
-                movieView.setLayoutParams(lp);
-                movieView.requestLayout();
-                fitMovieView();
+            if (movieView != null) {
+                applyMovieBounds(left, top, width, height, logicalWidth, logicalHeight);
             }
         });
     }

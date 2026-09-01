@@ -2087,7 +2087,7 @@ void TVPWindowWindow::TickBeat()
 			if (this->renderer)
 			{
 #if defined(KRKRSDL2_ENABLE_ZOOM) || defined(KRKRSDL2_RENDERER_FULL_UPDATES)
-				SDL_RenderFillRect(this->renderer, nullptr);
+				SDL_RenderClear(this->renderer);
 #else
 				SDL_Rect logical_rect;
 				SDL_RenderGetLogicalSize(this->renderer, &(logical_rect.w), &(logical_rect.h));
