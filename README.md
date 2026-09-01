@@ -39,9 +39,9 @@ cd yosuga-no-sora-remake
 ```
 
 Game data is not stored in git at all. `setup.sh`
-calls `tools/fetch_data_parts.py`, which reads `data-source.json` (the
-repository-level pointer to the current data source release), downloads the
-multipart zips, verifies every SHA-256, and extracts them into `data/`.
+calls `tools/fetch_data_parts.py`, which auto-picks the newest `data-vN`
+source release, downloads the multipart zips, verifies every SHA-256, and
+extracts them into `data/`.
 Re-running the fetch only downloads parts that changed.
 
 ### Updating the game data
@@ -53,9 +53,9 @@ python tools/publish_data_source.py
 ```
 
 This detects the changes, packages a new `data-vN` source release, uploads
-it via the `gh` CLI (or prints manual upload steps), repoints
-`data-source.json`, and commits — every consumer and CI run then follows the
-new location automatically.
+it via the `gh` CLI (or prints manual upload steps), and commits the
+refreshed content manifest — every consumer and CI run then auto-picks the
+new release automatically.
 
 ## Current Status
 

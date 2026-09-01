@@ -33,8 +33,8 @@ cd yosuga-no-sora-remake
 ```
 
 游戏素材完全不存放在 git 仓库中。`setup.sh` 调用
-`tools/fetch_data_parts.py`：读取仓库内的 `data-source.json`（指向当前
-数据源 Release 的指针）、下载分卷压缩包、逐一校验 SHA-256 并解压到
+`tools/fetch_data_parts.py`：自动选取编号最大的 `data-vN` 数据源
+Release、下载分卷压缩包、逐一校验 SHA-256 并解压到
 `data/`。重复执行只会下载有变化的部分。
 
 ### 更新游戏素材
@@ -46,8 +46,8 @@ python tools/publish_data_source.py
 ```
 
 该命令自动检测变化、打包新的 `data-vN` 数据源 Release、通过 `gh` CLI
-上传（本机不可用时打印手动上传步骤）、改写 `data-source.json` 并提交——
-所有协作者与 CI 运行随后自动跟随新的数据位置。
+上传（本机不可用时打印手动上传步骤）并提交更新后的 content-manifest——
+所有协作者与 CI 运行随后自动选取最新的数据 Release。
 
 已有工作区更新依赖：
 

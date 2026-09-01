@@ -13,9 +13,9 @@ local data/ edits. This is the single command that closes the loop:
    (same layout as tools/package_data_release.py, parts stay under the 2 GB
    GitHub release-asset limit).
 4. Upload the release with the gh CLI when available; otherwise print exact
-   manual upload instructions and stop (rerun with --finalize afterwards).
-5. Rewrite data-source.json (the repository-level pointer every consumer
-   follows) and commit it together with the refreshed content manifest.
+   manual upload instructions and stop.
+5. Refresh the committed content-manifest.json snapshot (consumers resolve
+   the newest data-vN release automatically via tools/fetch_data_parts.py).
 
 NOTE: CI cannot detect data/ edits by itself because the content is not in
 git -- running this script after changing data/ is the automation.
@@ -30,7 +30,6 @@ import sys
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TOOLS)
-POINTER = os.path.join(REPO, "data-source.json")
 MANIFEST = os.path.join(REPO, "content-manifest.json")
 DATA_MANIFEST = os.path.join(REPO, "data", "content-manifest.json")
 ASSET_LIMIT = 2 * 1000 * 1000 * 1000  # GitHub release assets: 2 GB each
@@ -62,25 +61,6 @@ def read_json(path):
     return json.load(io.open(path, encoding="utf-8"))
 
 
-def write_pointer(tag: str, out_dir: str, repo_slug: str) -> None:
-    packaged = read_json(os.path.join(out_dir, "data-assets.json"))
-    pointer = {
-        "schemaVersion": 1,
-        "releaseTag": packaged["releaseTag"],
-        "baseUrl": "https://github.com/%s/releases/download/%s" % (repo_slug, tag),
-        "kind": packaged["kind"],
-        "totalSize": packaged["totalSize"],
-        "fileCount": sum(a["fileCount"] for a in packaged["assets"]),
-        "assets": [{"name": a["name"], "size": a["size"], "sha256": a["sha256"]}
-                   for a in packaged["assets"]],
-    }
-    with open(POINTER, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(pointer, ensure_ascii=False, indent=2) + "\n")
-    done = read_json(POINTER)
-    print("data-source.json now points at %s -> %s"
-          % (done["releaseTag"], done["baseUrl"]))
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", default="",
@@ -91,34 +71,14 @@ def main() -> int:
     parser.add_argument("--max-part-mib", type=int, default=1800,
                         help="Max zip part size in MiB (default: 1800)")
     parser.add_argument("--out", default="",
-                        help="Output directory (default: <repo>/../data-source-release-<tag>)")
+                        help="Output directory (default: <repo>/../data-release-<tag>)")
     parser.add_argument("--skip-upload", action="store_true",
                         help="Only package locally; never touch gh")
-    parser.add_argument("--finalize", action="store_true",
-                        help="Rerun after a manual upload: point data-source.json "
-                             "at the already-packaged release and commit")
     args = parser.parse_args()
 
     def default_out(tag: str) -> str:
         return args.out or os.path.join(os.path.dirname(REPO),
-                                        "data-source-release-" + tag)
-
-    # --finalize: the release was uploaded manually (or by a previous run);
-    # point the repository pointer at it and commit.
-    if args.finalize:
-        tag = args.tag
-        if not tag:
-            raise SystemExit("error: --finalize needs --tag <the tag you uploaded>")
-        out_dir = default_out(tag)
-        if not os.path.exists(os.path.join(out_dir, "data-assets.json")):
-            raise SystemExit("error: %s not found; pass --out if you used a "
-                             "custom output directory" % os.path.join(out_dir, "data-assets.json"))
-        write_pointer(tag, out_dir, derive_repo_slug(args.repo))
-        run(["git", "add", "data-source.json", "content-manifest.json"], cwd=REPO)
-        run(["git", "commit", "-m",
-             "data source update: %s" % tag], cwd=REPO)
-        print("committed. Push when ready: git push origin %s" % git("branch", "--show-current"))
-        return 0
+                                        "data-release-" + tag)
 
     # 1. Change detection: the committed content manifest is the snapshot of
     #    the last published tree; recomputing it reveals any data/ edit.
@@ -140,12 +100,12 @@ def main() -> int:
     # 2. Tag bump.
     if args.tag:
         tag = args.tag
-    elif os.path.exists(POINTER):
-        previous = read_json(POINTER).get("releaseTag", "data-v0")
-        number = int(previous.rsplit("v", 1)[-1]) + 1
-        tag = "data-v%d" % number
     else:
-        tag = "data-v1"
+        sys.path.insert(0, TOOLS)
+        from fetch_data_parts import resolve_latest_data_tag
+        previous = resolve_latest_data_tag(derive_repo_slug(args.repo))
+        number = int(previous.rsplit("v", 1)[-1]) + 1 if previous else 1
+        tag = "data-v%d" % number
     print("publishing source release: %s" % tag)
     out_dir = default_out(tag)
 
@@ -210,12 +170,12 @@ def main() -> int:
         print("  1. Create a PRERELEASE tagged %s on GitHub (pre-releases are" % tag)
         print("     skipped by /releases/latest/, so player downloads stay clean)")
         print("  2. Upload every file in: %s" % out_dir)
-        print("  3. Rerun: python tools/publish_data_source.py --tag %s --finalize" % tag)
+        print("  3. Done: consumers auto-pick the newest data-vN release")
         return 2
 
-    # 5. Point the repository at the new release and commit.
-    write_pointer(tag, out_dir, repo_slug)
-    run(["git", "add", "data-source.json", "content-manifest.json"], cwd=REPO)
+    # 5. Refresh the committed manifest snapshot; consumers auto-pick the
+    # newest data-vN release, no pointer file involved.
+    run(["git", "add", "content-manifest.json"], cwd=REPO)
     run(["git", "commit", "-m",
          "data source update: %s (%d parts, %d files)"
          % (tag, len(assets), sum(a["fileCount"] for a in assets))], cwd=REPO)

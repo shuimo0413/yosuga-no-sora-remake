@@ -72,8 +72,8 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf data
-          # data-source.json in the repo points at the current data release;
-          # moving the data location is a one-line commit, no workflow edits.
+          # fetch_data_parts.py auto-picks the newest data-vN release of this
+          # repo; publishing data-v(N+1) needs no workflow edits.
           python3 tools/fetch_data_parts.py --dest data
       # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest, so the content

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Fetch the game data from the data source release.
 
-Game data is not stored in git at all. The current data location is recorded
-in the repository-level pointer data-source.json; its release assets are
+Game data is not stored in git at all. The data location is resolved
+automatically: the owner/repo comes from --repo, the GITHUB_REPOSITORY
+environment variable (CI) or the origin remote, and the release tag is the
+numerically highest data-vN release (drafts skipped, prereleases included).
+Its release assets are
 multipart zips described by data-assets.json (schemaVersion 2: name/size/
 sha256 per part). This script downloads every part (skipping and reusing
 files that are already complete in the download directory), verifies every
@@ -16,6 +19,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import shutil
 import sys
 import tempfile
@@ -108,15 +112,26 @@ def resolve_latest_data_tag(repo: str):
     return best
 
 
+def repo_from_git():
+    """owner/name from the origin remote, or None."""
+    try:
+        url = subprocess.check_output(["git", "remote", "get-url", "origin"],
+                                      text=True).strip()
+    except Exception:
+        return None
+    match = re.search(r"([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+    return "%s/%s" % (match.group(1), match.group(2)) if match else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="",
                         help="Release download base, e.g. "
                              "https://github.com/OWNER/REPO/releases/download/data-v1 "
-                             "(default: read baseUrl from data-source.json)")
-    parser.add_argument("--source-manifest", default="data-source.json",
-                        help="Repository-level pointer to the current data "
-                             "source release (default: data-source.json)")
+                             "(default: auto-pick the highest data-vN)")
+    parser.add_argument("--repo", default="",
+                        help="owner/name of the data repository (default: "
+                             "GITHUB_REPOSITORY, then the origin remote)")
     parser.add_argument("--dest", default="data",
                         help="Directory to extract the game data into (default: data)")
     parser.add_argument("--work", default="",
@@ -128,37 +143,24 @@ def main() -> int:
 
     if args.url:
         base = args.url.rstrip("/")
-    else:
-        if not os.path.exists(args.source_manifest):
-            raise SystemExit(
-                "error: %s not found and no --url given; the data source is "
-                "published via a GitHub release and recorded in that file"
-                % args.source_manifest)
-        pointer = json.load(io.open(args.source_manifest, encoding="utf-8"))
-        base = str(pointer.get("baseUrl", "")).rstrip("/")
-        if not base:
-            raise SystemExit("error: %s has no baseUrl" % args.source_manifest)
         if args.tag:
-            # explicit override: swap the release segment of the pointer URL
             base = re.sub(r"/releases/download/[^/]+",
                           "/releases/download/" + args.tag, base)
-            log("data source: %s (release %s, forced by --tag)"
-                % (base, args.tag))
+    else:
+        repo = args.repo or os.environ.get("GITHUB_REPOSITORY") or repo_from_git()
+        if not repo:
+            raise SystemExit("error: cannot determine owner/repo; pass --repo "
+                             "or --url, or set GITHUB_REPOSITORY")
+        if args.tag:
+            tag = args.tag
         else:
-            # auto-pick the highest data-vN release so repacking data-v2+
-            # needs no workflow or pointer edits
-            match = re.match(r"https://github\.com/([^/]+/[^/]+)/releases/download/",
-                             base)
-            repo = match.group(1) if match else ""
-            tag = resolve_latest_data_tag(repo) if repo else None
-            if tag:
-                base = re.sub(r"/releases/download/[^/]+",
-                              "/releases/download/" + tag, base)
-                log("data source: %s (auto-selected %s from %s)"
-                    % (base, tag, repo))
-            else:
-                log("warning: no data-vN release resolved for %s; falling "
-                    "back to data-source.json pointer (%s)" % (repo, base))
+            tag = resolve_latest_data_tag(repo)
+            if not tag:
+                raise SystemExit("error: no data-vN release found in %s; "
+                                 "publish one first or pass --tag" % repo)
+        base = "https://github.com/%s/releases/download/%s" % (repo, tag)
+        log("data source: %s (release %s%s)"
+            % (base, tag, ", auto-picked" if not args.tag else ", forced"))
     work = args.work or tempfile.mkdtemp(prefix="data-parts-")
     os.makedirs(work, exist_ok=True)
     os.makedirs(args.dest, exist_ok=True)
