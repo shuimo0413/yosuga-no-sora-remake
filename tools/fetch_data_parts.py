@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -82,6 +83,31 @@ def extract_part(archive_path: str, dest: str) -> None:
                 shutil.copyfileobj(source, handle)
 
 
+def resolve_latest_data_tag(repo: str):
+    """Return the highest data-vN release tag in the repo (prereleases
+    included, drafts skipped), or None when nothing matches or the API
+    is unreachable."""
+    url = "https://api.github.com/repos/%s/releases?per_page=100" % repo
+    try:
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "yosuga-data-fetch/1.0",
+            "Accept": "application/vnd.github+json",
+        })
+        with urllib.request.urlopen(request, timeout=60) as response:
+            releases = json.load(response)
+    except OSError as exc:
+        log("warning: cannot list releases from %s: %s" % (url, exc))
+        return None
+    best, best_n = None, -1
+    for release in releases:
+        if release.get("draft"):
+            continue
+        match = re.match(r"^data-v(\d+)$", str(release.get("tag_name", "")))
+        if match and int(match.group(1)) > best_n:
+            best, best_n = release["tag_name"], int(match.group(1))
+    return best
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="",
@@ -95,6 +121,9 @@ def main() -> int:
                         help="Directory to extract the game data into (default: data)")
     parser.add_argument("--work", default="",
                         help="Download cache directory (default: a fresh temp dir)")
+    parser.add_argument("--tag", default="",
+                        help="Explicit data release tag (e.g. data-v2). "
+                             "Default: auto-pick the highest data-vN release")
     args = parser.parse_args()
 
     if args.url:
@@ -109,8 +138,27 @@ def main() -> int:
         base = str(pointer.get("baseUrl", "")).rstrip("/")
         if not base:
             raise SystemExit("error: %s has no baseUrl" % args.source_manifest)
-        log("data source: %s (release %s)"
-            % (base, pointer.get("releaseTag", "unknown")))
+        if args.tag:
+            # explicit override: swap the release segment of the pointer URL
+            base = re.sub(r"/releases/download/[^/]+",
+                          "/releases/download/" + args.tag, base)
+            log("data source: %s (release %s, forced by --tag)"
+                % (base, args.tag))
+        else:
+            # auto-pick the highest data-vN release so repacking data-v2+
+            # needs no workflow or pointer edits
+            match = re.match(r"https://github\.com/([^/]+/[^/]+)/releases/download/",
+                             base)
+            repo = match.group(1) if match else ""
+            tag = resolve_latest_data_tag(repo) if repo else None
+            if tag:
+                base = re.sub(r"/releases/download/[^/]+",
+                              "/releases/download/" + tag, base)
+                log("data source: %s (auto-selected %s from %s)"
+                    % (base, tag, repo))
+            else:
+                log("warning: no data-vN release resolved for %s; falling "
+                    "back to data-source.json pointer (%s)" % (repo, base))
     work = args.work or tempfile.mkdtemp(prefix="data-parts-")
     os.makedirs(work, exist_ok=True)
     os.makedirs(args.dest, exist_ok=True)
