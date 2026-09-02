@@ -15,6 +15,7 @@ import android.os.Environment;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Surface;
+import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -53,6 +54,11 @@ public class KirikiriSDL2Activity extends SDLActivity {
     // Last parent size passed to applyGameFrameLayout (skip redundant relayout).
     private int lastLayoutWidth = -1;
     private int lastLayoutHeight = -1;
+    // Centered 16:9 frame origin inside mLayout (explicit margins, not setX/Y).
+    private int frameOffsetX = 0;
+    private int frameOffsetY = 0;
+    private int frameWidthPx = 0;
+    private int frameHeightPx = 0;
     // Logical movie bounds from native; replayed after surface relayout.
     private int movieLogicalLeft, movieLogicalTop, movieLogicalWidth, movieLogicalHeight;
     private int movieLogicalWindowW, movieLogicalWindowH;
@@ -100,7 +106,8 @@ public class KirikiriSDL2Activity extends SDLActivity {
         });
 
         RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(0, 0);
-        params.addRule(RelativeLayout.CENTER_IN_PARENT);
+        params.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+        params.addRule(RelativeLayout.ALIGN_PARENT_TOP);
         mLayout.addView(movieView, params);
 
         mLayout.addOnLayoutChangeListener((v, left, top, right, bottom,
@@ -273,8 +280,9 @@ public class KirikiriSDL2Activity extends SDLActivity {
 
     /**
      * Sizes {@link #mSurface} and {@link #movieView} to a centered 16:9 rect
-     * inside {@link #mLayout}. The engine window then matches the game aspect
-     * (OHOS XComponent parity) instead of seeing an ultrawide drawable.
+     * inside {@link #mLayout}. Uses explicit left/top margins (Bootstrap /
+     * OHOS parity) instead of CENTER_IN_PARENT + setX/setY, which pulled the
+     * intro movie flush-left on ultrawide screens.
      */
     private void applyGameFrameLayout() {
         if (mLayout == null || mSurface == null) return;
@@ -292,21 +300,41 @@ public class KirikiriSDL2Activity extends SDLActivity {
         int frameH = frame[1];
         if (frameW <= 0 || frameH <= 0) return;
 
+        int offsetX = (parentW - frameW) / 2;
+        int offsetY = (parentH - frameH) / 2;
+        frameOffsetX = offsetX;
+        frameOffsetY = offsetY;
+        frameWidthPx = frameW;
+        frameHeightPx = frameH;
+
         RelativeLayout.LayoutParams surfaceLp =
             new RelativeLayout.LayoutParams(frameW, frameH);
-        surfaceLp.addRule(RelativeLayout.CENTER_IN_PARENT);
+        surfaceLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+        surfaceLp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        surfaceLp.leftMargin = offsetX;
+        surfaceLp.topMargin = offsetY;
+        surfaceLp.rightMargin = 0;
+        surfaceLp.bottomMargin = 0;
         mSurface.setLayoutParams(surfaceLp);
+        mSurface.setTranslationX(0f);
+        mSurface.setTranslationY(0f);
 
         if (movieView != null) {
             RelativeLayout.LayoutParams movieLp =
                 new RelativeLayout.LayoutParams(frameW, frameH);
-            movieLp.addRule(RelativeLayout.CENTER_IN_PARENT);
+            movieLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+            movieLp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            movieLp.leftMargin = offsetX;
+            movieLp.topMargin = offsetY;
+            movieLp.rightMargin = 0;
+            movieLp.bottomMargin = 0;
             movieView.setLayoutParams(movieLp);
-            movieView.setX(0f);
-            movieView.setY(0f);
+            movieView.setTranslationX(0f);
+            movieView.setTranslationY(0f);
         }
 
         mLayout.requestLayout();
+        syncSurfaceHolderSize();
         replayMovieBoundsIfNeeded();
     }
 
@@ -331,6 +359,20 @@ public class KirikiriSDL2Activity extends SDLActivity {
         return new int[]{frameW, frameH};
     }
 
+    /**
+     * Asks the SurfaceView holder to follow the view layout so the compositor
+     * does not keep an old left-aligned surface after margin centering.
+     */
+    private void syncSurfaceHolderSize() {
+        if (!(mSurface instanceof SurfaceView)) return;
+        SurfaceView surfaceView = (SurfaceView) mSurface;
+        surfaceView.post(() -> {
+            if (surfaceView.getHolder() != null) {
+                surfaceView.getHolder().setSizeFromLayout();
+            }
+        });
+    }
+
     private void replayMovieBoundsIfNeeded() {
         if (movieView == null) return;
         if (movieHasBounds) {
@@ -343,22 +385,21 @@ public class KirikiriSDL2Activity extends SDLActivity {
     }
 
     /**
-     * Maps engine logical movie bounds onto the centered game surface rect.
+     * Maps engine logical movie bounds onto the centered game surface rect
+     * using the same margin origin as {@link #applyGameFrameLayout()}.
      */
     private void applyMovieBounds(int left, int top, int width, int height,
             int logicalWidth, int logicalHeight) {
         if (movieView == null || mSurface == null) return;
 
-        int frameW = mSurface.getWidth();
-        int frameH = mSurface.getHeight();
+        int frameW = frameWidthPx > 0 ? frameWidthPx : mSurface.getWidth();
+        int frameH = frameHeightPx > 0 ? frameHeightPx : mSurface.getHeight();
         if (frameW <= 0 || frameH <= 0) {
             movieView.post(() -> applyMovieBounds(left, top, width, height,
                 logicalWidth, logicalHeight));
             return;
         }
 
-        int frameLeft = mSurface.getLeft();
-        int frameTop = mSurface.getTop();
         boolean hasBounds = width > 0 && height > 0 && logicalWidth > 0 && logicalHeight > 0;
 
         ViewGroup.LayoutParams lp = movieView.getLayoutParams();
@@ -366,32 +407,32 @@ public class KirikiriSDL2Activity extends SDLActivity {
             lp = new RelativeLayout.LayoutParams(0, 0);
         }
         RelativeLayout.LayoutParams rlp = (RelativeLayout.LayoutParams) lp;
+        rlp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+        rlp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        rlp.removeRule(RelativeLayout.CENTER_IN_PARENT);
+        rlp.removeRule(RelativeLayout.CENTER_HORIZONTAL);
+        rlp.removeRule(RelativeLayout.CENTER_VERTICAL);
+        rlp.rightMargin = 0;
+        rlp.bottomMargin = 0;
 
         if (hasBounds) {
             float sx = (float) frameW / logicalWidth;
             float sy = (float) frameH / logicalHeight;
             int pw = (int) (width * sx);
             int ph = (int) (height * sy);
-            int px = frameLeft + (int) (left * sx);
-            int py = frameTop + (int) (top * sy);
             rlp.width = pw;
             rlp.height = ph;
-            rlp.leftMargin = 0;
-            rlp.topMargin = 0;
-            rlp.removeRule(RelativeLayout.CENTER_IN_PARENT);
-            movieView.setLayoutParams(rlp);
-            movieView.setX(px);
-            movieView.setY(py);
+            rlp.leftMargin = frameOffsetX + (int) (left * sx);
+            rlp.topMargin = frameOffsetY + (int) (top * sy);
         } else {
             rlp.width = frameW;
             rlp.height = frameH;
-            rlp.leftMargin = 0;
-            rlp.topMargin = 0;
-            rlp.addRule(RelativeLayout.CENTER_IN_PARENT);
-            movieView.setLayoutParams(rlp);
-            movieView.setX(0f);
-            movieView.setY(0f);
+            rlp.leftMargin = frameOffsetX;
+            rlp.topMargin = frameOffsetY;
         }
+        movieView.setLayoutParams(rlp);
+        movieView.setTranslationX(0f);
+        movieView.setTranslationY(0f);
         movieView.requestLayout();
         fitMovieView();
     }
