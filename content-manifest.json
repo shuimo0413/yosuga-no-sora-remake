@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "contentVersion": "2626dd97accff54cd64504fef18b771c9be6d531407a3157c283da52cefd7fdb",
+  "contentVersion": "ace9794c74fef57b1057bce3be3babe218b00642d2b09f6b0458e6d62e55ccad",
   "fileCount": 23025,
-  "totalSize": 4146543402,
+  "totalSize": 4146548183,
   "packs": [
     {
       "id": "bootstrap",
       "fileCount": 361,
-      "totalSize": 2050965,
-      "contentVersion": "53d6572cec36d9bd5a5fd6dd18ca67852beb3e08446f44711cfdaeaeceb536aa"
+      "totalSize": 2055746,
+      "contentVersion": "555e7174d32ee5830c08ed9a643f9b3af16fe53c4cf66237217028f350d56bdb"
     },
     {
       "id": "fonts",
@@ -129794,8 +129794,8 @@
     },
     {
       "path": "system/AffineLayer.tjs",
-      "size": 20476,
-      "sha256": "4406a4452fa0551976fe7b8d9f74ba87d314d1f4470b67152add014264310f79",
+      "size": 21091,
+      "sha256": "bee54496b25dd6c96505354b96c194bc7599b1f36fb1b0db74e9135bf8e85b0a",
       "pack": "bootstrap"
     },
     {
@@ -129806,8 +129806,8 @@
     },
     {
       "path": "system/AlbumModeHD.tjs",
-      "size": 21708,
-      "sha256": "963a7f970f30da8aa0b852fd763d57758a2f85dda1e3bd8d1abb6559ddb5ae3a",
+      "size": 25874,
+      "sha256": "b8dd7b3bf8d1258de73ce828291ac0b22e938fd0f556ebf284854d3266ab492f",
       "pack": "bootstrap"
     },
     {
