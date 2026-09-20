@@ -2,6 +2,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
+**给主群用户：群临时封禁了七天，这七天内别去贴吧接着拱火了，让他们赢麻了这事也就过去了**
+
 This repository contains the complete game project for the Yosuga no Sora HD
 remake. The main repository lives at
 [shuimo0413/yosuga-no-sora-remake](https://github.com/shuimo0413/yosuga-no-sora-remake).
