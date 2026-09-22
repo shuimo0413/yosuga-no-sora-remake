@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "contentVersion": "ace9794c74fef57b1057bce3be3babe218b00642d2b09f6b0458e6d62e55ccad",
-  "fileCount": 23025,
-  "totalSize": 4146548183,
+  "contentVersion": "a1082ede660fed69a87e80f8c42834c0748737d763a32261c546ad17138084a6",
+  "fileCount": 23020,
+  "totalSize": 4146614738,
   "packs": [
     {
       "id": "bootstrap",
       "fileCount": 361,
-      "totalSize": 2055746,
-      "contentVersion": "555e7174d32ee5830c08ed9a643f9b3af16fe53c4cf66237217028f350d56bdb"
+      "totalSize": 2058909,
+      "contentVersion": "5723d7d2eaf7900302838a8896ba98a20c6f15931a40cb6552e2616fa4553bac"
     },
     {
       "id": "fonts",
@@ -18,9 +18,9 @@
     },
     {
       "id": "ui",
-      "fileCount": 1609,
-      "totalSize": 63379781,
-      "contentVersion": "df205098cef901ed10231c05943a68b2b3b6374171d6103f3f4886f3e368836b"
+      "fileCount": 1610,
+      "totalSize": 63468184,
+      "contentVersion": "4222748ee0a4466e3fe8c26bd05a6eebd23187a4dd1d190e52d71b5e1b72f871"
     },
     {
       "id": "audio",
@@ -55,53 +55,17 @@
     {
       "id": "scenario",
       "fileCount": 612,
-      "totalSize": 8778292,
-      "contentVersion": "ec82d4a54404a37e05aa375af69231dd8a341eb03c48862a51f4aae4aef8d160"
+      "totalSize": 8756804,
+      "contentVersion": "e35247ae455131f997a8b30cc906445b34a30f3dbbed24406f99de1d8ae5df5c"
     },
     {
       "id": "misc",
-      "fileCount": 7,
-      "totalSize": 5053,
-      "contentVersion": "c4efe1c6af43316a6e2e24c26a1412604d6af230e81d7d2ef91154fddb45fd28"
+      "fileCount": 1,
+      "totalSize": 1530,
+      "contentVersion": "6dad05160394fd73702cb8a5c7cf8f812e481030ffd3b3fac0e7575fb0e003b4"
     }
   ],
   "files": [
-    {
-      "path": ".idea/.gitignore",
-      "size": 250,
-      "sha256": "6964f0665d3290c845f8973ab067b4b59fdf1d83324cbdf34563424c650cefac",
-      "pack": "misc"
-    },
-    {
-      "path": ".idea/data.iml",
-      "size": 344,
-      "sha256": "c96ea0b5b29abb7d5807671dd208fd63f63694dd236335d2fe8c074e89e94aa6",
-      "pack": "misc"
-    },
-    {
-      "path": ".idea/misc.xml",
-      "size": 281,
-      "sha256": "4ed23bf6e78c14ac230831270990ecf7802bd60b5c28c07720e615fe31db97bb",
-      "pack": "misc"
-    },
-    {
-      "path": ".idea/modules.xml",
-      "size": 267,
-      "sha256": "ec3035d43fc719fa21ef7d07e785e88f485c7c7cf63c38a73b0ac1531e1ed009",
-      "pack": "misc"
-    },
-    {
-      "path": ".idea/vcs.xml",
-      "size": 188,
-      "sha256": "d0df76de3a966f51606b564edccc430dbc21c32ee5c3f35dccf95597fad81392",
-      "pack": "misc"
-    },
-    {
-      "path": ".idea/workspace.xml",
-      "size": 2193,
-      "sha256": "1a7cf55293b1799777429e6820acfb208b59e17853901d773dd16c1393c94aa9",
-      "pack": "misc"
-    },
     {
       "path": "ASSETS.md",
       "size": 1530,
@@ -126056,14 +126020,14 @@
     },
     {
       "path": "scenario/00_a001.ks",
-      "size": 20428,
-      "sha256": "ff446b97b9fee636c30b1c866cc7c70f4d4b85eb35a29f60b46e4811aa7c19d4",
+      "size": 19752,
+      "sha256": "e51a2cb8fa84077678cf21ad04d43765733291feb9c61233606ad4a29b94b9f7",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a001.ks.ctx",
-      "size": 20455,
-      "sha256": "0553ebcfd8641b94963deb18a0569c5992e140084efa836bdc1406e721580e58",
+      "size": 20744,
+      "sha256": "621b99d090528c00fa5f61df8fcf6363788cd5ef3b183fa0fd2fbf77c77548d8",
       "pack": "scenario"
     },
     {
@@ -126356,14 +126320,14 @@
     },
     {
       "path": "scenario/00_a020.ks",
-      "size": 14402,
-      "sha256": "7dd7bda0f264e0bed1c7806bdc8407997a3be967b809c2712a11aa75c9900fce",
+      "size": 13816,
+      "sha256": "d3928e75e45f677ade3d7fe6aa0c1d2180548debe3805dfbfc5e7fa0ff3dce24",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a020.ks.ctx",
-      "size": 14431,
-      "sha256": "d05ce9513f4f06cbdbe512a3a0bb9ee75c60767dda42f7bf5a1394b5fe66556d",
+      "size": 14428,
+      "sha256": "e33dd3fd1c6d40b3f58fc44a01875762f948b744f50a3188d9b682a761bd70a8",
       "pack": "scenario"
     },
     {
@@ -126440,14 +126404,14 @@
     },
     {
       "path": "scenario/00_a025b.ks",
-      "size": 17532,
-      "sha256": "49fc2512cc5a344c211af4ec777ef236a0ec00ef0766d6522bea1e9340f89fdb",
+      "size": 16863,
+      "sha256": "ace1a129725d211934305629a14ebc5224477e59722066d6fda44c2952cef499",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a025b.ks.ctx",
-      "size": 17561,
-      "sha256": "8a363e416a219ad60fd20946d4a1af863adf7329a579efe22db6c2f7cf7f6b12",
+      "size": 17558,
+      "sha256": "1b612eb6bec9be89f6875c2d6f1673ce175780142faf73609b13782562afda79",
       "pack": "scenario"
     },
     {
@@ -126500,14 +126464,14 @@
     },
     {
       "path": "scenario/00_a028b.ks",
-      "size": 15651,
-      "sha256": "c08baf1a11e164562763faeb8d90709f5da81ebfe30c8973d2114338fd84f316",
+      "size": 14947,
+      "sha256": "4ee874d549b2e7bc50ecf421b1b00661f5bc211d1ce3ccc0646ed91ece2ba09d",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a028b.ks.ctx",
-      "size": 15681,
-      "sha256": "53fb8bcd48ae0b62f2633ad0ac8a7c74512ca038a78384ad95fbfce4e6dcf95e",
+      "size": 15672,
+      "sha256": "4f22ad3403955fb0537058c5b3115b5ccd2799e4e65d1bb7f7af6a96da1e7a32",
       "pack": "scenario"
     },
     {
@@ -126596,26 +126560,26 @@
     },
     {
       "path": "scenario/00_a033.ks",
-      "size": 9561,
-      "sha256": "bea856d228b357ff862a242fef69f0e5a4479724ff9ba6262b51f2ee6a340650",
+      "size": 9115,
+      "sha256": "4b60c9956f1b390eef7f2bdc79ed8f185713572254a93ab8eb6b6eca83ac7e91",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a033.ks.ctx",
-      "size": 9587,
-      "sha256": "3c516c33bd1dd2a1a1dc7eb930508b9221d880940c3c88a374dd86505d2de89e",
+      "size": 9592,
+      "sha256": "9466039426880927e23c9669d0cd9e82cd1b7800f93f0c226b48caa70870b6e1",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a034.ks",
-      "size": 22241,
-      "sha256": "8676601f1dab39e3ad0c3cd0697a8e8beda040fe039e8cf72f760d765c73a61d",
+      "size": 21162,
+      "sha256": "ff3904d77389c0e524e152f1d2b48e3e83d3a42cd51beb4b91caffcc2bab1535",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_a034.ks.ctx",
-      "size": 22269,
-      "sha256": "db40d0e625ff8e5b4fd8f88f36ad0784b3924dfb860a99ed0cd8b04ed4499966",
+      "size": 22233,
+      "sha256": "45ae41715e79284d907864c754ccf34df35c0ea59830d67dd112eef29ec47c78",
       "pack": "scenario"
     },
     {
@@ -126680,14 +126644,14 @@
     },
     {
       "path": "scenario/00_b003.ks",
-      "size": 12498,
-      "sha256": "d4fee8b65163b05a9bae79cbf1b05544e07f4259d2d777bacacd36b4ffa4109d",
+      "size": 11854,
+      "sha256": "d6bc2d673fa399120187f903e9d6e4d45f7b9e7fa642aa82c28689b97ec5ee2c",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b003.ks.ctx",
-      "size": 12529,
-      "sha256": "e6dc0acad91d743a70543d6af6af66cd54d79d148b2f35386ca09a63eb2d7022",
+      "size": 12518,
+      "sha256": "16d13617d1166f3991959ded2f5c32c082a7acab746c271003a60136073ccbe0",
       "pack": "scenario"
     },
     {
@@ -127124,14 +127088,14 @@
     },
     {
       "path": "scenario/00_b021.ks",
-      "size": 41162,
-      "sha256": "4a132b8865a2cb74f4b5f8d1de9ed0c0be870e357b4fd348a504f8e7bf72a93e",
+      "size": 39674,
+      "sha256": "c62a59c0604408836189f58fb05b3a5bd49099aef281e5f6dfdfcd99112483fe",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b021.ks.ctx",
-      "size": 41191,
-      "sha256": "2964100bc55096b8e60a22dd0ce6b3e68169335dbb77851d5b2051b1ac4a00e2",
+      "size": 41188,
+      "sha256": "bc6f2a94af43bf170ac5212625e18420fdd9c122cb4d8615f563c89ef2f2abca",
       "pack": "scenario"
     },
     {
@@ -127196,14 +127160,14 @@
     },
     {
       "path": "scenario/00_b025.ks",
-      "size": 39577,
-      "sha256": "7d6dbb8e21fbd033225dce7163019d10d4edf1543b426086330d6d6166656139",
+      "size": 38188,
+      "sha256": "6d24ac9f1249b5af78b173483088d93b5c7e70efa838854e959bcc64e9662728",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b025.ks.ctx",
-      "size": 39606,
-      "sha256": "e5066b3361c52fb9a259d9ef60edd8c553b2a63ca2e4a33af3c4979b60581fe5",
+      "size": 39603,
+      "sha256": "2500246ba31398cef2589d064600efb65c95075cc86b6e77851c54bbf2fc7854",
       "pack": "scenario"
     },
     {
@@ -127244,14 +127208,14 @@
     },
     {
       "path": "scenario/00_b027.ks",
-      "size": 7315,
-      "sha256": "df14279ac5b2ee6bee270837fb088a128d9d4401488738d56af146b370abfeee",
+      "size": 6959,
+      "sha256": "cf05e2d5408d62c00719d702141f35c072dfdc08531f178ebc67827f72435ad2",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b027.ks.ctx",
-      "size": 7344,
-      "sha256": "569d5696235672d007b955383365868bbf77e514f1f3f25a61d707f1feccee46",
+      "size": 7337,
+      "sha256": "92503def796b4987a8637c95539fd0f2a722b7c5885116c8cd30576d7993fdc3",
       "pack": "scenario"
     },
     {
@@ -127376,38 +127340,38 @@
     },
     {
       "path": "scenario/00_b032.ks",
-      "size": 50131,
-      "sha256": "d78fd1ed1b2b143ab61a50688b84065fc4887a5b9739493a76bb55cd12daa908",
+      "size": 48363,
+      "sha256": "9682bbdcd1c2e203bd23e0eff7117fee94a55dd077298a13b150fe9395f902b7",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b032.ks.ctx",
-      "size": 50160,
-      "sha256": "ab347f25f4a87b82326694985dd741270f0016e1cbd6ec16cf4eb1ddd3cbd6a6",
+      "size": 50157,
+      "sha256": "67b6e984197cc35c2ead7b183e7f34e6600dc6c179aa673667d3671b42930845",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b033.ks",
-      "size": 12989,
-      "sha256": "357acd64cff0f27a7492f9c93f1cc9aab2d26f810b5d4d4f95dee0849c60664d",
+      "size": 12296,
+      "sha256": "a4dd23a02af87a90e87bd220db19d508a831a75b2d2d9c62ec9a10ee383e0c13",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b033.ks.ctx",
-      "size": 13015,
-      "sha256": "059ba7cae5b777a81caddb43c12dbc28d4f2ca01cce49e7515080238b89e449d",
+      "size": 13012,
+      "sha256": "f3d41a3787f77ef8d89add06e6e239ad569962c5ebedaa2759bdde443c660f42",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b034.ks",
-      "size": 15362,
-      "sha256": "49d1912302039513b6a0c2ee10c2e4f521a70f9c0a62e002be09955069021d8a",
+      "size": 14598,
+      "sha256": "7c713a8f2ce52b7a121dc28da3e15a5a54d388e224428e2703a16f8e2cb635df",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b034.ks.ctx",
-      "size": 15390,
-      "sha256": "23509a63e96d972e59b0fc83645aa6d51526a9b2c06b967e7e48c4fc12e35010",
+      "size": 15355,
+      "sha256": "eeab14f9332d33e60e807383031b3dd5b5101c624e17f983afd88b621b3d7165",
       "pack": "scenario"
     },
     {
@@ -127556,14 +127520,14 @@
     },
     {
       "path": "scenario/00_c009.ks",
-      "size": 8558,
-      "sha256": "8e9d914853e3c3371f89f10517d70dba8ce54009b72d07090a7b0c0f8cbe3d8f",
+      "size": 8183,
+      "sha256": "8964f073f60b2a151c0a9555b83ce69bf8fc502e7287b4a10e6c8a59a38f12e2",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c009.ks.ctx",
-      "size": 8595,
-      "sha256": "e84a8286988269ef237ed58da2829acd935fc52bcf0782e90f15e9f930d99211",
+      "size": 8572,
+      "sha256": "1fe896188526bd93ff9e2fe436d7a04091726ba4661c584fecce7c184862e8f4",
       "pack": "scenario"
     },
     {
@@ -127904,14 +127868,14 @@
     },
     {
       "path": "scenario/00_c021.ks",
-      "size": 33491,
-      "sha256": "c4e548d203d2d2de3ef2782cb327c07d17ee8469a0005517ffaf87f7355df67b",
+      "size": 31845,
+      "sha256": "3aa23630e470edc5d02d1c1cc2c527378d9d52d9c3fe828424b8eb041032e8e7",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c021.ks.ctx",
-      "size": 33522,
-      "sha256": "c22d473a2ead9434b5cf474c18e2fe2d0a5572f5735411bf864a6e60315bb396",
+      "size": 33511,
+      "sha256": "9c0da32eb79fbc0cdf5911708baefe2a01c98b0079296ae63543707ab467e0c6",
       "pack": "scenario"
     },
     {
@@ -127952,14 +127916,14 @@
     },
     {
       "path": "scenario/00_c023.ks",
-      "size": 32656,
-      "sha256": "e941b856f1670bfdc96599746aa499fb3936b2e0b7fe0eaadb0e4d899f92b9ca",
+      "size": 31391,
+      "sha256": "df2d4e0f33132fe8fab17012b9b3aca6fc60cb8dfb0957c07597c7ba29629bdb",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c023.ks.ctx",
-      "size": 32686,
-      "sha256": "4fab287e3cfb57aafdd0fc7c478c7c7c9f497fd30ab2e487dc873d3dad113116",
+      "size": 32681,
+      "sha256": "ffc90b705e2f9a7d38f067e6135a74fe3e98ae8564e79ba85851deea41e7bf14",
       "pack": "scenario"
     },
     {
@@ -128156,14 +128120,14 @@
     },
     {
       "path": "scenario/00_c034.ks",
-      "size": 34070,
-      "sha256": "b08082af005e89d4c946ac5822b24b9503dc6e172369350cf6766076b9da057f",
+      "size": 32754,
+      "sha256": "56d822dacfe799d1c64c10b92ab654e954e73447d280cb3a2e1ea71e700e6d2a",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c034.ks.ctx",
-      "size": 34100,
-      "sha256": "f47284b5f9624711175e79230a358830a50944d009a9fcd0955342442c7e2ce4",
+      "size": 34095,
+      "sha256": "647b218e556a952dc1841a5cdf0625988ea154a8f7a0db14ba62697bd853ff9f",
       "pack": "scenario"
     },
     {
@@ -128180,26 +128144,26 @@
     },
     {
       "path": "scenario/00_c035b.ks",
-      "size": 10747,
-      "sha256": "947b47113efdda1d90d12601a9e89f91ae3af9fc516738535fb07ba24500eab1",
+      "size": 10228,
+      "sha256": "15a0fdb1d4b8e4706eeb5daa9082926ed99a7144a5c00d81b2f5181d5f3728ab",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c035b.ks.ctx",
-      "size": 10773,
-      "sha256": "447262d30944bf9bd611c25a3802a0539c56c1a5e2486384ed05662edc51f043",
+      "size": 10775,
+      "sha256": "97dc741e910b7d8ddc7c4b57fff94ba65382e156ab497574725f5e0b27909e53",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c036.ks",
-      "size": 15038,
-      "sha256": "c82b42ea0495d4a8751f478499fdb18a22990127047ded46860436a41d1cc572",
+      "size": 14309,
+      "sha256": "0f10f530611c0cc4a7f1c394cc8a55075b71e1411130b481153c17f04242f34d",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_c036.ks.ctx",
-      "size": 15196,
-      "sha256": "10130cbe1bc43e6ed49cdae0e30241916da5dff3c5466723378a5bf070249879",
+      "size": 15029,
+      "sha256": "dcbab887efb39eab0a0c55c05a0f36c9da11986d4c563931c5fb2ce259c0749a",
       "pack": "scenario"
     },
     {
@@ -128852,26 +128816,26 @@
     },
     {
       "path": "scenario/00_d043.ks",
-      "size": 13733,
-      "sha256": "cf8fb0303688a0bfc4a5b1eb23170f95afc0bc276cd33bfb1d2ef5f389c11bec",
+      "size": 13083,
+      "sha256": "867de10a80a131f4029e2832f934b2857420f6295a223d767c01aa9b5c947551",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_d043.ks.ctx",
       "size": 13759,
-      "sha256": "824acae42b11945c22c9fb69640c9df92de456722a019647b59a386736fe32da",
+      "sha256": "1bef257f4bced8a35b310f90f23ad3a96b5763deca5384401faa3390622c20e0",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_d044.ks",
-      "size": 5078,
-      "sha256": "fb22655c149650d97c5fe2084f661123b9a9ea3f90153687aad60f29663c18ed",
+      "size": 4823,
+      "sha256": "532325997216168c92de282b6898f925bd4a00ae39d77cf9bd220af3743a0acc",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_d044.ks.ctx",
-      "size": 5106,
-      "sha256": "fb72c68712a7edaa980982f5e5d5e6ded3d06abb92bc4af92b1a09f12619ee7c",
+      "size": 5068,
+      "sha256": "888906e67cec8b92ac5f04e1ba36b98188d47d0534ccdb0196982b9bac947b89",
       "pack": "scenario"
     },
     {
@@ -129092,14 +129056,14 @@
     },
     {
       "path": "scenario/00_e013c.ks",
-      "size": 28361,
-      "sha256": "082a76c67c025ad73586afc820b4b628badbfd719e0078fb58c2d63969b14db6",
+      "size": 27222,
+      "sha256": "96869e6231e929d5c9ccc31825061c00bdea06102e8b121aa30a7ad15fb6cd72",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_e013c.ks.ctx",
-      "size": 28391,
-      "sha256": "037c12f3501a06254539996ff31966ed0aa35ca64ca56e66997143be2b237318",
+      "size": 28386,
+      "sha256": "83f98f55ea26471bc715f63c31790876d590de1aa34bf4d6b856f92806045682",
       "pack": "scenario"
     },
     {
@@ -129440,38 +129404,38 @@
     },
     {
       "path": "scenario/00_e036.ks",
-      "size": 21707,
-      "sha256": "137c85b0746bad31187b5aafc29b2a6a75bab3d62b621358c883fd39b89373f9",
+      "size": 20839,
+      "sha256": "b05d07d4079c8f6571f5b34afb303c3602c6bce5b1acf535f3d590562be25f9d",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_e036.ks.ctx",
-      "size": 21737,
-      "sha256": "e1c608ef751d2221bdd1e4a374e81ca5767a07594b937d5f2bc1fae908a68aef",
+      "size": 21732,
+      "sha256": "7db19c22d7b562543af89296fcd7c892ece6cd559faaefcd4ffcaddf53f41fd2",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_e036b.ks",
-      "size": 8289,
-      "sha256": "8d0e4080ad04f54a2cd37a1ab9dfc80044fcfb571d4bc48ec877a9bfa15517e5",
+      "size": 7914,
+      "sha256": "2a378e4a2e9fc587eb68590143c26e011cb0c3d3d5e626532597ae8c898e23b1",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_e036b.ks.ctx",
       "size": 8315,
-      "sha256": "a8b16beb864995e79c74a7c78360feacd0f5af626281cd24e16472474e28e586",
+      "sha256": "521638134e745e9373c48a8c0d968bb1f01df79d68791ec2f4926f82e805eefc",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_e037.ks",
-      "size": 7856,
-      "sha256": "286a5411205de2516dabdb9f0892e37762849a24766a1e2db8c6f0abb78d1cc7",
+      "size": 7451,
+      "sha256": "31721fdc6dae71f55fd1db3cf17ec35137441a9701363501009c253431408391",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_e037.ks.ctx",
-      "size": 7884,
-      "sha256": "191e92b51a0980ba77d69d6ef61d4bbdf650fd80fb116db575e053542b173910",
+      "size": 7846,
+      "sha256": "779f6d73f1c5b317a2dd593bd656a61fcd634de8897f03aafdfbe642195dc89f",
       "pack": "scenario"
     },
     {
@@ -129524,14 +129488,14 @@
     },
     {
       "path": "scenario/00_z000.ks",
-      "size": 11910,
-      "sha256": "158b28f60ab9fed540ec1add95fe0d37f6f1f9b6ff12a23c83508f2895927e72",
+      "size": 11376,
+      "sha256": "6a40f9eabcdc3d9d0be79c99df6300d0ff4f26573a0ad77435e3abd676ad9cd5",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_z000.ks.ctx",
-      "size": 11939,
-      "sha256": "698d0245e18a3af208d2be76b53c6d21a2425777eb88adeb3ec005ad1e7fbdc2",
+      "size": 11936,
+      "sha256": "722eb6734b56b02d2c013194cbfe5b7c38e565c66ab94d17cabf94db51241230",
       "pack": "scenario"
     },
     {
@@ -129590,8 +129554,8 @@
     },
     {
       "path": "scenario/00_z005.ks.ctx",
-      "size": 17050,
-      "sha256": "525ba18a878b01c056bbe95e0d2fbdb0a579f1b07c5a68ecbf71b0a90871219c",
+      "size": 17049,
+      "sha256": "c6858e66cbded103f520babe29bbc45fbb804f9b330f0361e1ddfb26020f229f",
       "pack": "scenario"
     },
     {
@@ -129716,14 +129680,14 @@
     },
     {
       "path": "scenario/macro.ks",
-      "size": 170,
-      "sha256": "32c3b75b4f230aa73b3b484ff1bfba6fe3aaa0005a732f7c017641900ea63349",
+      "size": 154,
+      "sha256": "fee627fa90e83263968fb6c50b90cf750de4ffab5ca84a5c01ff4b114a382f41",
       "pack": "scenario"
     },
     {
       "path": "scenario/macro.ks.ctx",
-      "size": 202,
-      "sha256": "0c26092e80679693f87b8a6966a0ccc177f8358b1327f7825443f8d41b9334d7",
+      "size": 189,
+      "sha256": "84c6246e494c518ded6ad4f69aa2805050eaf1fc5a91825ac2772700c5918110",
       "pack": "scenario"
     },
     {
@@ -129776,8 +129740,8 @@
     },
     {
       "path": "system/ADVScreen.tjs",
-      "size": 221786,
-      "sha256": "2115160cdf9a942e4bf03206f91e4dc90f39942c9d03d8c27c3ebab8537688e6",
+      "size": 222479,
+      "sha256": "89dc86cdea0bae57b7c40c5706915888d69e53e0bb522864a4937eff2b7f71b4",
       "pack": "bootstrap"
     },
     {
@@ -129866,14 +129830,14 @@
     },
     {
       "path": "system/ConfigWindow.tjs",
-      "size": 66097,
-      "sha256": "bafecf274e39a302c50cc5223ecb411c7fa3059180a93e4b1fc292c9cea45f0d",
+      "size": 66095,
+      "sha256": "4e969b4c4b35ddcad525cd130d6f01b8a16d4ff03f2564115ae8f61e82a1205d",
       "pack": "bootstrap"
     },
     {
       "path": "system/ConfigWindowHD.tjs",
       "size": 22302,
-      "sha256": "42b82f341f1cde6011b9ce6dddd1f195bdfa50b170defca7cb6e56298c1fa549",
+      "sha256": "1958a6afaa5b5c9f9f11322085ded58a27b69acc16333a30eb65f432e8322117",
       "pack": "bootstrap"
     },
     {
@@ -129950,8 +129914,8 @@
     },
     {
       "path": "system/MessageFrame.tjs",
-      "size": 144260,
-      "sha256": "956a05b85dc7136c8492b3f293b549b561a6ea58e5afff3309d8d2d79ecbd56e",
+      "size": 145352,
+      "sha256": "8643ce309f3dba61aec493457db04844de1208d881638b74ffe5fe810f060fa8",
       "pack": "bootstrap"
     },
     {
@@ -130022,8 +129986,8 @@
     },
     {
       "path": "system/SystemWindow.tjs",
-      "size": 88809,
-      "sha256": "7270e8ada54f96b5726f27fab637bfeec42489aaf202d8ebada032dcb684aff8",
+      "size": 88999,
+      "sha256": "57f9e11bd5a24d7f50e96d840ee1497a073b087e5a890ce64346b5204fde9395",
       "pack": "bootstrap"
     },
     {
@@ -130052,8 +130016,8 @@
     },
     {
       "path": "system/VoiceModeScene.tjs",
-      "size": 22718,
-      "sha256": "268653549379e1bd5975b06552751a2ba9bbd7cf6c74e44aedbd9586c6ed5bf0",
+      "size": 23908,
+      "sha256": "f83489c71b67fd94e6edefa296d076e75f34750241cd99e893ee0093e2fb9592",
       "pack": "bootstrap"
     },
     {
@@ -136150,6 +136114,12 @@
       "path": "ui_1920/adv_menu/DHK-28.png",
       "size": 140725,
       "sha256": "9387e878c2445858c2bc01fd8187f986710708531b354ee99b35a47a9b6ee139",
+      "pack": "ui"
+    },
+    {
+      "path": "ui_1920/adv_menu/DHK-28_mono.png",
+      "size": 88403,
+      "sha256": "51fad499e42be1b5f96108db9dd56bb214a1c425c6e18eb51663d6cfe624235a",
       "pack": "ui"
     },
     {
