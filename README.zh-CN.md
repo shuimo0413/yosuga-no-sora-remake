@@ -2,6 +2,8 @@
 
 [English](README.md) | 简体中文
 
+**给主群用户：群临时封禁了七天，这七天内别去贴吧接着拱火了，让他们赢麻了这事也就过去了**
+
 本仓库是《缘之空》高清重制的完整游戏工程，主仓库位于
 [shuimo0413/yosuga-no-sora-remake](https://github.com/shuimo0413/yosuga-no-sora-remake)。
 跨平台运行时为 `src/` 中的 Kirikiri SDL2 引擎；`platform/` 下的 Windows KRKRZ
