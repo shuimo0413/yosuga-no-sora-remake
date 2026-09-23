@@ -9,6 +9,12 @@
 
 对了，纠正一下，我们是高清重置组不是汉化组，很早以前我们曾讨论过是否重新汉化的问题，但得出的结论是没必要重复造轮子，所以汉化文本其实是用了星空网 Sphere 中文化委员会的汉化补丁，我们也在头图中注明了翻译是星空网 Sphere 中文化委员会，也没有更改汉化文本，这是一个很早的补丁了，里面其实有很多错别字，但碍于他们的协议我们没有改动。
 
+关于所谓“视频下架跑路”的谣言澄清：
+那些视频不是被我们主动下架的，而是被人恶意举报导致的下架，很多人都说我们出事了，所以赶紧屁滚尿流的下架跑路了，没有的事情，我们这种非官方无授权的民间自发重置的Gal本来就是灰色地带，我们也知道再申诉也大概率过不了审了
+
+<img width="529" height="450" alt="20aaead60631e9754b261997d2b489ee" src="https://github.com/user-attachments/assets/b2564e81-09ca-409f-af8c-3f5723d9e3fc" />
+<img width="854" height="1009" alt="6f1c49be09a09b7a33ee34692a7b6b67_720" src="https://github.com/user-attachments/assets/e9335eea-9fe6-4d76-b57b-b3331e46ada9" />
+
 本仓库是《缘之空》高清重制的完整游戏工程，主仓库位于
 [shuimo0413/yosuga-no-sora-remake](https://github.com/shuimo0413/yosuga-no-sora-remake)。
 跨平台运行时为 `src/` 中的 Kirikiri SDL2 引擎；`platform/` 下的 Windows KRKRZ
