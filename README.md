@@ -9,6 +9,13 @@ English | [简体中文](README.zh-CN.md)
 
 对了，纠正一下，我们是高清重置组不是汉化组，很早以前我们曾讨论过是否重新汉化的问题，但得出的结论是没必要重复造轮子，所以汉化文本其实是用了星空网 Sphere 中文化委员会的汉化补丁，我们也在头图中注明了翻译是星空网 Sphere 中文化委员会，也没有更改汉化文本，这是一个很早的补丁了，里面其实有很多错别字，但碍于他们的协议我们没有改动。
 
+关于所谓“视频下架跑路”的谣言澄清：
+那些视频不是被我们主动下架的，而是被人恶意举报导致的下架，很多人都说我们出事了，所以赶紧屁滚尿流的下架跑路了，没有的事情，我们这种非官方无授权的民间自发重置的Gal本来就是灰色地带，我们也知道再申诉也大概率过不了审了
+
+<img width="529" height="450" alt="20aaead60631e9754b261997d2b489ee" src="https://github.com/user-attachments/assets/87bf7119-21a1-42e6-b413-73826db84e96" />
+<img width="854" height="1009" alt="6f1c49be09a09b7a33ee34692a7b6b67_720" src="https://github.com/user-attachments/assets/cbab5a45-40bf-4160-b60b-61b2f6ffe1a3" />
+
+
 This repository contains the complete game project for the Yosuga no Sora HD
 remake. The main repository lives at
 [shuimo0413/yosuga-no-sora-remake](https://github.com/shuimo0413/yosuga-no-sora-remake).
